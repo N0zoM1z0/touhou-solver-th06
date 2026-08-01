@@ -611,7 +611,7 @@ class BaselineTests(unittest.TestCase):
     def test_extreme_density_spends_only_the_hard_horizon(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
-            for _ in range(550)
+            for _ in range(400)
         )
         state = snapshot(*bullets)
         decision = Solver().decide(state)

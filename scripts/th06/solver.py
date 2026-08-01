@@ -30,11 +30,11 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
     # bullets, while the same hard authority plus 8-frame effort stayed below
     # one native frame in the saved-snapshot benchmark.  This changes ranking
     # effort only; HARD_SAFETY_HORIZON and its allowed actions are unchanged.
-    # Stage 4 measured p95 22.2 ms for hard-4 plus effort-8 at 600 bullets,
-    # culminating in a decision more than two native frames old.  Preserve
-    # timely hard authority by spending no extra proposal horizon only in this
-    # extreme-density band.
-    if len(snapshot.bullets) >= 550:
+    # Stage 4 f2663 spent 34.6 ms on effort-8 with 461 bullets and four
+    # enemies; the resulting four-frame-old proposal was correctly discarded,
+    # but the held input then reached an empty hard set. Preserve timely hard
+    # authority by spending no extra proposal horizon in this density band.
+    if len(snapshot.bullets) >= 400:
         return HARD_SAFETY_HORIZON
     if len(snapshot.bullets) >= 220:
         return 8
