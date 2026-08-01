@@ -751,6 +751,58 @@ class BaselineTests(unittest.TestCase):
         )
         kernel.certify.assert_not_called()
 
+    def test_extreme_density_reuses_hazards_for_the_held_probe(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        close = (
+            SafeAction(
+                hard[0].action,
+                2.0,
+                hard[0].final_x,
+                hard[0].final_y,
+            ),
+        ) + hard[1:-1]
+        held = action_from_input(state.input_mask)
+
+        class CombinedKernel:
+            def __init__(self):
+                self.calls = []
+
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.calls.append((
+                    actual_state,
+                    hard_horizon,
+                    selected_horizon,
+                    actions,
+                    collision_margin,
+                ))
+                return close, close, ()
+
+        kernel = CombinedKernel()
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertNotEqual(decision.action, held)
+        self.assertEqual(kernel.calls, [(
+            state,
+            HARD_SAFETY_HORIZON,
+            6,
+            (held,),
+            0.35,
+        )])
+
     def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)

@@ -148,6 +148,7 @@ class Solver:
         effort_horizon = adaptive_horizon(snapshot)
         age_zero_certified = ()
         discouraged = frozenset()
+        precomputed_current_effort = None
         if (
             len(snapshot.bullets) >= 350
             and effort_horizon > HARD_SAFETY_HORIZON
@@ -165,11 +166,30 @@ class Solver:
             # but only 2.33 px on its weakest path; h8 correctly rejected the
             # up-right dead end that Hard-4 alone selected.
             if self.kernel is not None:
-                certified, age_zero_certified = self.kernel.certify_delivery_sets(
-                    snapshot,
-                    HARD_SAFETY_HORIZON,
-                    collision_margin=0.35,
+                combined_method = getattr(
+                    type(self.kernel),
+                    "certify_delivery_sets_with_selected",
+                    None,
                 )
+                if len(snapshot.bullets) >= 400 and combined_method is not None:
+                    current = action_from_input(snapshot.input_mask)
+                    (
+                        certified,
+                        age_zero_certified,
+                        precomputed_current_effort,
+                    ) = self.kernel.certify_delivery_sets_with_selected(
+                        snapshot,
+                        HARD_SAFETY_HORIZON,
+                        effort_horizon,
+                        (current,),
+                        collision_margin=0.35,
+                    )
+                else:
+                    certified, age_zero_certified = self.kernel.certify_delivery_sets(
+                        snapshot,
+                        HARD_SAFETY_HORIZON,
+                        collision_margin=0.35,
+                    )
             else:
                 certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
                 if not certified:
@@ -206,11 +226,15 @@ class Solver:
                 # a discouraged action remains selectable when it is alone.
                 current = action_from_input(snapshot.input_mask)
                 if any(candidate.action == current for candidate in certified):
-                    current_effort = self.kernel.certify_selected(
-                        snapshot,
-                        effort_horizon,
-                        (current,),
-                        collision_margin=0.35,
+                    current_effort = (
+                        precomputed_current_effort
+                        if precomputed_current_effort is not None
+                        else self.kernel.certify_selected(
+                            snapshot,
+                            effort_horizon,
+                            (current,),
+                            collision_margin=0.35,
+                        )
                     )
                     if not current_effort:
                         discouraged = frozenset((current,))

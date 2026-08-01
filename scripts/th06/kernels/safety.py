@@ -9,7 +9,7 @@ from pathlib import Path
 from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
-from ..model import ACTIONS, SafeAction, Snapshot
+from ..model import ACTIONS, Action, SafeAction, Snapshot
 
 
 class _Aabb(ctypes.Structure):
@@ -198,7 +198,7 @@ class NativeSafetyKernel:
         self,
         snapshot: Snapshot,
         horizon: int,
-        actions,
+        actions: tuple[Action, ...],
         collision_margin: float,
     ) -> tuple[SafeAction, ...]:
         selected = frozenset(actions)
@@ -216,6 +216,46 @@ class NativeSafetyKernel:
             self._prepare(snapshot, horizon),
             candidate_mask,
         )[0]
+
+    def certify_delivery_sets_with_selected(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        selected_horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> tuple[
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+    ]:
+        if selected_horizon < hard_horizon:
+            raise ValueError("selected horizon must cover the hard horizon")
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(ACTIONS)
+            if action in selected
+        )
+        prepared = self._prepare(snapshot, selected_horizon)
+        hard, age_zero = self._certify_prepared(
+            snapshot,
+            hard_horizon,
+            collision_margin,
+            prepared,
+        )
+        selected_safe = (
+            self._certify_prepared(
+                snapshot,
+                selected_horizon,
+                collision_margin,
+                prepared,
+                candidate_mask,
+            )[0]
+            if candidate_mask
+            else ()
+        )
+        return hard, age_zero, selected_safe
 
     def certify_delivery_sets(
         self,
