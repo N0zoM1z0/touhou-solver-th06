@@ -400,6 +400,31 @@ class Solver:
             )
             if fast_laser_hard:
                 certified = tuple(certified) + tuple(fast_laser_hard)
+        held_action = action_from_input(snapshot.input_mask)
+        if (
+            not held_action.focused
+            and not any(
+                candidate.action == held_action for candidate in certified
+            )
+        ):
+            # Stage 4 f12034 crossed the radial threshold that disables the
+            # broad fast-laser proposal while up-left-fast was already held.
+            # That exact path remained native-safe through h40, but dropping
+            # it from the next Hard-4 set discarded its delivery slack and
+            # stopped at f12036. Preserve only the physically held action,
+            # and only after an independent unchanged hard/effort proof; this
+            # does not authorize any other source-normal action.
+            held_fast_hard, held_fast_effort = self._certify_selected_pair(
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                effort_horizon,
+                (held_action,),
+            )
+            if held_fast_hard:
+                certified = tuple(certified) + tuple(held_fast_hard)
+                effort_certified = (
+                    tuple(effort_certified) + tuple(held_fast_effort)
+                )
         fast_recovery_long = ()
         if not certified:
             # Stage 4 f4773 had no focused Hard-4 action at the lower-left
@@ -667,7 +692,6 @@ class Solver:
             repair_span=HARD_SAFETY_HORIZON,
             discouraged_actions=discouraged,
         )
-        held_action = action_from_input(snapshot.input_mask)
         held_horizon = (
             effort_horizon
             if any(candidate.action == held_action for candidate in effort_certified)

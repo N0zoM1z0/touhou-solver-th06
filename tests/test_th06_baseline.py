@@ -1255,6 +1255,33 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(kernel.certify_selected.call_count, 2)
         kernel.replanning_scores.assert_not_called()
 
+    def test_held_fast_action_keeps_its_independent_delivery_slack(self):
+        state = snapshot(input_mask=BUTTON_SHOOT | 0x20 | BUTTON_LEFT)
+        focused_hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        held = action_from_input(state.input_mask)
+        held_hard = certify_actions(
+            state,
+            HARD_SAFETY_HORIZON,
+            actions=(held,),
+        )
+        held_effort = certify_actions(state, 8, actions=(held,))
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            focused_hard,
+            focused_hard,
+            focused_hard,
+        )
+        kernel.certify_selected.side_effect = (held_hard, held_effort)
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertIn(held_hard[0], decision.safe_actions)
+        self.assertEqual(decision.held_horizon, 8)
+        self.assertFalse(held.focused)
+        self.assertEqual(kernel.certify_selected.call_count, 2)
+
     def test_empty_focused_authority_can_use_a_hard_certified_fast_action(self):
         state = snapshot()
         fast_down = SafeAction(
