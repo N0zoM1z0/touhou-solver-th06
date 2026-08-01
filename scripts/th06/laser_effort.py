@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .model import Snapshot
+from .model import Action, Snapshot, action_from_input
 
 
 LASER_EFFORT_HORIZON = 24
@@ -18,3 +18,15 @@ def isolate_lasers(snapshot: Snapshot) -> Snapshot:
         enemies=(),
         despawning_bullets=(),
     )
+
+
+def retained_current_corridor(
+    snapshot: Snapshot,
+    hard_actions: frozenset[Action],
+    laser_survivors: frozenset[Action],
+) -> Action | None:
+    """Retain, but never enter, a long-lived laser corridor."""
+    current = action_from_input(snapshot.input_mask)
+    if current in hard_actions and current in laser_survivors:
+        return current
+    return None

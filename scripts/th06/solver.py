@@ -6,7 +6,11 @@ import os
 
 from .hazards.lasers import future_hazards as future_laser_hazards
 from .kernels.safety import NativeSafetyKernel
-from .laser_effort import LASER_EFFORT_HORIZON, isolate_lasers
+from .laser_effort import (
+    LASER_EFFORT_HORIZON,
+    isolate_lasers,
+    retained_current_corridor,
+)
 from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
@@ -175,6 +179,7 @@ class Solver:
             candidate.action
             for candidate in effort_certified
         )
+        laser_survivors = frozenset()
         if durable and snapshot.lasers and effort_horizon < LASER_EFFORT_HORIZON:
             laser_survivors = frozenset(
                 candidate.action
@@ -214,6 +219,28 @@ class Solver:
                 repairable = frozenset(
                     action for action, score in scores.items() if score == best_score
                 )
+        if (
+            not durable
+            and not repairable
+            and snapshot.lasers
+            and effort_horizon < LASER_EFFORT_HORIZON
+        ):
+            laser_survivors = frozenset(
+                candidate.action
+                for candidate in self._certify(
+                    isolate_lasers(snapshot),
+                    LASER_EFFORT_HORIZON,
+                )
+            )
+            retained = retained_current_corridor(
+                snapshot,
+                frozenset(candidate.action for candidate in certified),
+                laser_survivors,
+            )
+            if retained is not None:
+                # Continuity only: do not steer into a new laser-only route
+                # after the mixed proposal and its repair have both failed.
+                durable = frozenset((retained,))
         chosen = self.ranker.choose(
             snapshot,
             certified,
