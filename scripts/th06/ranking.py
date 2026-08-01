@@ -126,9 +126,13 @@ class ProposalRanker:
         # the ordinary wall signal activated, new bullets had narrowed every
         # long proposal downward. Preserve room only inside this early band.
         # Once closer than the ordinary lookahead, the existing clearance and
-        # wall logic retain their established ordering.
+        # wall logic retain their established ordering. Keep this to sparse
+        # emitter scenes: applying it while four enemies were still producing
+        # unknown future bullets changed the earlier route into f2767/f2686
+        # failures.
         early_boundary_band = (
-            snapshot.focus_speed * 16.0
+            0 < len(snapshot.enemies) <= 2
+            and snapshot.focus_speed * 16.0
             < current_boundary_room
             <= snapshot.focus_speed * 20.0
         )
