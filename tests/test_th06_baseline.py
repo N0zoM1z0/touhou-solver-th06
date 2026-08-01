@@ -550,6 +550,41 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertEqual(chosen.action, right)
 
+    def test_selective_repair_proposal_survives_one_hard_segment(self):
+        ranker = ProposalRanker()
+        right = ACTION_BY_VECTOR[(1, 0)]
+        down = ACTION_BY_VECTOR[(0, 1)]
+        right_candidate = SafeAction(right, 1.0, 194.0, 380.0)
+        down_candidate = SafeAction(down, 10.0, 192.0, 382.0)
+        state = snapshot()
+
+        chosen = ranker.choose(
+            state,
+            (right_candidate, down_candidate),
+            repairable_actions=frozenset((right,)),
+            repair_span=HARD_SAFETY_HORIZON,
+        )
+        self.assertEqual(chosen.action, right)
+
+        continued_state = Snapshot(**{**state.__dict__, "frame": state.frame + 1})
+        chosen = ranker.choose(continued_state, (right_candidate, down_candidate))
+        self.assertEqual(chosen.action, right)
+
+        expired_state = Snapshot(
+            **{**state.__dict__, "frame": state.frame + HARD_SAFETY_HORIZON}
+        )
+        chosen = ranker.choose(expired_state, (right_candidate, down_candidate))
+        self.assertEqual(chosen.action, down)
+
+        veto_ranker = ProposalRanker()
+        veto_ranker.choose(
+            state,
+            (right_candidate, down_candidate),
+            repairable_actions=frozenset((right,)),
+        )
+        chosen = veto_ranker.choose(continued_state, (down_candidate,))
+        self.assertEqual(chosen.action, down)
+
     def test_adaptive_effort_cannot_remove_hard_allowed_actions(self):
         bullets = tuple(
             Bullet(120.0 + index * 4.0, 360.0, 0.0, 4.0, 2.0, 2.0, 1, ex_flags=8)

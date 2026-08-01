@@ -142,7 +142,13 @@ class Solver:
                 repairable = frozenset(
                     action for action, score in scores.items() if score == best_score
                 )
-        chosen = self.ranker.choose(snapshot, certified, durable, repairable)
+        chosen = self.ranker.choose(
+            snapshot,
+            certified,
+            durable,
+            repairable,
+            repair_span=HARD_SAFETY_HORIZON,
+        )
         return Decision(
             chosen.action,
             certified,

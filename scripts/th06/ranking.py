@@ -21,6 +21,9 @@ class ProposalRanker:
     def __init__(self) -> None:
         self.preference = {action: 0.0 for action in ACTIONS}
         self.previous_action: Action | None = None
+        self.repair_action: Action | None = None
+        self.repair_stage: int | None = None
+        self.repair_until_frame: int | None = None
 
     def observe(self, survived: bool) -> None:
         if self.previous_action is None:
@@ -38,12 +41,25 @@ class ProposalRanker:
         candidates: tuple[SafeAction, ...],
         durable_actions: frozenset[Action] = frozenset(),
         repairable_actions: frozenset[Action] = frozenset(),
+        repair_span: int = 4,
     ) -> SafeAction:
         current = action_from_input(snapshot.input_mask)
+        continued_repair: Action | None = self.repair_action
+        candidate_actions = frozenset(candidate.action for candidate in candidates)
+        if (
+            continued_repair not in candidate_actions
+            or self.repair_stage != snapshot.stage
+            or self.repair_until_frame is None
+            or snapshot.frame >= self.repair_until_frame
+        ):
+            continued_repair = None
+            self.repair_action = None
+            self.repair_stage = None
+            self.repair_until_frame = None
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -60,6 +76,7 @@ class ProposalRanker:
             # proposal signal, but it never adds to or removes from candidates.
             return (
                 candidate.action in durable_actions,
+                candidate.action == continued_repair,
                 candidate.action in repairable_actions,
                 boundary_egress,
                 total,
@@ -69,5 +86,22 @@ class ProposalRanker:
             )
 
         chosen = max(candidates, key=score)
+        # A Stage 1 physical CE selected the correct first repair segment, then
+        # discarded it after one frame.  Preserve a selective repair proposal
+        # for one hard horizon, while the freshly certified candidates retain
+        # absolute authority on every decision.
+        selective_repair = (
+            bool(repairable_actions)
+            and len(repairable_actions) < len(candidate_actions)
+            and chosen.action in repairable_actions
+        )
+        if selective_repair and continued_repair != chosen.action:
+            self.repair_action = chosen.action
+            self.repair_stage = snapshot.stage
+            self.repair_until_frame = snapshot.frame + max(1, repair_span)
+        elif continued_repair is not None and chosen.action != continued_repair:
+            self.repair_action = None
+            self.repair_stage = None
+            self.repair_until_frame = None
         self.previous_action = chosen.action
         return chosen
