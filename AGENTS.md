@@ -2,6 +2,9 @@
 
 Read `START_HERE.md` first. Use `README.md` and the ignored
 `reference/GensokyoClub-th06/` only as needed for the current question.
+Do not use REA or any REA-provided tool. Base reverse-engineering claims only
+on the authoritative source clone, existing IDA material, and controlled
+runtime/physical evidence.
 
 The goal is a physically validated TH06 Hard clear. Keep the implementation
 small, correct, and source-grounded. **Iteration and exploration come before
