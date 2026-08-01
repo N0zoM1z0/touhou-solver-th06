@@ -146,8 +146,11 @@ class Solver:
             # already constrained, as it was at the f10137 dead-end branch.
             # f4091 repeated the same timing failure at 392 bullets: Hard-4
             # and h8 both contained all nine actions, while the redundant h8
-            # solve reached 45.1 ms. Start this publication path at 350; the
-            # 4..6-action constrained band below still retains extra effort.
+            # solve reached 45.1 ms. Start this publication path at 350, but
+            # below 400 retain h8 unless every hard path still has a full
+            # focused Hard-4 segment of clearance. f2760 had nine hard actions
+            # but only 2.33 px on its weakest path; h8 correctly rejected the
+            # up-right dead end that Hard-4 alone selected.
             if self.kernel is not None:
                 certified, age_zero_certified = self.kernel.certify_delivery_sets(
                     snapshot,
@@ -171,9 +174,19 @@ class Solver:
             # f10142 had only right/up-right/down-right; Hard-4 already chose
             # the same up-right as h6, while the extra pass took 18.8 ms.
             # Publish immediately once at most three directions remain.
+            broad_authority = len(certified) >= len(ACTIONS) - 2
+            comfortable_authority = bool(certified) and min(
+                candidate.clearance for candidate in certified
+            ) > snapshot.focus_speed * HARD_SAFETY_HORIZON + 0.35
             if (
-                len(certified) >= len(ACTIONS) - 2
-                or len(certified) <= 3
+                len(certified) <= 3
+                or (
+                    broad_authority
+                    and (
+                        len(snapshot.bullets) >= 400
+                        or comfortable_authority
+                    )
+                )
             ):
                 effort_horizon = HARD_SAFETY_HORIZON
                 effort_certified = certified

@@ -658,6 +658,37 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
 
+    def test_high_density_retains_effort_when_a_broad_path_is_close(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(350)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        close = (
+            SafeAction(
+                hard[0].action,
+                2.0,
+                hard[0].final_x,
+                hard[0].final_y,
+            ),
+        ) + hard[1:]
+        effort = close[:-1]
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (close, close)
+        kernel.certify.return_value = effort
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(len(close), len(ACTIONS))
+        self.assertEqual(decision.effort_horizon, 8)
+        kernel.certify.assert_called_once_with(
+            state,
+            8,
+            collision_margin=0.35,
+        )
+
     def test_extreme_density_skips_effort_while_hard_authority_is_broad(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
