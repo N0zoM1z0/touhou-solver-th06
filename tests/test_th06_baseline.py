@@ -598,6 +598,27 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, egress)
 
+    def test_ranker_keeps_durability_along_a_noncorner_wall(self):
+        state = snapshot(
+            x=233.657,
+            y=432.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        durable = SafeAction(
+            ACTION_BY_VECTOR[(1, 0)], 1.0, 241.657, 432.0
+        )
+        short_egress = SafeAction(
+            ACTION_BY_VECTOR[(1, -1)], 8.0, 239.314, 426.343
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            (durable, short_egress),
+            durable_actions=frozenset((durable.action,)),
+        )
+
+        self.assertEqual(chosen, durable)
+
     def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):
         state = snapshot(Bullet(190.5, 369.0, 1.0, 1.0, 2.0, 2.0, 1))
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)

@@ -58,6 +58,18 @@ class ProposalRanker:
             self.repair_until_frame = None
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
+        horizontal_room = min(
+            snapshot.x - MOVEMENT_LEFT,
+            MOVEMENT_RIGHT - snapshot.x,
+        )
+        vertical_room = min(
+            snapshot.y - MOVEMENT_TOP,
+            MOVEMENT_BOTTOM - snapshot.y,
+        )
+        near_corner = (
+            horizontal_room <= snapshot.focus_speed + 0.25
+            and vertical_room <= snapshot.focus_speed + 0.25
+        )
 
         def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
@@ -66,7 +78,7 @@ class ProposalRanker:
                 _boundary_room(candidate.final_x, candidate.final_y)
                 > current_boundary_room + 0.25
             )
-            urgent_egress = current_boundary_room <= 0.25 and boundary_egress
+            urgent_egress = near_corner and boundary_egress
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
