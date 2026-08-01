@@ -14,6 +14,7 @@ from .dialogue import DialogueSkipper, DialogueState
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD
 from .native import ADDR_LIFE_PATCH, TARGET_SHA256, attach_exact, read_snapshot
+from .replay import ReplaySaver
 from .solver import Solver
 
 
@@ -34,9 +35,18 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("--practice-stage requires --armed")
     if args.start_hard and args.practice_stage is not None:
         raise RuntimeError("choose either --start-hard or --practice-stage")
+    if args.save_replay and not args.armed:
+        raise RuntimeError("--save-replay requires --armed")
+    if args.save_replay and args.practice_stage is not None:
+        raise RuntimeError("the exact game cannot save Practice replays")
     process = attach_exact(Path(args.game_dir).resolve())
     keyboard = Keyboard(process.pid) if args.armed else None
     dialogue_skipper = DialogueSkipper(process, keyboard) if keyboard is not None else None
+    replay_saver = (
+        ReplaySaver(Path(args.game_dir).resolve(), keyboard, args.replay_name, args.replay_slot)
+        if args.save_replay and keyboard is not None
+        else None
+    )
     if args.practice_stage is not None:
         trace_name = f"th06_practice_stage{args.practice_stage}_latest.csv"
     else:
@@ -77,6 +87,11 @@ def run(args: argparse.Namespace) -> int:
             assert keyboard is not None
             start_hard_reimu_a_practice(process, keyboard, args.practice_stage)
             print(f"menu: Hard / Reimu-A Practice Stage {args.practice_stage} selected", flush=True)
+        if replay_saver is not None:
+            print(
+                f"replay: reserved empty slot {replay_saver.slot:02d} name={replay_saver.name}",
+                flush=True,
+            )
         print("armed" if args.armed else "observe-only", flush=True)
     except Exception:
         cleanup()
@@ -91,6 +106,14 @@ def run(args: argparse.Namespace) -> int:
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
             while not args.seconds or time.monotonic() - started < args.seconds:
+                if replay_saver is not None:
+                    replay_status = replay_saver.update(process)
+                    if replay_status == "saved":
+                        print(f"replay: validated {replay_saver.path}", flush=True)
+                        break
+                    if replay_status == "active":
+                        time.sleep(0.01)
+                        continue
                 snapshot = read_snapshot(process)
                 if snapshot.frame == last_frame:
                     time.sleep(0.001)
@@ -171,6 +194,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--start-hard", action="store_true", help="source-grounded Hard / Reimu-A menu start")
     parser.add_argument("--practice-stage", type=int, choices=range(1, 7), metavar="1..6")
     parser.add_argument("--stop-game", action="store_true", help="stop the exact attached trial process on exit")
+    parser.add_argument("--save-replay", action="store_true", help="save and validate a non-Practice result replay")
+    parser.add_argument("--replay-slot", type=int, choices=range(1, 16), metavar="1..15")
+    parser.add_argument("--replay-name", default="TH06")
     parser.add_argument("--seconds", type=float, default=0.0, help="zero runs until Ctrl+C")
     return parser.parse_args(argv)
 

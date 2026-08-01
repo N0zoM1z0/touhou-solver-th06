@@ -62,6 +62,7 @@ class Keyboard:
         "shoot": (0x2C, False),
         "focus": (0x2A, False),
         "skip": (0x1D, False),
+        "menu": (0x01, False),
         "up": (0x48, True),
         "down": (0x50, True),
         "left": (0x4B, True),

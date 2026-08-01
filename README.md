@@ -81,6 +81,16 @@ releases every held key, and stops only that identity-verified process on exit.
 The latest compact trace overwrites
 `artifacts/th06_baseline_latest.csv`.
 
+On a non-Practice result, the launcher also skips high-score naming, advances
+the final statistics, selects the first empty replay slot, enters `TH06`, and
+validates the saved magic, 1.02 version, and original checksum algorithm before
+stopping the game. Pass `--replay-slot 1..15` or `--replay-name NAME` to
+override the defaults; an occupied requested slot fails closed.
+An initial physical Scores-screen probe found the heap `ResultScreen` through
+the source-defined calc chain and decoded Supervisor state 6 plus result state
+0 at runtime, validating the dynamic-state reader before route use. Actual file
+creation still requires a non-Practice game result.
+
 Start any unlocked Hard/Reimu-A Practice stage with:
 
 ```bat

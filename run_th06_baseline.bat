@@ -17,5 +17,5 @@ if not exist "%PYTHON%" (
 )
 
 start "" /D "%GAME_DIR%" "%GAME_EXE%"
-"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --patch-lives --start-hard --armed --stop-game %*
+"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --patch-lives --start-hard --armed --stop-game --save-replay %*
 exit /b %errorlevel%

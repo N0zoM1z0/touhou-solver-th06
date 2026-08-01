@@ -1,4 +1,5 @@
 import unittest
+import struct
 
 from th06.model import (
     ACTION_BY_VECTOR,
@@ -17,7 +18,13 @@ from th06.actuator import Keyboard
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import menu
-from th06.native import PROCESS_ACCESS
+from th06.native import (
+    ADDR_CHAIN,
+    PROCESS_ACCESS,
+    RESULT_SCREEN_ON_UPDATE,
+    read_result_screen,
+)
+from th06.replay import ALPHABET, _move_character, _next_character_key, validate_replay_bytes
 from th06.model import Decision
 
 
@@ -53,6 +60,7 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn("bomb", {action.name for action in ACTIONS})
         self.assertNotIn("bomb", Keyboard.SCANCODES)
         self.assertEqual(Keyboard.SCANCODES["skip"], (0x1D, False))
+        self.assertEqual(Keyboard.SCANCODES["menu"], (0x01, False))
 
     def test_complete_mask_transition_is_one_batch(self):
         keyboard = object.__new__(Keyboard)
@@ -99,6 +107,47 @@ class BaselineTests(unittest.TestCase):
     def test_trial_process_handle_can_verify_termination(self):
         self.assertTrue(PROCESS_ACCESS & 0x00100000)  # SYNCHRONIZE
         self.assertTrue(PROCESS_ACCESS & 0x0001)  # PROCESS_TERMINATE
+
+    def test_result_screen_is_found_through_calc_chain(self):
+        chain_elem = bytearray(0x20)
+        struct.pack_into("<I", chain_elem, 0x4, RESULT_SCREEN_ON_UPDATE)
+        struct.pack_into("<I", chain_elem, 0x1C, 0x200000)
+        result = bytearray(0x34)
+        struct.pack_into("<iii", result, 0x4, 90, 15, 0)
+        struct.pack_into("<ii", result, 0x1C, 0, 0)
+        memory = {
+            (ADDR_CHAIN + 0x14, 4): struct.pack("<I", 0x100000),
+            (0x100000, 0x20): bytes(chain_elem),
+            (0x200000, 0x34): bytes(result),
+        }
+        process = type("Process", (), {"read": lambda _self, address, size: memory[(address, size)]})()
+        state = read_result_screen(process)
+        self.assertEqual((state.address, state.frame_timer, state.state), (0x200000, 90, 15))
+
+    def test_replay_keyboard_reaches_end_without_space_cells(self):
+        current = 0
+        for _ in range(32):
+            if current == 95:
+                break
+            current = _move_character(current, _next_character_key(current, 95))
+            self.assertNotEqual(ALPHABET[current], " ")
+        self.assertEqual(current, 95)
+
+    def test_replay_checksum_validation_matches_source_algorithm(self):
+        decoded = bytearray(0x60)
+        decoded[:4] = b"T6RP"
+        struct.pack_into("<H", decoded, 4, 0x102)
+        decoded[0xE] = 0x41
+        for index in range(0xF, len(decoded)):
+            decoded[index] = (index * 3) & 0xFF
+        checksum = (0x3F000318 + sum(decoded[0xE:])) & 0xFFFFFFFF
+        struct.pack_into("<I", decoded, 0x8, checksum)
+        encoded = bytearray(decoded)
+        offset = encoded[0xE]
+        for index in range(0xF, len(encoded)):
+            encoded[index] = (encoded[index] + offset) & 0xFF
+            offset = (offset + 7) & 0xFF
+        validate_replay_bytes(bytes(encoded))
 
     def test_practice_stage_uses_zero_based_menu_cursor(self):
         process = type("Process", (), {"cursor": 0})()

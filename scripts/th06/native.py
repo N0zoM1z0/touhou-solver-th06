@@ -9,6 +9,7 @@ import os
 import struct
 import time
 from ctypes import wintypes
+from dataclasses import dataclass
 from pathlib import Path
 
 from .model import Bullet, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
@@ -22,12 +23,23 @@ IMAGE_BASE = 0x400000
 ADDR_LIFE_PATCH = 0x428DEC
 ADDR_GAME_MANAGER = 0x69BCA0
 ADDR_CURRENT_INPUT = 0x69D904
+ADDR_CHAIN = 0x69D918
+ADDR_SUPERVISOR = 0x6C6D18
 ADDR_PLAYER = 0x6CA628
 ADDR_FRAME_MULTIPLIER = 0x6C6EC0
 ADDR_BULLET_ARRAY = 0x5AB5F8
 ADDR_LASER_ARRAY = 0x691FF8
 ADDR_MAIN_MENU = 0x6D46C0
 ADDR_GUI = 0x69BC30
+
+SUPERVISOR_STATES_OFFSET = 0x188
+CHAIN_ROOT_NEXT_OFFSET = 0x14
+CHAIN_ELEM_CALLBACK_OFFSET = 0x4
+CHAIN_ELEM_NEXT_OFFSET = 0x14
+CHAIN_ELEM_ARG_OFFSET = 0x1C
+CHAIN_ELEM_SIZE = 0x20
+RESULT_SCREEN_ON_UPDATE = 0x42D98E
+RESULT_SCREEN_STATE_SIZE = 0x34
 
 GAME_TIME_STOPPED_OFFSET = 0x2C
 GAME_FLAGS_OFFSET = 0x181F
@@ -59,6 +71,16 @@ MAIN_MENU_TIMER_OFFSET = 0x81F4
 GUI_IMPL_MSG_OFFSET = 0x2534
 GUI_MSG_INDEX_OFFSET = 0x8
 GUI_MSG_SKIPPABLE_OFFSET = 0x6A7
+
+
+@dataclass(frozen=True)
+class ResultScreenState:
+    address: int
+    frame_timer: int
+    state: int
+    cursor: int
+    replay_number: int
+    selected_character: int
 
 
 def _kernel32():
@@ -334,6 +356,48 @@ def read_menu_state(process: NativeProcess) -> tuple[int, int, int]:
     state = struct.unpack_from("<i", block, MAIN_MENU_STATE_OFFSET - MAIN_MENU_CURSOR_OFFSET)[0]
     timer = struct.unpack_from("<i", block, MAIN_MENU_TIMER_OFFSET - MAIN_MENU_CURSOR_OFFSET)[0]
     return state, cursor, timer
+
+
+def read_supervisor_state(process: NativeProcess) -> tuple[int, int]:
+    wanted, current = struct.unpack(
+        "<ii", process.read(ADDR_SUPERVISOR + SUPERVISOR_STATES_OFFSET, 8)
+    )
+    if not 0 <= wanted <= 10 or not 0 <= current <= 10:
+        raise RuntimeError(f"invalid Supervisor states: wanted={wanted}, current={current}")
+    return wanted, current
+
+
+def read_result_screen(process: NativeProcess) -> ResultScreenState | None:
+    """Find ResultScreen through the source-defined calc chain."""
+    pointer = struct.unpack(
+        "<I", process.read(ADDR_CHAIN + CHAIN_ROOT_NEXT_OFFSET, 4)
+    )[0]
+    visited: set[int] = set()
+    for _ in range(64):
+        if pointer == 0:
+            return None
+        if pointer in visited or not 0x10000 <= pointer < 0x80000000:
+            raise RuntimeError(f"invalid calc-chain pointer: 0x{pointer:08X}")
+        visited.add(pointer)
+        elem = process.read(pointer, CHAIN_ELEM_SIZE)
+        callback = struct.unpack_from("<I", elem, CHAIN_ELEM_CALLBACK_OFFSET)[0]
+        if callback == RESULT_SCREEN_ON_UPDATE:
+            address = struct.unpack_from("<I", elem, CHAIN_ELEM_ARG_OFFSET)[0]
+            if not 0x10000 <= address < 0x80000000:
+                raise RuntimeError(f"invalid ResultScreen pointer: 0x{address:08X}")
+            block = process.read(address, RESULT_SCREEN_STATE_SIZE)
+            frame_timer, state, cursor = struct.unpack_from("<iii", block, 0x4)
+            replay_number = struct.unpack_from("<i", block, 0x1C)[0]
+            selected_character = struct.unpack_from("<i", block, 0x20)[0]
+            if not 0 <= frame_timer < 10_000_000 or not 0 <= state <= 17:
+                raise RuntimeError(
+                    f"invalid ResultScreen state: timer={frame_timer}, state={state}"
+                )
+            return ResultScreenState(
+                address, frame_timer, state, cursor, replay_number, selected_character
+            )
+        pointer = struct.unpack_from("<I", elem, CHAIN_ELEM_NEXT_OFFSET)[0]
+    raise RuntimeError("calc chain exceeded 64 elements")
 
 
 def read_dialogue_state(process: NativeProcess) -> tuple[bool, bool]:
