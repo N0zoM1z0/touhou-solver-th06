@@ -73,7 +73,7 @@ class ProposalRanker:
 
         boundary_lookahead = snapshot.focus_speed * 16.0
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -90,19 +90,6 @@ class ProposalRanker:
                 boundary_relief += candidate.action.dy
             if MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead:
                 boundary_relief -= candidate.action.dy
-            moves_toward_near_wall = (
-                snapshot.x - MOVEMENT_LEFT <= boundary_lookahead
-                and candidate.action.dx < 0
-            ) or (
-                MOVEMENT_RIGHT - snapshot.x <= boundary_lookahead
-                and candidate.action.dx > 0
-            ) or (
-                snapshot.y - MOVEMENT_TOP <= boundary_lookahead
-                and candidate.action.dy < 0
-            ) or (
-                MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead
-                and candidate.action.dy > 0
-            )
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
@@ -113,7 +100,6 @@ class ProposalRanker:
             # proposal signal, but it never adds to or removes from candidates.
             return (
                 urgent_egress,
-                not moves_toward_near_wall,
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
