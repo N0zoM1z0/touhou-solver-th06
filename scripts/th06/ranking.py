@@ -119,22 +119,9 @@ class ProposalRanker:
             horizontal_room <= snapshot.focus_speed + 0.25
             and vertical_room <= snapshot.focus_speed + 0.25
         )
-        # One Hard-4 segment before the ordinary 16-frame boundary lookahead
-        # is the last band where a newly issued focused command can restore
-        # that room. Stage 4 f10302 entered this band with every hard action
-        # available, but dense-scene margin ranking selected down; by the time
-        # the ordinary wall signal activated, new bullets had narrowed every
-        # long proposal downward. Preserve room only inside this early band.
-        # Once closer than the ordinary lookahead, the existing clearance and
-        # wall logic retain their established ordering.
-        early_boundary_band = (
-            snapshot.focus_speed * 16.0
-            < current_boundary_room
-            <= snapshot.focus_speed * 20.0
-        )
 
         def score(candidate: SafeAction) -> tuple[
-            bool, bool, bool, bool, bool, bool, bool, bool,
+            bool, bool, bool, bool, bool, bool, bool,
             int, bool, float, float, float, str,
         ]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
@@ -144,7 +131,6 @@ class ProposalRanker:
                 > current_boundary_room + 0.25
             )
             urgent_egress = near_corner and boundary_egress
-            early_boundary_egress = early_boundary_band and boundary_egress
             relief = boundary_relief(snapshot, candidate.action)
             total = (
                 min(80.0, candidate.clearance)
@@ -157,7 +143,6 @@ class ProposalRanker:
             return (
                 urgent_egress,
                 candidate.action not in discouraged_actions,
-                early_boundary_egress,
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,

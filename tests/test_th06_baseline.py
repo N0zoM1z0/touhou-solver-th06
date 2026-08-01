@@ -1152,36 +1152,6 @@ class BaselineTests(unittest.TestCase):
         self.assertGreaterEqual(chosen.clearance, max(clearances) - 1.0)
         self.assertEqual(chosen.action.dy, 1)
 
-    def test_ranker_preserves_room_in_the_early_boundary_band(self):
-        # Reduced from physical Stage 4 f10302. The dense margin candidates
-        # all descended, but an upward Hard-4 action could still restore one
-        # full delivery segment of room before the ordinary wall lookahead.
-        state = snapshot(*(
-            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
-            for _ in range(405)
-        ), x=109.605, y=394.260)
-        clearances = (
-            13.11, 7.96, 14.39, 10.79, 7.02,
-            5.43, 8.63, 13.61, 11.62,
-        )
-        allowed = tuple(
-            SafeAction(
-                action,
-                clearance,
-                state.x + action.dx * 8.0,
-                state.y + action.dy * 8.0,
-            )
-            for action, clearance in zip(ACTIONS, clearances)
-        )
-
-        chosen = ProposalRanker().choose(
-            state,
-            allowed,
-            durable_actions=frozenset(ACTIONS),
-        )
-
-        self.assertEqual(chosen.action.dy, -1)
-
     def test_solver_keeps_a_replanning_corridor_off_one_wall(self):
         state = snapshot(
             x=164.5,
