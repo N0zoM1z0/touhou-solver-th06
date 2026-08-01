@@ -10,6 +10,14 @@ from .model import Action, Snapshot, action_from_input
 LASER_EFFORT_HORIZON = 24
 
 
+def needs_active_mixed_replan(snapshot: Snapshot, effort_horizon: int) -> bool:
+    """Spend the long mixed-hazard budget only after a laser is fully active."""
+    return (
+        effort_horizon < LASER_EFFORT_HORIZON
+        and any(laser.state == 1 for laser in snapshot.lasers)
+    )
+
+
 def isolate_lasers(snapshot: Snapshot) -> Snapshot:
     """Keep native timing/player state while removing non-laser work."""
     return replace(

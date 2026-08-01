@@ -963,6 +963,59 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertIn(decision.action, {candidate.action for candidate in long_laser})
 
+    def test_active_laser_replan_ranks_joint_hazards_beyond_short_proposal(self):
+        active_laser = Laser(
+            0.0, 20.0, 0.0, 0.0, 100.0, 100.0, 8.0, 0.0,
+            25, 25, 75, 16, 14, 5, 5.0, 0, 1,
+            slot=5,
+            angular_velocity=0.0081954,
+            motion_known=True,
+        )
+        state = snapshot(
+            x=192.0,
+            y=380.0,
+            input_mask=BUTTON_FOCUS | 0x40 | 0x20,
+            lasers=1,
+        )
+        state = Snapshot(**{**state.__dict__, "lasers": (active_laser,)})
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        up = ACTION_BY_VECTOR[(0, -1)]
+        left = ACTION_BY_VECTOR[(-1, 0)]
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        short = tuple(
+            candidate for candidate in hard if candidate.action == down_left
+        )
+        laser_only = tuple(
+            candidate
+            for candidate in hard
+            if candidate.action in (left, down_left)
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (hard, short, hard)
+        kernel.certify.return_value = laser_only
+        kernel.replanning_scores.return_value = {
+            up: 2,
+            down_left: 1,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, up)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+        kernel.replanning_scores.assert_called_once_with(
+            state,
+            hard,
+            HARD_SAFETY_HORIZON,
+            24,
+            collision_margin=0.35,
+        )
+        kernel.certify.assert_not_called()
+
     def test_empty_mixed_proposal_only_retains_an_existing_laser_corridor(self):
         rotating_warning = Laser(
             192.0, 116.0, 2.2086773, 64.0, 500.0, 500.0, 24.0, 0.0,

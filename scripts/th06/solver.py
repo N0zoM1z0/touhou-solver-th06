@@ -9,6 +9,7 @@ from .kernels.safety import NativeSafetyKernel
 from .laser_effort import (
     LASER_EFFORT_HORIZON,
     isolate_lasers,
+    needs_active_mixed_replan,
     retained_current_corridor,
 )
 from .model import (
@@ -319,7 +320,43 @@ class Solver:
             for candidate in effort_certified
         )
         laser_survivors = frozenset()
-        if durable and snapshot.lasers and effort_horizon < LASER_EFFORT_HORIZON:
+        mixed_laser_ranked = False
+        if needs_active_mixed_replan(snapshot, effort_horizon):
+            # At Stage 4 f15032, down-left survived both the short mixed
+            # rollout and a laser-only h24 rollout, but had no continuation
+            # when bullets and the active rotating laser were rolled out
+            # together.  Rank the unchanged Hard-4 actions by that joint
+            # evidence.  Warning lasers stay on the cheap path: the saved
+            # warning snapshot made this search take longer than one frame.
+            mixed_laser_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    LASER_EFFORT_HORIZON,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    LASER_EFFORT_HORIZON,
+                )
+            )
+            best_mixed_laser_score = max(mixed_laser_scores.values(), default=0)
+            if best_mixed_laser_score:
+                durable = frozenset(
+                    action for action, score in mixed_laser_scores.items()
+                    if score == best_mixed_laser_score
+                )
+                mixed_laser_ranked = True
+        if (
+            not mixed_laser_ranked
+            and durable
+            and snapshot.lasers
+            and effort_horizon < LASER_EFFORT_HORIZON
+        ):
             laser_survivors = frozenset(
                 candidate.action
                 for candidate in self._certify(
