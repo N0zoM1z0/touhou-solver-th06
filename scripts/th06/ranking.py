@@ -24,6 +24,8 @@ class ProposalRanker:
         self.repair_action: Action | None = None
         self.repair_stage: int | None = None
         self.repair_until_frame: int | None = None
+        self.boundary_guard_stage: int | None = None
+        self.boundary_guards: set[str] = set()
 
     def observe(self, survived: bool) -> None:
         if self.previous_action is None:
@@ -72,6 +74,21 @@ class ProposalRanker:
         )
 
         boundary_lookahead = snapshot.focus_speed * 16.0
+        boundary_release = boundary_lookahead + snapshot.focus_speed * 4.0
+        if self.boundary_guard_stage != snapshot.stage:
+            self.boundary_guard_stage = snapshot.stage
+            self.boundary_guards.clear()
+        boundary_distances = {
+            "left": snapshot.x - MOVEMENT_LEFT,
+            "right": MOVEMENT_RIGHT - snapshot.x,
+            "top": snapshot.y - MOVEMENT_TOP,
+            "bottom": MOVEMENT_BOTTOM - snapshot.y,
+        }
+        for wall, distance in boundary_distances.items():
+            if distance <= boundary_lookahead:
+                self.boundary_guards.add(wall)
+            elif distance > boundary_release:
+                self.boundary_guards.discard(wall)
 
         def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
@@ -91,16 +108,16 @@ class ProposalRanker:
             if MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead:
                 boundary_relief -= candidate.action.dy
             moves_toward_near_wall = (
-                snapshot.x - MOVEMENT_LEFT <= boundary_lookahead
+                "left" in self.boundary_guards
                 and candidate.action.dx < 0
             ) or (
-                MOVEMENT_RIGHT - snapshot.x <= boundary_lookahead
+                "right" in self.boundary_guards
                 and candidate.action.dx > 0
             ) or (
-                snapshot.y - MOVEMENT_TOP <= boundary_lookahead
+                "top" in self.boundary_guards
                 and candidate.action.dy < 0
             ) or (
-                MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead
+                "bottom" in self.boundary_guards
                 and candidate.action.dy > 0
             )
             total = (

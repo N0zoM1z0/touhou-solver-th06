@@ -717,6 +717,40 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, lateral)
 
+    def test_boundary_guard_does_not_chatter_at_its_entry_distance(self):
+        ranker = ProposalRanker()
+        up = SafeAction(ACTION_BY_VECTOR[(0, -1)], 5.0, 100.0, 393.0)
+        down = SafeAction(ACTION_BY_VECTOR[(0, 1)], 20.0, 100.0, 407.0)
+        entered = snapshot(x=100.0, y=401.0, input_mask=BUTTON_FOCUS | 0x20)
+        just_outside = Snapshot(
+            **{
+                **entered.__dict__,
+                "frame": entered.frame + 1,
+                "y": 399.5,
+                "input_mask": BUTTON_FOCUS | 0x10,
+            }
+        )
+        released = Snapshot(
+            **{
+                **just_outside.__dict__,
+                "frame": just_outside.frame + 1,
+                "y": 391.0,
+            }
+        )
+
+        self.assertEqual(
+            ranker.choose(entered, (up, down), frozenset((down.action,))),
+            up,
+        )
+        self.assertEqual(
+            ranker.choose(just_outside, (up, down), frozenset((down.action,))),
+            up,
+        )
+        self.assertEqual(
+            ranker.choose(released, (up, down), frozenset((down.action,))),
+            down,
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
