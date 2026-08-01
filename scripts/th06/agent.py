@@ -156,7 +156,8 @@ def run(args: argparse.Namespace) -> int:
                 "replay", "native_input", "held_desired_input", "input_transitions",
                 "decision_age", "command_issue_age",
                 "input_lease",
-                "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
+                "frame_multiplier", "action", "safe", "horizon", "held_horizon",
+                "effort_horizon",
                 "effort_safe", "repairable",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
@@ -302,16 +303,15 @@ def run(args: argparse.Namespace) -> int:
                                 snapshot.frame, observed_frame
                             )
                             if delivery_age is None:
-                                # Never issue an aged proposal. At exactly
-                                # age 3, the fixed Hard-4 certificate can keep
-                                # the observed current action for its fourth
-                                # and final covered frame only when that
-                                # constant action is itself in the hard set.
-                                # Retry immediately from a fresh snapshot.
+                                # Never issue an aged proposal. A separately
+                                # recorded constant-action certificate may keep
+                                # the observed current input, with at least one
+                                # covered frame left, while we retry from a fresh
+                                # snapshot. This cannot publish a new action.
                                 if covered_current_retry(
                                     snapshot.frame,
                                     observed_frame,
-                                    decision.horizon,
+                                    max(decision.horizon, decision.held_horizon),
                                     action_from_input(snapshot.input_mask),
                                     decision.safe_actions,
                                 ):
@@ -326,6 +326,7 @@ def run(args: argparse.Namespace) -> int:
                                         decision.effort_horizon,
                                         decision.effort_safe_count,
                                         decision.repairable_count,
+                                        decision.held_horizon,
                                     )
                             elif delivery_age == INPUT_PICKUP_MAX_FRAMES:
                                 # One frame of compute age plus the measured
@@ -376,7 +377,8 @@ def run(args: argparse.Namespace) -> int:
                     transition_count, decision_age, command_issue_age,
                     int(leased_action is not None),
                     f"{snapshot.frame_multiplier:.3f}", action_name,
-                    len(decision.safe_actions), decision.horizon, decision.effort_horizon,
+                    len(decision.safe_actions), decision.horizon, decision.held_horizon,
+                    decision.effort_horizon,
                     decision.effort_safe_count, decision.repairable_count,
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}", int(dialogue.active),
@@ -391,7 +393,7 @@ def run(args: argparse.Namespace) -> int:
                         f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
                         f"repairable={decision.repairable_count} "
-                        f"h={decision.horizon} reason={row_reason}",
+                        f"h={decision.horizon}/{decision.held_horizon} reason={row_reason}",
                         flush=True,
                     )
                 last_reason = row_reason

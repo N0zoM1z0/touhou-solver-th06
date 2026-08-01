@@ -34,10 +34,10 @@ def covered_current_retry(
     current: Action,
     safe_actions: tuple[SafeAction, ...],
 ) -> bool:
-    """Whether one late frame may retain an explicitly certified current input."""
+    """Whether a late frame is still inside the certified current-input hold."""
     age = observed_frame - snapshot_frame
     return (
-        age == INPUT_PICKUP_MAX_FRAMES + 1
+        age >= INPUT_PICKUP_MAX_FRAMES + 1
         and age < horizon
         and any(candidate.action == current for candidate in safe_actions)
     )

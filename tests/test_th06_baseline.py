@@ -254,6 +254,7 @@ class BaselineTests(unittest.TestCase):
         safe = (SafeAction(down, 20.0, 192.0, 388.0),)
 
         self.assertTrue(covered_current_retry(10, 13, 4, down, safe))
+        self.assertTrue(covered_current_retry(10, 15, 6, down, safe))
         self.assertFalse(covered_current_retry(10, 13, 4, up, safe))
         self.assertFalse(covered_current_retry(10, 14, 4, down, safe))
         self.assertFalse(covered_current_retry(10, 13, 3, down, safe))
@@ -992,6 +993,8 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.safe_actions, constrained)
         self.assertEqual(decision.action, held)
         self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(decision.held_horizon, 6)
         self.assertEqual(solver.kernel.collision_margin, 0.35)
 
     def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):
@@ -1915,6 +1918,8 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(decision.safe_actions, hard)
         self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(decision.held_horizon, 8)
         self.assertEqual(
             solver.kernel.calls,
             [(HARD_SAFETY_HORIZON, 8, 0.35)],

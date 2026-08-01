@@ -617,6 +617,14 @@ class Solver:
             repair_span=HARD_SAFETY_HORIZON,
             discouraged_actions=discouraged,
         )
+        held_action = action_from_input(snapshot.input_mask)
+        held_horizon = (
+            effort_horizon
+            if any(candidate.action == held_action for candidate in effort_certified)
+            else HARD_SAFETY_HORIZON
+        )
+        if any(candidate.action == held_action for candidate in fast_laser_long):
+            held_horizon = max(held_horizon, LASER_SPEED_HORIZON)
         return Decision(
             chosen.action,
             certified,
@@ -626,4 +634,5 @@ class Solver:
             effort_horizon,
             len(durable),
             len(repairable),
+            held_horizon,
         )
