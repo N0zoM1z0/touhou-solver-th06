@@ -18,10 +18,17 @@ HARD_SAFETY_HORIZON = 4
 
 
 def adaptive_horizon(snapshot: Snapshot) -> int:
+    # Long proposal rollouts are useful only if their result can arrive in
+    # time.  A physical Stage 3 CE measured a 38.5 ms 16-frame solve at 284
+    # bullets, while the same hard authority plus 8-frame effort stayed below
+    # one native frame in the saved-snapshot benchmark.  This changes ranking
+    # effort only; HARD_SAFETY_HORIZON and its allowed actions are unchanged.
+    if len(snapshot.bullets) >= 220:
+        return 8
     if snapshot.lasers or snapshot.enemies:
         return 16
     nearest = nearest_current_clearance(snapshot)
-    if nearest < 48.0 or len(snapshot.bullets) >= 220:
+    if nearest < 48.0:
         return 16
     if nearest < 120.0 or len(snapshot.bullets) >= 100:
         return 12

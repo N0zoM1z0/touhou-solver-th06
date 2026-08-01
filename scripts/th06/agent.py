@@ -120,6 +120,7 @@ def run(args: argparse.Namespace) -> int:
                 "enemies", "despawning",
                 "bullet_retries",
                 "replay", "native_input", "held_desired_input", "input_transitions",
+                "command_issue_age",
                 "input_lease",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
                 "effort_safe",
@@ -229,6 +230,7 @@ def run(args: argparse.Namespace) -> int:
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
+                command_issue_age = ""
                 authority_stop = False
                 held_before_authority = keyboard.base_input_mask if keyboard is not None else 0
 
@@ -246,8 +248,10 @@ def run(args: argparse.Namespace) -> int:
                             events = keyboard.apply(decision.action)
                             transition_count += len(events)
                             if leased_action is None and events:
+                                issued_frame = read_game_frame(process)
+                                command_issue_age = issued_frame - snapshot.frame
                                 input_lease.issued(
-                                    read_game_frame(process), decision.action
+                                    issued_frame, decision.action
                                 )
                         else:
                             transition_count += len(keyboard.release_all())
@@ -270,7 +274,7 @@ def run(args: argparse.Namespace) -> int:
                     int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
-                    transition_count, int(leased_action is not None),
+                    transition_count, command_issue_age, int(leased_action is not None),
                     f"{snapshot.frame_multiplier:.3f}", action_name,
                     len(decision.safe_actions), decision.horizon, decision.effort_horizon,
                     decision.effort_safe_count,

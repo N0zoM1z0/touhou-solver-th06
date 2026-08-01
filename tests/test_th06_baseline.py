@@ -394,6 +394,19 @@ class BaselineTests(unittest.TestCase):
         near = snapshot(Bullet(192.0, 390.0, 0.0, 0.0, 2.0, 2.0, 1))
         self.assertGreater(adaptive_horizon(near), adaptive_horizon(far))
 
+    def test_dense_scene_reduces_effort_without_changing_hard_authority(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(220)
+        )
+        state = snapshot(*bullets)
+
+        self.assertEqual(adaptive_horizon(state), 8)
+        self.assertEqual(
+            {item.action for item in Solver().decide(state).safe_actions},
+            {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
+        )
+
     def test_laser_fails_closed(self):
         decision = Solver().decide(snapshot(lasers=1))
         self.assertIsNone(decision.action)
