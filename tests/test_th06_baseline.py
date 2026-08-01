@@ -407,6 +407,13 @@ class BaselineTests(unittest.TestCase):
         safe = certify_actions(snapshot(bullet), horizon=5)
         self.assertNotIn(ACTION_BY_VECTOR[(1, 0)], {candidate.action for candidate in safe})
 
+    def test_delivery_plus_pickup_delay_rejects_stale_escape(self):
+        # Right escapes when sampled by delay 2, but not after one frame of
+        # delivery age plus the measured two-frame native pickup.
+        state = snapshot(Bullet(173.5, 380.0, 4.25, 0.0, 2.0, 2.0, 1))
+        safe = certify_actions(state, horizon=4)
+        self.assertNotIn(ACTION_BY_VECTOR[(1, 0)], {item.action for item in safe})
+
     def test_input_lease_can_only_hold_a_hard_safe_action(self):
         right = ACTION_BY_VECTOR[(1, 0)]
         open_decision = Solver().decide(snapshot(), required_action=right)
@@ -540,7 +547,7 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(chosen, egress)
 
     def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):
-        state = snapshot(Bullet(208.0, 380.0, 0.0, 0.0, 2.0, 2.0, 1))
+        state = snapshot(Bullet(190.5, 369.0, 1.0, 1.0, 2.0, 2.0, 1))
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
         right = ACTION_BY_VECTOR[(1, 0)]
         self.assertIn(right, {candidate.action for candidate in candidates})
@@ -556,19 +563,19 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertEqual(chosen.action, right)
 
-    def test_replanning_proposal_covers_both_pickup_delays(self):
+    def test_replanning_proposal_covers_delivery_and_pickup_delays(self):
         state = snapshot(
             Bullet(
-                35.62, 413.40, 3.376, -2.133, 4.0, 4.0, 1,
-                ex_flags=4, speed=3.993, turn_speed=3.993, angle=5.720,
+                1.96, 387.60, -1.670, -1.338, 2.0, 2.0, 1,
+                ex_flags=4, speed=2.140, turn_speed=2.140, angle=3.817,
             ),
             Bullet(
-                10.90, 387.80, 0.134, 2.344, 4.0, 3.0, 1,
-                ex_flags=4, speed=2.348, turn_speed=2.348, angle=1.514,
+                12.49, 422.61, -0.830, -3.381, 4.0, 4.0, 1,
+                ex_flags=4, speed=3.481, turn_speed=3.481, angle=4.472,
             ),
             Bullet(
-                5.54, 436.25, 0.889, -1.771, 3.0, 3.0, 1,
-                ex_flags=4, speed=1.982, turn_speed=1.982, angle=5.177,
+                27.59, 437.31, 0.113, -1.322, 4.0, 3.0, 1,
+                ex_flags=4, speed=1.326, turn_speed=1.326, angle=4.797,
             ),
             x=10.25,
             y=405.0,
@@ -577,11 +584,10 @@ class BaselineTests(unittest.TestCase):
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
         scores = replanning_scores(state, candidates)
 
-        # Immediate pickup makes right look best (six continuations), but a
-        # one- or two-frame pickup leaves none.  Down retains two continuations
-        # in the worst first-pickup branch.
+        # Immediate delivery makes right look best, but the combined delivery
+        # and pickup window leaves it no continuation.  Up-right retains one.
         self.assertEqual(scores[ACTION_BY_VECTOR[(1, 0)]], 0)
-        self.assertEqual(scores[ACTION_BY_VECTOR[(0, 1)]], 2)
+        self.assertEqual(scores[ACTION_BY_VECTOR[(1, -1)]], 1)
 
     def test_selective_repair_proposal_survives_one_hard_segment(self):
         ranker = ProposalRanker()

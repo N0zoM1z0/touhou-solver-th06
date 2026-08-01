@@ -42,7 +42,7 @@ constexpr Direction kActions[9] = {
     {0, 0}, {0, -1}, {0, 1}, {-1, 0}, {1, 0},
     {-1, -1}, {1, -1}, {-1, 1}, {1, 1},
 };
-constexpr std::int32_t kDelays[3] = {0, 1, 2};
+constexpr std::int32_t kDelays[4] = {0, 1, 2, 3};
 
 Direction actionFromInput(std::uint16_t mask) {
     Direction result{0, 0};
@@ -178,7 +178,7 @@ TH06_EXPORT std::int32_t th06_certify_actions(
                 if (result.safe == 0) break;
             }
             if (result.safe == 0) break;
-            if (delay == kDelays[2]) {
+            if (delay == kDelays[3]) {
                 result.finalX = x;
                 result.finalY = y;
             }

@@ -8,7 +8,7 @@ from .hazards.geometry import signed_clearance
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
 from .model import ACTIONS, Action, SafeAction, Snapshot
-from .safety import COLLISION_MARGIN, PICKUP_DELAYS, _step_player, candidate_path
+from .safety import COLLISION_MARGIN, DELIVERY_DELAYS, _step_player, candidate_path
 
 
 def replanning_scores(
@@ -26,14 +26,14 @@ def replanning_scores(
     scores: dict[Action, int] = {}
     for candidate in candidates:
         delay_counts = []
-        for first_delay in PICKUP_DELAYS:
+        for first_delay in DELIVERY_DELAYS:
             split_x, split_y = candidate_path(
                 snapshot, candidate.action, first_delay, split
             )[-1]
             continuation_count = 0
             for continuation in ACTIONS:
                 survived = True
-                for continuation_delay in PICKUP_DELAYS:
+                for continuation_delay in DELIVERY_DELAYS:
                     future_x, future_y = split_x, split_y
                     for frame in range(split + 1, horizon + 1):
                         step_action = (

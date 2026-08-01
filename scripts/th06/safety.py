@@ -15,7 +15,10 @@ MOVEMENT_LEFT = 8.0
 MOVEMENT_RIGHT = 376.0
 MOVEMENT_TOP = 16.0
 MOVEMENT_BOTTOM = 432.0
-PICKUP_DELAYS = (0, 1, 2)
+# Native pickup remains bounded to 0/1/2 frames after SendInput.  A command
+# computed for a snapshot one frame old is also permitted, so hard authority
+# must cover the combined 0..3-frame delivery window.
+DELIVERY_DELAYS = (0, 1, 2, 3)
 COLLISION_MARGIN = 0.35
 
 
@@ -63,9 +66,9 @@ def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
         valid = True
         final_x = snapshot.x
         final_y = snapshot.y
-        for delay in PICKUP_DELAYS:
+        for delay in DELIVERY_DELAYS:
             path = candidate_path(snapshot, action, delay, horizon)
-            if delay == PICKUP_DELAYS[-1]:
+            if delay == DELIVERY_DELAYS[-1]:
                 final_x, final_y = path[-1]
             for frame_index, (x, y) in enumerate(path):
                 for hazard in bullet_frames[frame_index]:

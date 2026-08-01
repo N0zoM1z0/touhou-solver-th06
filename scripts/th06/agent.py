@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
-from .input_lease import InputLease, bounded_delivery_age
+from .input_lease import INPUT_PICKUP_MAX_FRAMES, InputLease, bounded_delivery_age
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot, action_from_input
 from .native import (
@@ -265,11 +265,11 @@ def run(args: argparse.Namespace) -> int:
                                     decision.effort_safe_count,
                                     decision.repairable_count,
                                 )
-                            elif delivery_age:
-                                # Do not send a transition computed from an
-                                # older position. Holding the current input is
-                                # already covered by every hard candidate's
-                                # 0/1/2-frame pickup branches; retry fresh.
+                            elif delivery_age == INPUT_PICKUP_MAX_FRAMES:
+                                # One frame of compute age plus the measured
+                                # two-frame native pickup is covered by hard
+                                # delivery delay 3.  At age 2, keep the current
+                                # input for this covered frame and retry fresh.
                                 stale_retry = True
                         if decision.action is not None and not stale_retry:
                             events = keyboard.apply(decision.action)
