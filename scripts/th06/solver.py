@@ -10,11 +10,11 @@ from .ranking import ProposalRanker
 from .safety import certify_actions, nearest_current_clearance
 
 
-# Physical runs currently bound a hazardous-state decision interval to two
+# Physical runs currently bound a hazardous-state decision interval to three
 # native frames and input pickup to two more.  Longer 8/12/16-frame rollouts
 # allocate ranking effort; they must not turn constant-action rollout into a
 # hard eligibility requirement.
-HARD_SAFETY_HORIZON = 4
+HARD_SAFETY_HORIZON = 5
 
 
 def adaptive_horizon(snapshot: Snapshot) -> int:

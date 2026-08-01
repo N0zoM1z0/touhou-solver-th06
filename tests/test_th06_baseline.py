@@ -22,10 +22,11 @@ from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
+from th06.dialogue import DialogueSkipper
 from th06.input_lease import InputLease
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
-from th06 import menu
+from th06 import dialogue, menu
 from th06.native import (
     ADDR_CHAIN,
     ADDR_ENEMY_CALC_CHAIN,
@@ -112,6 +113,7 @@ class BaselineTests(unittest.TestCase):
         keyboard.held = {"shoot", "focus", "left"}
         keyboard.base_desired = {"shoot", "focus", "left"}
         keyboard.auxiliary_desired = set()
+        keyboard.suppressed = set()
         batches = []
         keyboard._events = lambda events: batches.append(events)
 
@@ -128,12 +130,53 @@ class BaselineTests(unittest.TestCase):
         lease.issued(10, right)
 
         self.assertEqual(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 11).action, right)
-        self.assertEqual(lease.status(BUTTON_FOCUS | 0x80, 11).action, right)
-        self.assertIsNone(
-            lease.status(BUTTON_SHOOT | BUTTON_FOCUS | 0x80, 12).action
-        )
+        self.assertIsNone(lease.status(BUTTON_FOCUS | 0x80, 12).action)
         lease.cleared()
         self.assertIsNone(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 12).action)
+
+    def test_shoot_suppression_is_a_nonblocking_edge(self):
+        keyboard = object.__new__(Keyboard)
+        keyboard.held = {"shoot", "focus"}
+        keyboard.base_desired = {"shoot", "focus"}
+        keyboard.auxiliary_desired = set()
+        keyboard.suppressed = set()
+        batches = []
+        keyboard._events = lambda events: batches.append(events)
+
+        keyboard.set_suppressed("shoot", True)
+        keyboard.set_suppressed("shoot", False)
+
+        self.assertEqual(batches, [(('shoot', False),), (('shoot', True),)])
+
+    def test_dialogue_wait_pulse_advances_without_sleeping(self):
+        class KeyboardStub:
+            def __init__(self):
+                self.suppression = []
+
+            def set_auxiliary(self, _key, _enabled):
+                pass
+
+            def set_suppressed(self, key, enabled):
+                self.suppression.append((key, enabled))
+
+        ticks = iter((1.0, 1.04, 1.06))
+        original_read = dialogue.read_dialogue_state
+        original_clock = dialogue.time.monotonic
+        dialogue.read_dialogue_state = lambda _process: (True, False)
+        dialogue.time.monotonic = lambda: next(ticks)
+        try:
+            keyboard = KeyboardStub()
+            skipper = DialogueSkipper(object(), keyboard)
+            self.assertFalse(skipper.update(True).pulsed_shoot)
+            self.assertFalse(skipper.update(True).pulsed_shoot)
+            self.assertTrue(skipper.update(True).pulsed_shoot)
+            self.assertEqual(
+                keyboard.suppression,
+                [("shoot", True), ("shoot", False)],
+            )
+        finally:
+            dialogue.read_dialogue_state = original_read
+            dialogue.time.monotonic = original_clock
 
     def test_input_lease_fails_closed_after_pickup_bound(self):
         lease = InputLease()

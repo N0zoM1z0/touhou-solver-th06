@@ -10,19 +10,11 @@ from .model import (
     BUTTON_FOCUS,
     BUTTON_LEFT,
     BUTTON_RIGHT,
-    BUTTON_SHOOT,
     BUTTON_UP,
 )
 
 
-_CONTROL_MASK = (
-    BUTTON_SHOOT
-    | BUTTON_FOCUS
-    | BUTTON_UP
-    | BUTTON_DOWN
-    | BUTTON_LEFT
-    | BUTTON_RIGHT
-)
+_CONTROL_MASK = BUTTON_FOCUS | BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT
 INPUT_PICKUP_MAX_FRAMES = 2
 
 
@@ -33,7 +25,7 @@ class LeaseStatus:
 
 
 def _issued_mask(action: Action) -> int:
-    mask = BUTTON_SHOOT | BUTTON_FOCUS
+    mask = BUTTON_FOCUS
     if action.dx < 0:
         mask |= BUTTON_LEFT
     elif action.dx > 0:

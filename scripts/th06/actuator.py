@@ -80,6 +80,7 @@ class Keyboard:
         self.held: set[str] = set()
         self.base_desired: set[str] = set()
         self.auxiliary_desired: set[str] = set()
+        self.suppressed: set[str] = set()
 
     def foreground(self) -> bool:
         hwnd = self.user32.GetForegroundWindow()
@@ -103,7 +104,7 @@ class Keyboard:
         self._events(((key, down),))
 
     def _sync(self) -> tuple[tuple[str, bool], ...]:
-        desired = self.base_desired | self.auxiliary_desired
+        desired = (self.base_desired | self.auxiliary_desired) - self.suppressed
         events = tuple((key, False) for key in sorted(self.held - desired)) + tuple(
             (key, True) for key in sorted(desired - self.held)
         )
@@ -146,6 +147,16 @@ class Keyboard:
             self.auxiliary_desired.discard(key)
         self._sync()
 
+    def set_suppressed(self, key: str, suppressed: bool) -> None:
+        """Temporarily suppress a desired key without blocking the agent loop."""
+        if key not in self.SCANCODES:
+            raise ValueError(f"unsupported suppressed key: {key}")
+        if suppressed:
+            self.suppressed.add(key)
+        else:
+            self.suppressed.discard(key)
+        self._sync()
+
     def tap(self, key: str, hold_seconds: float = 0.05) -> None:
         if key not in self.SCANCODES:
             raise ValueError(f"unsupported key: {key}")
@@ -158,26 +169,11 @@ class Keyboard:
             self._event(key, False)
         time.sleep(0.12)
 
-    def pulse(self, key: str, release_seconds: float = 0.05) -> None:
-        """Create a fresh key-down edge without disturbing other held keys."""
-        if key not in self.SCANCODES:
-            raise ValueError(f"unsupported key: {key}")
-        if not self.foreground():
-            raise RuntimeError("TH06 is not foreground for key pulse")
-        was_held = key in self.held
-        if was_held:
-            self._event(key, False)
-            time.sleep(release_seconds)
-            self._event(key, True)
-        else:
-            self._event(key, True)
-            time.sleep(release_seconds)
-            self._event(key, False)
-
     def release_all(self) -> tuple[tuple[str, bool], ...]:
         events = tuple((key, False) for key in sorted(self.held))
         self._events(events)
         self.held.clear()
         self.base_desired.clear()
         self.auxiliary_desired.clear()
+        self.suppressed.clear()
         return events

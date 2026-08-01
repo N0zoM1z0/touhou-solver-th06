@@ -21,6 +21,7 @@ class DialogueSkipper:
         self.process = process
         self.keyboard = keyboard
         self.last_shoot_pulse = 0.0
+        self.shoot_release_until: float | None = None
 
     def update(self, gameplay_context: bool) -> DialogueState:
         if gameplay_context:
@@ -30,14 +31,28 @@ class DialogueSkipper:
         pulsed = False
         self.keyboard.set_auxiliary("skip", active and skippable)
         now = time.monotonic()
-        if active and not skippable and now - self.last_shoot_pulse >= 0.25:
-            # GuiImpl::RunMsg requires a new WAS_PRESSED(SHOOT) edge for an
-            # unskippable WAIT. Z is normally held, so release/re-press it.
-            self.keyboard.pulse("shoot")
-            self.last_shoot_pulse = now
+        if self.shoot_release_until is not None and (
+            now >= self.shoot_release_until or not active or skippable
+        ):
+            self.keyboard.set_suppressed("shoot", False)
+            self.shoot_release_until = None
             pulsed = True
+        if (
+            active
+            and not skippable
+            and self.shoot_release_until is None
+            and now - self.last_shoot_pulse >= 0.25
+        ):
+            # GuiImpl::RunMsg requires a new WAS_PRESSED(SHOOT) edge for an
+            # unskippable WAIT. Z is normally held, so begin a non-blocking
+            # 50 ms release; a later update supplies the fresh press edge.
+            self.keyboard.set_suppressed("shoot", True)
+            self.shoot_release_until = now + 0.05
+            self.last_shoot_pulse = now
         state = DialogueState(active, skippable, pulsed)
         return state
 
     def release(self) -> None:
         self.keyboard.set_auxiliary("skip", False)
+        self.keyboard.set_suppressed("shoot", False)
+        self.shoot_release_until = None
