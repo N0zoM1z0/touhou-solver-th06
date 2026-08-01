@@ -824,6 +824,40 @@ class BaselineTests(unittest.TestCase):
             collision_margin=0.35,
         )
 
+    def test_extreme_density_reuses_a_surviving_held_proposal(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        constrained = certify_actions(state, HARD_SAFETY_HORIZON)[:6]
+        held = action_from_input(state.input_mask)
+        held_effort = tuple(
+            candidate for candidate in constrained
+            if candidate.action == held
+        )
+
+        class CombinedKernel:
+            def certify_delivery_sets_with_selected(
+                self,
+                _state,
+                _hard_horizon,
+                _selected_horizon,
+                _actions,
+                collision_margin,
+            ):
+                self.collision_margin = collision_margin
+                return constrained, constrained, held_effort
+
+        solver = Solver()
+        solver.kernel = CombinedKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.safe_actions, constrained)
+        self.assertEqual(decision.action, held)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(solver.kernel.collision_margin, 0.35)
+
     def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)

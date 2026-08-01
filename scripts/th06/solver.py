@@ -252,7 +252,17 @@ class Solver:
                 effort_horizon = HARD_SAFETY_HORIZON
                 effort_certified = certified
             elif certified:
-                effort_certified = self._certify(snapshot, effort_horizon)
+                # Dense Stage 4 f2709 already proved the held up-right action
+                # safe through h6 in the combined native pass, then spent
+                # 57.2 ms rebuilding all 487-bullet h6 branches and expired.
+                # Reuse that selective proposal when it survives.  If it does
+                # not, retain the full search that found earlier dead-end
+                # escapes; the Hard-4 set above remains unchanged either way.
+                effort_certified = (
+                    precomputed_current_effort
+                    if precomputed_current_effort
+                    else self._certify(snapshot, effort_horizon)
+                )
             else:
                 effort_certified = ()
         elif (
