@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import csv
+import ctypes
 import json
 import os
 import sys
@@ -40,6 +41,26 @@ from .trial import PracticeTrial, physical_hit
 PASSIVE_NO_ACTION_REASONS = frozenset(("menu", "player-not-active", "time-stopped"))
 
 
+def _prioritize_control_loop() -> None:
+    """Reduce Windows scheduling stalls without using realtime priority."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.argtypes = ()
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetCurrentThread.argtypes = ()
+    kernel32.GetCurrentThread.restype = ctypes.c_void_p
+    kernel32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    kernel32.SetPriorityClass.restype = ctypes.c_int
+    kernel32.SetThreadPriority.argtypes = (ctypes.c_void_p, ctypes.c_int)
+    kernel32.SetThreadPriority.restype = ctypes.c_int
+    # ABOVE_NORMAL_PRIORITY_CLASS plus THREAD_PRIORITY_HIGHEST gives the
+    # safety loop preference over ordinary background work while leaving the
+    # game and operating system outside dangerous realtime scheduling.
+    if not kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00008000):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if not kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 2):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def authority_unavailable(decision: Decision) -> bool:
     """Distinguish missing hard authority from a passive gameplay phase."""
     return decision.action is None and decision.reason not in PASSIVE_NO_ACTION_REASONS
@@ -58,6 +79,7 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("--save-replay requires --armed")
     if args.save_replay and args.practice_stage is not None:
         raise RuntimeError("the exact game cannot save Practice replays")
+    _prioritize_control_loop()
     process = attach_exact(Path(args.game_dir).resolve())
     keyboard = Keyboard(process.pid) if args.armed else None
     dialogue_skipper = DialogueSkipper(process, keyboard) if keyboard is not None else None
@@ -104,6 +126,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         print(f"verified pid={process.pid} sha256={TARGET_SHA256}", flush=True)
         print(f"safety backend: {solver.backend}", flush=True)
+        print("control priority: above-normal/highest", flush=True)
         if args.patch_lives:
             print(f"life patch: {process.patch_lives()} at 0x{ADDR_LIFE_PATCH:08X}", flush=True)
         if args.start_hard:
