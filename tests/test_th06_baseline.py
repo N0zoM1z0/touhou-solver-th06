@@ -662,7 +662,7 @@ class BaselineTests(unittest.TestCase):
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
             for _ in range(400)
         ))
-        constrained = certify_actions(state, HARD_SAFETY_HORIZON)[:1]
+        constrained = certify_actions(state, HARD_SAFETY_HORIZON)[:5]
         kernel = mock.Mock()
         kernel.certify_delivery_sets.return_value = (constrained, constrained)
         kernel.certify.return_value = constrained
@@ -677,6 +677,22 @@ class BaselineTests(unittest.TestCase):
             6,
             collision_margin=0.35,
         )
+
+    def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        narrow = certify_actions(state, HARD_SAFETY_HORIZON)[:3]
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (narrow, narrow)
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        kernel.certify.assert_not_called()
 
     def test_mixed_hazard_density_bounds_adaptive_effort(self):
         bullets = tuple(

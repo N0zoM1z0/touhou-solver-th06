@@ -163,8 +163,14 @@ class Solver:
             # the held input reach an empty set. The earlier f10137 dead end
             # needed h6 only after the hard set had narrowed to roughly five
             # actions. Publish broad authority promptly; retain h6 once the
-            # geometry is materially constrained.
-            if len(certified) >= len(ACTIONS) - 2:
+            # geometry is materially constrained. At the other extreme,
+            # f10142 had only right/up-right/down-right; Hard-4 already chose
+            # the same up-right as h6, while the extra pass took 18.8 ms.
+            # Publish immediately once at most three directions remain.
+            if (
+                len(certified) >= len(ACTIONS) - 2
+                or len(certified) <= 3
+            ):
                 effort_horizon = HARD_SAFETY_HORIZON
                 effort_certified = certified
             elif certified:
