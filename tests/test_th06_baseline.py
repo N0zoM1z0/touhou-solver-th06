@@ -745,7 +745,7 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify_selected.assert_called_once_with(
             state,
-            8,
+            6,
             (held,),
             collision_margin=0.35,
         )
