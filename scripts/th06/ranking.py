@@ -138,6 +138,8 @@ class ProposalRanker:
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
                 (
+                    len(snapshot.bullets) < 400
+                    or
                     len(candidate_actions) < len(ACTIONS)
                     or candidate.clearance >= best_clearance - 1.0
                 ),

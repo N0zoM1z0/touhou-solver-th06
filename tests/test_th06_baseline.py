@@ -988,7 +988,10 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(chosen.action.dy, -1)
 
     def test_open_hard_set_keeps_margin_before_wall_relief(self):
-        state = snapshot(
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ),
             x=192.686,
             y=402.588,
             input_mask=BUTTON_FOCUS | 0x10 | 0x40,
