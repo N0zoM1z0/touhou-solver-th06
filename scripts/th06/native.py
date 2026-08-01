@@ -16,6 +16,7 @@ from .model import Bullet, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 
 TARGET_EXE = "th06.exe"
 TARGET_SHA256 = "9f76483c46256804792399296619c1274363c31cd8f1775fafb55106fb852245"
+PROCESS_ACCESS = 0x00100000 | 0x0001 | 0x0400 | 0x1000 | 0x0010 | 0x0020 | 0x0008
 
 IMAGE_BASE = 0x400000
 ADDR_LIFE_PATCH = 0x428DEC
@@ -98,8 +99,9 @@ def _kernel32():
 class NativeProcess:
     def __init__(self, pid: int):
         self.kernel32 = _kernel32()
-        access = 0x0001 | 0x0400 | 0x1000 | 0x0010 | 0x0020 | 0x0008
-        self.handle = self.kernel32.OpenProcess(access, False, pid)
+        # SYNCHRONIZE is required to verify TerminateProcess completion with
+        # WaitForSingleObject during trial cleanup.
+        self.handle = self.kernel32.OpenProcess(PROCESS_ACCESS, False, pid)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
         self.pid = pid

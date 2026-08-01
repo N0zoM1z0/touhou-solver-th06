@@ -17,6 +17,7 @@ from th06.actuator import Keyboard
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import menu
+from th06.native import PROCESS_ACCESS
 from th06.model import Decision
 
 
@@ -94,6 +95,10 @@ class BaselineTests(unittest.TestCase):
                 _select_unlocked_practice_stage(process, KeyboardStub(), stage=4)
         finally:
             menu.read_menu_state = original
+
+    def test_trial_process_handle_can_verify_termination(self):
+        self.assertTrue(PROCESS_ACCESS & 0x00100000)  # SYNCHRONIZE
+        self.assertTrue(PROCESS_ACCESS & 0x0001)  # PROCESS_TERMINATE
 
     def test_practice_stage_uses_zero_based_menu_cursor(self):
         process = type("Process", (), {"cursor": 0})()
