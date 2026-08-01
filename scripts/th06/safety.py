@@ -8,7 +8,17 @@ from .hazards.geometry import signed_clearance
 from .hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
-from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
+from .model import (
+    ACTIONS,
+    BUTTON_DOWN,
+    BUTTON_LEFT,
+    BUTTON_RIGHT,
+    BUTTON_UP,
+    Action,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 
 
 MOVEMENT_LEFT = 8.0
@@ -20,6 +30,50 @@ MOVEMENT_BOTTOM = 432.0
 # must cover the combined 0..3-frame delivery window.
 DELIVERY_DELAYS = (0, 1, 2, 3)
 COLLISION_MARGIN = 0.35
+_DIRECTION_KEYS = (
+    ("down", BUTTON_DOWN),
+    ("left", BUTTON_LEFT),
+    ("right", BUTTON_RIGHT),
+    ("up", BUTTON_UP),
+)
+
+
+def _action_mask(action: Action) -> int:
+    mask = 0
+    if action.dx < 0:
+        mask |= BUTTON_LEFT
+    elif action.dx > 0:
+        mask |= BUTTON_RIGHT
+    if action.dy < 0:
+        mask |= BUTTON_UP
+    elif action.dy > 0:
+        mask |= BUTTON_DOWN
+    return mask
+
+
+def transition_actions(current: Action, target: Action) -> tuple[Action, ...]:
+    """Directions observable inside Keyboard's sorted release/press batch."""
+    current_mask = _action_mask(current)
+    target_mask = _action_mask(target)
+    prefix_mask = current_mask
+    prefixes: list[Action] = []
+
+    events = tuple(
+        bit for _key, bit in _DIRECTION_KEYS
+        if current_mask & bit and not target_mask & bit
+    ) + tuple(
+        bit for _key, bit in _DIRECTION_KEYS
+        if target_mask & bit and not current_mask & bit
+    )
+    for bit in events:
+        if prefix_mask & bit:
+            prefix_mask &= ~bit
+        else:
+            prefix_mask |= bit
+        prefix = action_from_input(prefix_mask)
+        if prefix not in (current, target) and prefix not in prefixes:
+            prefixes.append(prefix)
+    return tuple(prefixes)
 
 
 def _step_player(
@@ -35,7 +89,15 @@ def _step_player(
     return x, y
 
 
-def candidate_path(snapshot: Snapshot, action: Action, delay: int, horizon: int) -> list[tuple[float, float]]:
+def candidate_path(
+    snapshot: Snapshot,
+    action: Action,
+    delay: int,
+    horizon: int,
+    transition_action: Action | None = None,
+) -> list[tuple[float, float]]:
+    if transition_action is not None and delay <= 0:
+        raise ValueError("a transition prefix requires a positive delivery delay")
     current = action_from_input(snapshot.input_mask)
     current_focus = bool(snapshot.input_mask & 0x04)
     current_cardinal = snapshot.focus_speed if current_focus else snapshot.normal_speed
@@ -43,7 +105,11 @@ def candidate_path(snapshot: Snapshot, action: Action, delay: int, horizon: int)
     x, y = snapshot.x, snapshot.y
     path: list[tuple[float, float]] = []
     for frame in range(1, horizon + 1):
-        if frame <= delay:
+        if transition_action is not None and frame == delay:
+            step_action = transition_action
+            cardinal = snapshot.focus_speed
+            diagonal = snapshot.focus_diagonal_speed
+        elif frame < delay or (transition_action is None and frame <= delay):
             step_action = current
             cardinal = current_cardinal
             diagonal = current_diagonal
@@ -54,6 +120,22 @@ def candidate_path(snapshot: Snapshot, action: Action, delay: int, horizon: int)
         x, y = _step_player(x, y, step_action, cardinal, diagonal)
         path.append((x, y))
     return path
+
+
+def candidate_paths(
+    snapshot: Snapshot,
+    action: Action,
+    delay: int,
+    horizon: int,
+) -> tuple[list[tuple[float, float]], ...]:
+    paths = [candidate_path(snapshot, action, delay, horizon)]
+    if delay > 0:
+        current = action_from_input(snapshot.input_mask)
+        paths.extend(
+            candidate_path(snapshot, action, delay, horizon, prefix)
+            for prefix in transition_actions(current, action)
+        )
+    return tuple(paths)
 
 
 def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
@@ -67,20 +149,11 @@ def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
         final_x = snapshot.x
         final_y = snapshot.y
         for delay in DELIVERY_DELAYS:
-            path = candidate_path(snapshot, action, delay, horizon)
-            if delay == DELIVERY_DELAYS[-1]:
-                final_x, final_y = path[-1]
-            for frame_index, (x, y) in enumerate(path):
-                for hazard in bullet_frames[frame_index]:
-                    clearance = signed_clearance(
-                        x, y, snapshot.half_width, snapshot.half_height, hazard
-                    )
-                    action_clearance = min(action_clearance, clearance)
-                    if clearance <= COLLISION_MARGIN:
-                        valid = False
-                        break
-                if valid:
-                    for hazard in enemy_frames[frame_index]:
+            for path_index, path in enumerate(candidate_paths(snapshot, action, delay, horizon)):
+                if delay == DELIVERY_DELAYS[-1] and path_index == 0:
+                    final_x, final_y = path[-1]
+                for frame_index, (x, y) in enumerate(path):
+                    for hazard in bullet_frames[frame_index]:
                         clearance = signed_clearance(
                             x, y, snapshot.half_width, snapshot.half_height, hazard
                         )
@@ -88,15 +161,26 @@ def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
                         if clearance <= COLLISION_MARGIN:
                             valid = False
                             break
-                if valid:
-                    for laser in laser_frames[frame_index]:
-                        clearance = signed_laser_clearance(
-                            x, y, snapshot.half_width, snapshot.half_height, laser
-                        )
-                        action_clearance = min(action_clearance, clearance)
-                        if clearance <= COLLISION_MARGIN:
-                            valid = False
-                            break
+                    if valid:
+                        for hazard in enemy_frames[frame_index]:
+                            clearance = signed_clearance(
+                                x, y, snapshot.half_width, snapshot.half_height, hazard
+                            )
+                            action_clearance = min(action_clearance, clearance)
+                            if clearance <= COLLISION_MARGIN:
+                                valid = False
+                                break
+                    if valid:
+                        for laser in laser_frames[frame_index]:
+                            clearance = signed_laser_clearance(
+                                x, y, snapshot.half_width, snapshot.half_height, laser
+                            )
+                            action_clearance = min(action_clearance, clearance)
+                            if clearance <= COLLISION_MARGIN:
+                                valid = False
+                                break
+                    if not valid:
+                        break
                 if not valid:
                     break
             if not valid:

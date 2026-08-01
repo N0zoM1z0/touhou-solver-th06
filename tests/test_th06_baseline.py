@@ -16,7 +16,7 @@ from th06.model import (
     action_from_input,
 )
 from th06.ranking import ProposalRanker
-from th06.safety import certify_actions
+from th06.safety import certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance
@@ -414,6 +414,30 @@ class BaselineTests(unittest.TestCase):
         safe = certify_actions(state, horizon=4)
         self.assertNotIn(ACTION_BY_VECTOR[(1, 0)], {item.action for item in safe})
 
+    def test_release_press_prefix_rejects_unsafe_compound_turn(self):
+        down = ACTION_BY_VECTOR[(0, 1)]
+        up_left = ACTION_BY_VECTOR[(-1, -1)]
+        self.assertEqual(
+            tuple(action.name for action in transition_actions(down, up_left)),
+            ("stay", "left"),
+        )
+
+        # All ordinary current/target pickup paths miss this tiny obstacle;
+        # the observed release-down, press-left prefix crosses it.
+        state = snapshot(
+            Bullet(92.0, 94.5, 0.0, 0.0, 0.25, 0.25, 1),
+            x=100.0,
+            y=100.0,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        expected = certify_actions(state, horizon=4)
+        decision = Solver().decide(state)
+        self.assertNotIn(up_left, {item.action for item in expected})
+        self.assertEqual(
+            {item.action for item in decision.safe_actions},
+            {item.action for item in expected},
+        )
+
     def test_input_lease_can_only_hold_a_hard_safe_action(self):
         right = ACTION_BY_VECTOR[(1, 0)]
         open_decision = Solver().decide(snapshot(), required_action=right)
@@ -612,9 +636,13 @@ class BaselineTests(unittest.TestCase):
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
         scores = replanning_scores(state, candidates)
 
-        # Immediate delivery makes right look best, but the combined delivery
-        # and pickup window leaves it no continuation.  Up-right retains one.
-        self.assertEqual(scores[ACTION_BY_VECTOR[(1, 0)]], 0)
+        # Right is now rejected by hard transition-prefix coverage.  Among
+        # the remaining hard candidates, only up-right retains a continuation
+        # across both command delivery windows and their observable prefixes.
+        self.assertNotIn(
+            ACTION_BY_VECTOR[(1, 0)],
+            {candidate.action for candidate in candidates},
+        )
         self.assertEqual(scores[ACTION_BY_VECTOR[(1, -1)]], 1)
 
     def test_selective_repair_proposal_survives_one_hard_segment(self):
