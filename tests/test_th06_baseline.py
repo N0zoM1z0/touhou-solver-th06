@@ -640,6 +640,24 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
 
+    def test_high_density_publishes_open_hard_authority_first(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(350)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (hard, hard)
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 8)
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        kernel.certify.assert_not_called()
+
     def test_extreme_density_skips_effort_while_hard_authority_is_broad(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)

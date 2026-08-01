@@ -136,7 +136,7 @@ class Solver:
         effort_horizon = adaptive_horizon(snapshot)
         age_zero_certified = ()
         if (
-            len(snapshot.bullets) >= 400
+            len(snapshot.bullets) >= 350
             and effort_horizon > HARD_SAFETY_HORIZON
         ):
             # Stage 4 f10061 had all nine Hard-4 actions available, but a
@@ -144,6 +144,10 @@ class Solver:
             # otherwise open decision beyond its delivery authority. First
             # establish the unchanged hard set; spend h6 only when that set is
             # already constrained, as it was at the f10137 dead-end branch.
+            # f4091 repeated the same timing failure at 392 bullets: Hard-4
+            # and h8 both contained all nine actions, while the redundant h8
+            # solve reached 45.1 ms. Start this publication path at 350; the
+            # 4..6-action constrained band below still retains extra effort.
             if self.kernel is not None:
                 certified, age_zero_certified = self.kernel.certify_delivery_sets(
                     snapshot,
