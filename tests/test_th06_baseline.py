@@ -949,6 +949,27 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, down_right)
 
+    def test_ranker_leaves_one_wall_while_the_hard_set_is_open(self):
+        state = snapshot(
+            x=337.816,
+            y=421.348,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        allowed = certify_actions(state, HARD_SAFETY_HORIZON)
+        current = action_from_input(state.input_mask)
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset(
+                candidate.action for candidate in allowed
+            ),
+        )
+
+        self.assertEqual(len(allowed), len(ACTIONS))
+        self.assertNotEqual(chosen.action, current)
+        self.assertEqual(chosen.action.dy, -1)
+
     def test_solver_keeps_a_replanning_corridor_off_one_wall(self):
         state = snapshot(
             x=164.5,

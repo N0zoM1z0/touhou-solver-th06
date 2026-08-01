@@ -131,7 +131,11 @@ class ProposalRanker:
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
-                near_single_wall(snapshot) and candidate.action == current,
+                (
+                    near_single_wall(snapshot)
+                    and len(candidate_actions) <= 2
+                    and candidate.action == current
+                ),
                 boundary_relief,
                 boundary_egress,
                 total,
