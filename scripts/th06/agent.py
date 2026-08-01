@@ -20,10 +20,13 @@ from .solver import Solver
 def run(args: argparse.Namespace) -> int:
     if os.name != "nt":
         raise RuntimeError("run this entry point with Windows Python")
+    if args.start_hard and not args.armed:
+        raise RuntimeError("--start-hard requires --armed")
     process = attach_exact(Path(args.game_dir).resolve())
-    keyboard = Keyboard(process.pid)
-    dialogue_skipper = DialogueSkipper(process, keyboard)
-    trace_path = Path(__file__).resolve().parents[2] / "artifacts" / "th06_baseline_latest.csv"
+    keyboard = Keyboard(process.pid) if args.armed else None
+    dialogue_skipper = DialogueSkipper(process, keyboard) if keyboard is not None else None
+    trace_name = "th06_baseline_latest.csv" if args.armed else "th06_observe_latest.csv"
+    trace_path = Path(__file__).resolve().parents[2] / "artifacts" / trace_name
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     solver = Solver()
     previous_state: int | None = None
@@ -35,11 +38,13 @@ def run(args: argparse.Namespace) -> int:
         if args.patch_lives:
             print(f"life patch: {process.patch_lives()} at 0x{ADDR_LIFE_PATCH:08X}", flush=True)
         if args.start_hard:
+            assert keyboard is not None
             start_hard_reimu_a(process, keyboard)
             print("menu: Hard / Reimu-A selected", flush=True)
         print("armed" if args.armed else "observe-only", flush=True)
     except Exception:
-        keyboard.release_all()
+        if keyboard is not None:
+            keyboard.release_all()
         process.close()
         raise
     try:
@@ -65,6 +70,8 @@ def run(args: argparse.Namespace) -> int:
                 dialogue = DialogueState(False, False, False)
 
                 if args.armed:
+                    assert keyboard is not None
+                    assert dialogue_skipper is not None
                     if not keyboard.foreground():
                         keyboard.release_all()
                         decision = Decision(None, (), 0.0, 0, "not-foreground")
@@ -100,9 +107,11 @@ def run(args: argparse.Namespace) -> int:
                     )
                 last_reason = decision.reason
     finally:
-        keyboard.release_all()
+        if keyboard is not None:
+            keyboard.release_all()
         process.close()
-        print(f"released all keys; trace={trace_path}", flush=True)
+        cleanup = "released all keys" if keyboard is not None else "no input was created"
+        print(f"{cleanup}; trace={trace_path}", flush=True)
     return 0
 
 

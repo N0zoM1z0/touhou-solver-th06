@@ -3,6 +3,9 @@
 A deliberately small TH06 1.02h solver baseline.  It starts from native state
 and the reconstructed source instead of carrying the TH08 planner forward.
 
+New Codex sessions should begin with [`START_HERE.md`](START_HERE.md); the
+compact working rules are in [`AGENTS.md`](AGENTS.md).
+
 ## Exact target and reference
 
 - **Observed:** local `th06.exe` SHA-256 is
@@ -76,14 +79,17 @@ and releases every held key on exit.  The latest compact trace overwrites
 Observe without sending input:
 
 ```bat
-%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe scripts\run_th06_agent.py --patch-lives --seconds 30
+run_th06_observe.bat 30
 ```
 
 Run the small platform-independent tests from WSL/Linux:
 
 ```bash
-PYTHONPATH=scripts python3 -m unittest discover -s tests -p 'test_*.py'
+./check_th06_baseline.sh
 ```
+
+Set `TH06_GAME_DIR` or `TH06_PYTHON` to override the Windows launcher defaults
+without editing either script.
 
 ## First physical checkpoint (2026-08-01)
 

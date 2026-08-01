@@ -6,6 +6,9 @@ if not defined TH06_PYTHON set "TH06_PYTHON=%LOCALAPPDATA%\Microsoft\WindowsApps
 set "GAME_DIR=%TH06_GAME_DIR%"
 set "GAME_EXE=%GAME_DIR%\th06.exe"
 set "PYTHON=%TH06_PYTHON%"
+set "RUN_SECONDS=30"
+
+if not "%~1"=="" set "RUN_SECONDS=%~1"
 
 if not exist "%GAME_EXE%" (
   echo Missing exact TH06 executable: "%GAME_EXE%"
@@ -17,5 +20,5 @@ if not exist "%PYTHON%" (
 )
 
 start "" /D "%GAME_DIR%" "%GAME_EXE%"
-"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --patch-lives --start-hard --armed %*
+"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --seconds "%RUN_SECONDS%"
 exit /b %errorlevel%
