@@ -87,6 +87,9 @@ class NativeSafetyKernel:
             ctypes.POINTER(ctypes.c_int32),
         )
         self.replanning_function.restype = ctypes.c_int32
+        self._prepared_snapshot: Snapshot | None = None
+        self._prepared_horizon = 0
+        self._prepared_hazards = None
 
     @staticmethod
     def _flatten(frames, value_type, convert):
@@ -124,6 +127,18 @@ class NativeSafetyKernel:
             ),
         )
         return bullet_offsets, bullets, laser_offsets, lasers
+
+    def _prepare_reusable(self, snapshot: Snapshot, horizon: int):
+        if (
+            self._prepared_snapshot is snapshot
+            and self._prepared_horizon == horizon
+        ):
+            return self._prepared_hazards
+        prepared = self._prepare(snapshot, horizon)
+        self._prepared_snapshot = snapshot
+        self._prepared_horizon = horizon
+        self._prepared_hazards = prepared
+        return prepared
 
     def _certify_prepared(
         self,
@@ -198,7 +213,7 @@ class NativeSafetyKernel:
     ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         if effort_horizon < hard_horizon:
             raise ValueError("effort horizon cannot be shorter than hard horizon")
-        prepared = self._prepare(snapshot, effort_horizon)
+        prepared = self._prepare_reusable(snapshot, effort_horizon)
         hard, _age_zero = self._certify_prepared(
             snapshot, hard_horizon, collision_margin, prepared
         )
@@ -222,7 +237,7 @@ class NativeSafetyKernel:
     ]:
         if effort_horizon < hard_horizon:
             raise ValueError("effort horizon cannot be shorter than hard horizon")
-        prepared = self._prepare(snapshot, effort_horizon)
+        prepared = self._prepare_reusable(snapshot, effort_horizon)
         hard, age_zero = self._certify_prepared(
             snapshot, hard_horizon, collision_margin, prepared
         )
@@ -243,7 +258,7 @@ class NativeSafetyKernel:
         """Find the longest nonempty constant-action set with one hazard build."""
         if maximum_horizon < minimum_horizon:
             return ()
-        prepared = self._prepare(snapshot, maximum_horizon)
+        prepared = self._prepare_reusable(snapshot, maximum_horizon)
         for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
             certified, _age_zero = self._certify_prepared(
                 snapshot,
@@ -263,7 +278,7 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
     ):
-        prepared = self._prepare(snapshot, horizon)
+        prepared = self._prepare_reusable(snapshot, horizon)
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(

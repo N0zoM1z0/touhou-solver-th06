@@ -1,6 +1,9 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <unordered_map>
 
 #ifdef _WIN32
 #define TH06_EXPORT extern "C" __declspec(dllexport)
@@ -145,6 +148,28 @@ float signedClearance(
     return std::hypot(std::max(0.0F, gapX), std::max(0.0F, gapY));
 }
 
+bool withinMargin(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    const Aabb& hazard,
+    float collisionMargin
+) {
+    const float gapX = std::max(
+        hazard.left - (playerX + playerHalfWidth),
+        (playerX - playerHalfWidth) - hazard.right
+    );
+    const float gapY = std::max(
+        hazard.top - (playerY + playerHalfHeight),
+        (playerY - playerHalfHeight) - hazard.bottom
+    );
+    const float positiveX = std::max(0.0F, gapX);
+    const float positiveY = std::max(0.0F, gapY);
+    return positiveX * positiveX + positiveY * positiveY
+        <= collisionMargin * collisionMargin;
+}
+
 float signedLaserClearance(
     float playerX,
     float playerY,
@@ -167,6 +192,36 @@ float signedLaserClearance(
     return signedClearance(localX, localY, playerHalfWidth, playerHalfHeight, box);
 }
 
+bool withinLaserMargin(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    const LaserHazard& laser,
+    float collisionMargin
+) {
+    const float dx = playerX - laser.originX;
+    const float dy = playerY - laser.originY;
+    const float sine = std::sin(laser.angle);
+    const float cosine = std::cos(laser.angle);
+    const float localX = cosine * dx + sine * dy;
+    const float localY = cosine * dy - sine * dx;
+    const Aabb box{
+        laser.centerOffset - laser.sizeX / 2.0F,
+        -laser.sizeY / 2.0F,
+        laser.centerOffset + laser.sizeX / 2.0F,
+        laser.sizeY / 2.0F,
+    };
+    return withinMargin(
+        localX,
+        localY,
+        playerHalfWidth,
+        playerHalfHeight,
+        box,
+        collisionMargin
+    );
+}
+
 bool safeAtFrame(
     float x,
     float y,
@@ -183,22 +238,86 @@ bool safeAtFrame(
     const std::uint32_t bulletStart = bulletOffsets[frameIndex];
     const std::uint32_t bulletEnd = bulletOffsets[frameIndex + 1];
     for (std::uint32_t index = bulletStart; index < bulletEnd; ++index) {
+        if (clearance == nullptr) {
+            if (withinMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                bullets[index],
+                collisionMargin
+            )) return false;
+            continue;
+        }
         const float value = signedClearance(
             x, y, playerHalfWidth, playerHalfHeight, bullets[index]
         );
-        if (clearance != nullptr) *clearance = std::min(*clearance, value);
+        *clearance = std::min(*clearance, value);
         if (value <= collisionMargin) return false;
     }
     const std::uint32_t laserStart = laserOffsets[frameIndex];
     const std::uint32_t laserEnd = laserOffsets[frameIndex + 1];
     for (std::uint32_t index = laserStart; index < laserEnd; ++index) {
+        if (clearance == nullptr) {
+            if (withinLaserMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                lasers[index],
+                collisionMargin
+            )) return false;
+            continue;
+        }
         const float value = signedLaserClearance(
             x, y, playerHalfWidth, playerHalfHeight, lasers[index]
         );
-        if (clearance != nullptr) *clearance = std::min(*clearance, value);
+        *clearance = std::min(*clearance, value);
         if (value <= collisionMargin) return false;
     }
     return true;
+}
+
+std::uint64_t positionKey(float x, float y) {
+    std::uint32_t xBits;
+    std::uint32_t yBits;
+    std::memcpy(&xBits, &x, sizeof(xBits));
+    std::memcpy(&yBits, &y, sizeof(yBits));
+    return (static_cast<std::uint64_t>(xBits) << 32U) | yBits;
+}
+
+bool cachedSafeAtFrame(
+    float x,
+    float y,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    std::int32_t frameIndex,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    std::array<std::unordered_map<std::uint64_t, bool>, 64>& cache
+) {
+    auto& frameCache = cache[frameIndex];
+    const std::uint64_t key = positionKey(x, y);
+    const auto found = frameCache.find(key);
+    if (found != frameCache.end()) return found->second;
+    const bool safe = safeAtFrame(
+        x,
+        y,
+        playerHalfWidth,
+        playerHalfHeight,
+        frameIndex,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        nullptr
+    );
+    frameCache.emplace(key, safe);
+    return safe;
 }
 
 }  // namespace
@@ -333,6 +452,11 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
     const bool currentFocus = (inputMask & 0x04U) != 0U;
     const float currentCardinal = currentFocus ? focusSpeed : normalSpeed;
     const float currentDiagonal = currentFocus ? focusDiagonalSpeed : normalDiagonalSpeed;
+    // Delivery and transition branches revisit the same small movement
+    // lattice thousands of times.  Cache exact float positions per future
+    // frame so each dense hazard slice is scanned once without changing the
+    // conservative branch set or its scores.
+    std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
     for (std::int32_t firstIndex = 0; firstIndex < 9; ++firstIndex) {
         output[firstIndex] = 0;
         if ((candidateMask & (1U << firstIndex)) == 0U) continue;
@@ -407,7 +531,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                                     focusSpeed,
                                     focusDiagonalSpeed
                                 );
-                                if (!safeAtFrame(
+                                if (!cachedSafeAtFrame(
                                     x,
                                     y,
                                     playerHalfWidth,
@@ -418,7 +542,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                                     laserOffsets,
                                     lasers,
                                     collisionMargin,
-                                    nullptr
+                                    safetyCache
                                 )) {
                                     survived = false;
                                     break;
