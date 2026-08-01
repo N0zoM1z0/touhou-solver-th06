@@ -233,6 +233,28 @@ class NativeSafetyKernel:
         )
         return hard, effort, age_zero
 
+    def last_viable_frontier(
+        self,
+        snapshot: Snapshot,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        collision_margin: float,
+    ) -> tuple[SafeAction, ...]:
+        """Find the longest nonempty constant-action set with one hazard build."""
+        if maximum_horizon < minimum_horizon:
+            return ()
+        prepared = self._prepare(snapshot, maximum_horizon)
+        for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
+            certified, _age_zero = self._certify_prepared(
+                snapshot,
+                horizon,
+                collision_margin,
+                prepared,
+            )
+            if certified:
+                return certified
+        return ()
+
     def replanning_scores(
         self,
         snapshot: Snapshot,

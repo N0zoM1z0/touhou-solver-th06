@@ -64,6 +64,25 @@ class Solver:
             return self.kernel.certify(snapshot, horizon, collision_margin=0.35)
         return certify_actions(snapshot, horizon)
 
+    def _last_viable_frontier(
+        self,
+        snapshot: Snapshot,
+        minimum_horizon: int,
+        maximum_horizon: int,
+    ):
+        if self.kernel is not None and hasattr(self.kernel, "last_viable_frontier"):
+            return self.kernel.last_viable_frontier(
+                snapshot,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin=0.35,
+            )
+        for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
+            certified = self._certify(snapshot, horizon)
+            if certified:
+                return certified
+        return ()
+
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
 
@@ -224,13 +243,17 @@ class Solver:
             and not repairable
             and effort_horizon > HARD_SAFETY_HORIZON + 1
         ):
-            # A physical Stage 4 branch had no full 12-frame constant action
-            # and no two-segment repair, but one action survived 11 frames
-            # while the boundary heuristic selected a four-frame dead end.
-            # Preserve that complete mixed-hazard frontier as a soft proposal.
+            # Physical Stage 4 branches exhausted the full constant-action
+            # and two-segment proposals while one complete mixed-hazard action
+            # still survived substantially longer than the boundary heuristic's
+            # choice. Preserve the longest nonempty frontier for soft ranking.
             durable = frozenset(
                 candidate.action
-                for candidate in self._certify(snapshot, effort_horizon - 1)
+                for candidate in self._last_viable_frontier(
+                    snapshot,
+                    HARD_SAFETY_HORIZON + 1,
+                    effort_horizon - 1,
+                )
             )
         if (
             not durable

@@ -579,22 +579,23 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(adaptive_horizon(state), 12)
 
-    def test_near_effort_frontier_ranks_when_full_proposals_are_empty(self):
+    def test_last_viable_frontier_ranks_when_full_proposals_are_empty(self):
         extended = Bullet(
-            0.0, 250.0, 0.0, 0.0, 3.0, 3.0, 1, ex_flags=0x01,
+            50.0, 345.0, 0.0, 0.0, 3.0, 3.0, 1, ex_flags=0x01,
         )
         state = snapshot(
             extended,
-            x=30.0,
+            x=20.0,
             y=300.0,
-            input_mask=BUTTON_FOCUS | 0x10 | BUTTON_LEFT,
+            input_mask=BUTTON_FOCUS | 0x20 | BUTTON_LEFT,
         )
         hard = certify_actions(state, HARD_SAFETY_HORIZON)
         effort_horizon = adaptive_horizon(state)
-        frontier = certify_actions(state, effort_horizon - 1)
+        frontier = certify_actions(state, effort_horizon - 2)
 
         self.assertEqual(effort_horizon, 12)
         self.assertFalse(certify_actions(state, effort_horizon))
+        self.assertFalse(certify_actions(state, effort_horizon - 1))
         self.assertFalse(any(
             replanning_scores(
                 state,
@@ -605,10 +606,10 @@ class BaselineTests(unittest.TestCase):
         ))
         self.assertEqual(
             {candidate.action.name for candidate in frontier},
-            {"down"},
+            {"up"},
         )
         decision = Solver().decide(state)
-        self.assertEqual(decision.action.name, "down")
+        self.assertEqual(decision.action.name, "up")
         self.assertEqual(
             {candidate.action for candidate in decision.safe_actions},
             {candidate.action for candidate in hard},
@@ -698,7 +699,7 @@ class BaselineTests(unittest.TestCase):
             motion_known=True,
         )
         extended = Bullet(
-            80.0, 260.0, 0.0, 0.0, 3.0, 3.0, 1, ex_flags=0x01,
+            75.0, 290.0, 0.0, 0.0, 3.0, 3.0, 1, ex_flags=0x01,
         )
         state = snapshot(
             extended,
@@ -717,6 +718,7 @@ class BaselineTests(unittest.TestCase):
         decision = Solver().decide(state)
 
         self.assertFalse(certify_actions(state, 16))
+        self.assertFalse(certify_actions(state, HARD_SAFETY_HORIZON + 1))
         self.assertFalse(any(replanning_scores(state, hard, 4, 16).values()))
         self.assertIn(action_from_input(state.input_mask), {
             candidate.action for candidate in long_laser
