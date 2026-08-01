@@ -38,19 +38,26 @@ This separation is the idea; the algorithms are intentionally not fixed.
   one native hazard rollout between hard and soft scans. It sampled 15,984
   states with no death or authority stop; hazardous and dialogue decision gaps
   were at most two and one frames respectively.
+- Hard Practice Stage 3 now also reaches its source-defined result path. Its
+  17,962 sampled states had no death, authority stop, or Bomb and covered up to
+  615 bullets and 19 lethal enemy bodies. Source-exact timed direction-change
+  bullets, delivery-aware soft effort, and a hard-set-only two-segment proposal
+  were each added only after separate physical counterexamples.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of later stages.
+Stage 3 also observed rare three-frame hazardous decision and snapshot-to-issue
+ages, so the four-frame authority is not yet a complete delivery guarantee.
 Actual replay file creation also still needs a non-Practice result. This is a
-Stage 2 checkpoint, not proof of a route clear. See `README.md` for compact
+Stage 3 checkpoint, not proof of a route clear. See `README.md` for compact
 details and the module map.
 Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
 counterexample appears; do not recreate the TH08 architecture from it.
 
 ## How to continue
 
-Repeat or extend a physical Hard run and treat its first hit—or its successful
-next milestone—as the main evidence. Explain one concrete failure from native
+Run a fresh full Hard route from Stage 1 and treat its first hit—or its successful
+next stage—as the main evidence. Explain one concrete failure from native
 state and source, make one small change, run the focused check, then test it
 physically. Timing, future emissions, lasers, ranking, or another mechanism may
 be next; choose from evidence rather than this document.

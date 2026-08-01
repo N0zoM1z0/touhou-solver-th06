@@ -32,6 +32,8 @@ The implementation is intentionally small, with one module per responsibility:
   remain in the separate Python modules and have a Python reference path.
 - `solver.py`: adaptive horizon and layer composition.
 - `ranking.py`: proposals and online preferences inside the certified set.
+- `viability.py`: the bounded two-segment proposal used only when a longer
+  constant-action proposal has no survivor.
 - `actuator.py`: foreground-guarded physical keyboard output.
 - `menu.py`: source-grounded full-run and Practice Hard/Reimu-A startup using
   only Up/Down/Z.
@@ -46,13 +48,16 @@ The three solver layers are:
    reject any that collide with an observed native bullet, laser, or lethal
    enemy body over the
    fixed four-frame issue window, across input pickup delays 0, 1, and 2
-   frames. Four is the current physical bound: at most two hazardous-state
-   frames between decisions plus at most two input-pickup frames.
+   frames. This is the current authority window, not a route-level timing
+   proof; the Stage 3 checkpoint observed rare three-frame snapshot/decision
+   gaps and records that limitation below.
 2. **Adaptive solver:** use an 8, 12, or 16 frame horizon according to current
-   bullet proximity and density. This longer constant-action rollout ranks
-   hard-allowed actions but cannot remove or add hard eligibility.
+   bullet proximity, density, and delivery cost. This longer constant-action
+   rollout ranks hard-allowed actions but cannot remove or add hard eligibility.
 3. **Proposal/ranking:** first prefer a hard-allowed action that survives the
-   adaptive rollout when one exists, then use clearance, a conservative
+   adaptive rollout when one exists. If none does, a native two-segment scan
+   ranks only the existing hard set by its possible four-frame continuation;
+   then use clearance, a conservative
    bottom-center position, mild continuity, and a tiny death-penalty
    preference. Mere survival is deliberately not rewarded.
 
@@ -251,3 +256,38 @@ decision gaps were at most two frames, while the dialogue gap was at most one.
 Native solve time was 2.85 ms median, 9.68 ms p95, 13.77 ms p99, and 31.04 ms
 maximum. This validates Stage 2 input timing; later stages and non-Practice
 replay saving remain physical gaps.
+
+## Complete Practice Stage 3 checkpoint (2026-08-01)
+
+The first full-route regression cleared Stages 1 and 2, then stopped in Stage 3
+on a torn bullet publication: `SpawnSingleBullet` writes `state=FIRED` before
+its collision size and motion tail. The sensor now re-reads only that exact
+slot tail and accepts it only after the source-defined fields form a valid
+geometry; a persistent inconsistency still stops with raw evidence.
+
+Two later Practice stops separated delivery and proposal problems. A 284-bullet
+16-frame soft scan took 38.5 ms and let its proof age before input issue; at
+220 bullets the adaptive layer now spends only eight soft frames while hard-4
+eligibility remains unchanged. Another linear-bullet run held down as the hard
+set shrank `4 -> 2 -> 1 -> 0` after constant-action effort became empty. The
+native two-segment proposal therefore ranks possible replanning exits only
+inside the hard set. On the reduced witness, Python and C++ agreed on scores
+`down=0, right=6, down-left=0, down-right=3`; the native scan cost 5.14 ms
+median.
+
+The next stop was a false empty set over 210 fired `exFlags=0x42` bullets. The
+source shows that `0x40` follows a timed decelerate-and-rotate schedule, not the
+old arbitrary-direction fallback. Decoding its timer, interval, count, speed,
+and rotation and reproducing `BulletManager::OnUpdate` removed that false
+authority loss.
+
+The integrated Hard/Reimu-A Practice Stage 3 run then reached its result path
+at frame 18340 after 17,962 sampled states, with zero dead rows, zero authority
+stops, and no Bomb bit in native or desired input. It covered up to 615 bullets,
+19 lethal enemy bodies, and 449 despawning witnesses; the two-segment proposal
+was selective on eight rows. Solve time was 3.39 ms median, 13.57 ms p95,
+19.90 ms p99, and 35.42 ms maximum. Overall and hazardous-state decision gaps
+were at most three frames, and one changed command was issued from a snapshot
+three frames old. Those rare timing ages remain an explicit unresolved bound;
+the successful Practice run is not permission to weaken hard safety. A fresh
+full route from Stage 1 is the next regression.
