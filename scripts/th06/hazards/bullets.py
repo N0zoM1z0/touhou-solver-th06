@@ -11,9 +11,53 @@ from .geometry import signed_clearance
 DYNAMIC_EX_FLAGS = 0xDF1
 ACCELERATION_FLAG = 0x10
 COMPLEX_MOTION_FLAGS = 0xDE1
+DIRECTION_ROTATION_FLAG = 0x40
+
+
+def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+    """Reproduce the source's timed 0x40 decelerate-and-rotate update."""
+    x, y = bullet.x, bullet.y
+    vx, vy = bullet.vx, bullet.vy
+    angle = bullet.angle
+    speed = bullet.speed
+    timer = bullet.timer
+    timer_float = bullet.timer_float
+    direction_num_times = bullet.direction_num_times
+    flags = bullet.ex_flags
+    for _ in range(frame):
+        if flags & DIRECTION_ROTATION_FLAG:
+            if timer >= bullet.direction_interval * (direction_num_times + 1):
+                direction_num_times += 1
+                if direction_num_times >= bullet.direction_max_times:
+                    flags &= ~DIRECTION_ROTATION_FLAG
+                angle += bullet.direction_rotation
+                speed = bullet.turn_speed
+                bullet_speed = speed
+            else:
+                phase = timer_float - bullet.direction_interval * direction_num_times
+                bullet_speed = speed - phase * speed / bullet.direction_interval
+            vx = math.cos(angle) * bullet_speed
+            vy = math.sin(angle) * bullet_speed
+        x += vx
+        y += vy
+        timer += 1
+        timer_float += 1.0
+    return x, y
 
 
 def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
+    if (
+        bullet.state == 1
+        and bullet.ex_flags & DIRECTION_ROTATION_FLAG
+        and not bullet.ex_flags & (COMPLEX_MOTION_FLAGS & ~DIRECTION_ROTATION_FLAG)
+    ):
+        x, y = _direction_rotation_position(bullet, frame)
+        return (
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
+        )
     if (
         bullet.state == 1
         and bullet.ex_flags & ACCELERATION_FLAG

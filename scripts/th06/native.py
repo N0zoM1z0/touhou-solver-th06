@@ -62,6 +62,13 @@ BULLET_ACCELERATION_OFFSET = 0x578
 BULLET_SPEED_OFFSET = 0x584
 BULLET_ACCEL_SPEED_OFFSET = 0x588
 BULLET_TURN_SPEED_OFFSET = 0x58C
+BULLET_ANGLE_OFFSET = 0x590
+BULLET_DIRECTION_ROTATION_OFFSET = 0x598
+BULLET_TIMER_SUBFRAME_OFFSET = 0x5A0
+BULLET_TIMER_CURRENT_OFFSET = 0x5A4
+BULLET_DIRECTION_INTERVAL_OFFSET = 0x5AC
+BULLET_DIRECTION_NUM_TIMES_OFFSET = 0x5B0
+BULLET_DIRECTION_MAX_TIMES_OFFSET = 0x5B4
 BULLET_EX_FLAGS_OFFSET = 0x5B8
 BULLET_STATE_OFFSET = 0x5BE
 LASER_COUNT = 64
@@ -136,8 +143,34 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
     speed, accel_speed, turn_speed = struct.unpack_from(
         "<fff", tail, relative(BULLET_SPEED_OFFSET)
     )
+    angle = struct.unpack_from("<f", tail, relative(BULLET_ANGLE_OFFSET))[0]
+    direction_rotation = struct.unpack_from(
+        "<f", tail, relative(BULLET_DIRECTION_ROTATION_OFFSET)
+    )[0]
+    timer_subframe = struct.unpack_from(
+        "<f", tail, relative(BULLET_TIMER_SUBFRAME_OFFSET)
+    )[0]
+    timer = struct.unpack_from("<i", tail, relative(BULLET_TIMER_CURRENT_OFFSET))[0]
+    direction_interval, direction_num_times, direction_max_times = struct.unpack_from(
+        "<iii", tail, relative(BULLET_DIRECTION_INTERVAL_OFFSET)
+    )
     ex_flags = struct.unpack_from("<H", tail, relative(BULLET_EX_FLAGS_OFFSET))[0]
-    numbers = (size_x, size_y, bx, by, vx, vy, ax, ay, speed, accel_speed, turn_speed)
+    numbers = (
+        size_x,
+        size_y,
+        bx,
+        by,
+        vx,
+        vy,
+        ax,
+        ay,
+        speed,
+        accel_speed,
+        turn_speed,
+        angle,
+        direction_rotation,
+        timer_subframe,
+    )
     if state not in (1, 2, 3, 4, 5) or not all(
         math.isfinite(value) for value in numbers
     ) or not (0.0 < size_x <= 256.0 and 0.0 < size_y <= 256.0):
@@ -147,6 +180,24 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
                 "slot": slot,
                 "state": state,
                 "values": tuple(repr(value) for value in numbers),
+                "tail_hex": tail.hex(),
+            },
+        )
+    if state == 1 and ex_flags & 0x1C0 and not (
+        timer >= 0
+        and direction_interval > 0
+        and 0 <= direction_num_times < direction_max_times <= 0x10000
+    ):
+        raise NativeDecodeError(
+            f"invalid bullet direction schedule at slot {slot}",
+            {
+                "slot": slot,
+                "state": state,
+                "ex_flags": ex_flags,
+                "timer": timer,
+                "direction_interval": direction_interval,
+                "direction_num_times": direction_num_times,
+                "direction_max_times": direction_max_times,
                 "tail_hex": tail.hex(),
             },
         )
@@ -164,6 +215,13 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         turn_speed=turn_speed,
         acceleration_x=ax,
         acceleration_y=ay,
+        angle=angle,
+        direction_rotation=direction_rotation,
+        timer=timer,
+        timer_float=timer + timer_subframe,
+        direction_interval=direction_interval,
+        direction_num_times=direction_num_times,
+        direction_max_times=direction_max_times,
     )
 
 

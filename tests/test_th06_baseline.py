@@ -32,6 +32,8 @@ from th06.native import (
     ADDR_ENEMY_CALC_CHAIN,
     ADDR_ENEMY_MANAGER,
     BULLET_POSITION_OFFSET,
+    BULLET_DIRECTION_MAX_TIMES_OFFSET,
+    BULLET_EX_FLAGS_OFFSET,
     BULLET_SIZE_OFFSET,
     BULLET_STATE_OFFSET,
     BULLET_STRIDE,
@@ -269,6 +271,20 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual((bullet.x, bullet.y), (123.0, 234.0))
         self.assertEqual((bullet.half_width, bullet.half_height), (2.0, 3.0))
 
+    def test_direction_schedule_without_an_interval_fails_closed(self):
+        tail = bytearray(BULLET_STRIDE - BULLET_SIZE_OFFSET)
+        struct.pack_into("<ff", tail, 0, 4.0, 4.0)
+        struct.pack_into("<H", tail, BULLET_STATE_OFFSET - BULLET_SIZE_OFFSET, 1)
+        struct.pack_into(
+            "<H", tail, BULLET_EX_FLAGS_OFFSET - BULLET_SIZE_OFFSET, 0x40
+        )
+        struct.pack_into(
+            "<i", tail, BULLET_DIRECTION_MAX_TIMES_OFFSET - BULLET_SIZE_OFFSET, 1
+        )
+
+        with self.assertRaisesRegex(NativeDecodeError, "direction schedule"):
+            _decode_bullet_tail(tail, 8)
+
     def test_result_screen_is_found_through_calc_chain(self):
         chain_elem = bytearray(0x20)
         struct.pack_into("<I", chain_elem, 0x4, RESULT_SCREEN_ON_UPDATE)
@@ -353,6 +369,32 @@ class BaselineTests(unittest.TestCase):
         self.assertLess(right, 91.0)
         self.assertGreaterEqual(top, 334.0)
         self.assertLess(bottom, 340.0)
+
+    def test_timed_direction_rotation_uses_source_deceleration(self):
+        bullet = Bullet(
+            192.0,
+            200.0,
+            0.0,
+            2.9,
+            2.5,
+            2.5,
+            1,
+            ex_flags=0x42,
+            speed=5.8,
+            turn_speed=5.8,
+            angle=3.141592653589793 / 2.0,
+            timer=10,
+            timer_float=10.0,
+            direction_interval=20,
+            direction_num_times=0,
+            direction_max_times=1,
+        )
+
+        left, top, right, bottom = hazard_box(bullet, 4)
+
+        self.assertEqual((left, right), (189.5, 194.5))
+        self.assertGreater(top, 207.3)
+        self.assertLess(bottom, 212.5)
 
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)
