@@ -617,10 +617,48 @@ class BaselineTests(unittest.TestCase):
         decision = Solver().decide(state)
 
         self.assertEqual(adaptive_horizon(state), 6)
-        self.assertEqual(decision.effort_horizon, 6)
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         self.assertEqual(
             {item.action for item in decision.safe_actions},
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
+        )
+
+    def test_extreme_density_skips_open_native_effort(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (hard, hard)
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(len(hard), len(ACTIONS))
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        kernel.certify.assert_not_called()
+
+    def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        constrained = certify_actions(state, HARD_SAFETY_HORIZON)[:1]
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (constrained, constrained)
+        kernel.certify.return_value = constrained
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.effort_horizon, 6)
+        kernel.certify.assert_called_once_with(
+            state,
+            6,
+            collision_margin=0.35,
         )
 
     def test_mixed_hazard_density_bounds_adaptive_effort(self):

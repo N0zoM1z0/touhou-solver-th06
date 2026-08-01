@@ -11,7 +11,7 @@ from .laser_effort import (
     isolate_lasers,
     retained_current_corridor,
 )
-from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import ACTIONS, Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
@@ -34,7 +34,7 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
     # enemies; the resulting four-frame-old proposal was correctly discarded.
     # Hard-4 alone was timely, but a later 623-bullet branch needed h6 to reject
     # a rightward dead end two frames earlier. Keep this bounded compromise;
-    # the hard authority itself remains four frames.
+    # decide() skips the extra effort when all hard actions remain available.
     if len(snapshot.bullets) >= 400:
         return 6
     if len(snapshot.bullets) >= 220:
@@ -136,6 +136,36 @@ class Solver:
         effort_horizon = adaptive_horizon(snapshot)
         age_zero_certified = ()
         if (
+            len(snapshot.bullets) >= 400
+            and effort_horizon > HARD_SAFETY_HORIZON
+        ):
+            # Stage 4 f10061 had all nine Hard-4 actions available, but a
+            # redundant h6 pass over 535 bullets took 35.6 ms and aged the
+            # otherwise open decision beyond its delivery authority. First
+            # establish the unchanged hard set; spend h6 only when that set is
+            # already constrained, as it was at the f10137 dead-end branch.
+            if self.kernel is not None:
+                certified, age_zero_certified = self.kernel.certify_delivery_sets(
+                    snapshot,
+                    HARD_SAFETY_HORIZON,
+                    collision_margin=0.35,
+                )
+            else:
+                certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
+                if not certified:
+                    age_zero_certified = certify_actions(
+                        snapshot,
+                        HARD_SAFETY_HORIZON,
+                        DELIVERY_DELAYS[:-1],
+                    )
+            if len(certified) == len(ACTIONS):
+                effort_horizon = HARD_SAFETY_HORIZON
+                effort_certified = certified
+            elif certified:
+                effort_certified = self._certify(snapshot, effort_horizon)
+            else:
+                effort_certified = ()
+        elif (
             self.kernel is not None
             and hasattr(self.kernel, "certify_pair_with_age_zero")
             and effort_horizon > HARD_SAFETY_HORIZON
