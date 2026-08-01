@@ -244,8 +244,11 @@ class Solver:
                 or (
                     broad_authority
                     and (
-                        len(snapshot.bullets) >= 400
-                        or comfortable_authority
+                        comfortable_authority
+                        or (
+                            len(snapshot.bullets) >= 400
+                            and precomputed_current_effort is None
+                        )
                     )
                 )
             ):
@@ -256,8 +259,10 @@ class Solver:
                 # safe through h6 in the combined native pass, then spent
                 # 57.2 ms rebuilding all 487-bullet h6 branches and expired.
                 # Reuse that selective proposal when it survives.  If it does
-                # not, retain the full search that found earlier dead-end
-                # escapes; the Hard-4 set above remains unchanged either way.
+                # not, the native bridge now reuses the prepared hazards for
+                # the full search.  Stage 4 f10251 then rejects a newly chosen
+                # up-left path outside its four h6 survivors.  The Hard-4 set
+                # above remains unchanged either way.
                 effort_certified = (
                     precomputed_current_effort
                     if precomputed_current_effort

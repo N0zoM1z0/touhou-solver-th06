@@ -771,6 +771,7 @@ class BaselineTests(unittest.TestCase):
         class CombinedKernel:
             def __init__(self):
                 self.calls = []
+                self.full_calls = []
 
             def certify_delivery_sets_with_selected(
                 self,
@@ -789,6 +790,10 @@ class BaselineTests(unittest.TestCase):
                 ))
                 return close, close, ()
 
+            def certify(self, actual_state, horizon, collision_margin):
+                self.full_calls.append((actual_state, horizon, collision_margin))
+                return close[1:]
+
         kernel = CombinedKernel()
         solver = Solver()
         solver.kernel = kernel
@@ -803,6 +808,11 @@ class BaselineTests(unittest.TestCase):
             (held,),
             0.35,
         )])
+        self.assertEqual(kernel.full_calls, [(state, 6, 0.35)])
+        self.assertIn(decision.action, {
+            candidate.action for candidate in close[1:]
+        })
+        self.assertEqual(decision.effort_horizon, 6)
 
     def test_native_dense_followup_reuses_the_prepared_hazards(self):
         state = snapshot()
