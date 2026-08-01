@@ -340,6 +340,9 @@ class Solver:
             # warning snapshot made this search take longer than one frame.
             # The adaptive h16 requirement also excludes dense f6301, where
             # a 251-bullet joint search took 64 ms and expired at delivery.
+            # Stationary full-length lasers are excluded too: f7209's five
+            # straight lasers made this search take 52.4 ms without adding
+            # the rotating-corridor evidence this branch exists to provide.
             mixed_laser_scores = (
                 self.kernel.replanning_scores(
                     snapshot,

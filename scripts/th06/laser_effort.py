@@ -14,7 +14,10 @@ def needs_active_mixed_replan(snapshot: Snapshot, effort_horizon: int) -> bool:
     """Spend the long mixed budget only in the low-density active phase."""
     return (
         16 <= effort_horizon < LASER_EFFORT_HORIZON
-        and any(laser.state == 1 for laser in snapshot.lasers)
+        and any(
+            laser.state == 1 and abs(laser.angular_velocity) > 1e-6
+            for laser in snapshot.lasers
+        )
     )
 
 
