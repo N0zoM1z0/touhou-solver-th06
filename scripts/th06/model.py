@@ -61,6 +61,8 @@ class Bullet:
     direction_interval: int = 0
     direction_num_times: int = 0
     direction_max_times: int = 0
+    curve_speed_acceleration: float = 0.0
+    curve_angular_velocity: float = 0.0
 
 
 @dataclass(frozen=True)

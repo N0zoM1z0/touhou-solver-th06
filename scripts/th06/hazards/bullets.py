@@ -10,6 +10,7 @@ from .geometry import signed_clearance
 
 DYNAMIC_EX_FLAGS = 0xDF1
 ACCELERATION_FLAG = 0x10
+CURVE_ACCELERATION_FLAG = 0x20
 COMPLEX_MOTION_FLAGS = 0xDE1
 DIRECTION_ROTATION_FLAG = 0x40
 
@@ -45,6 +46,29 @@ def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, flo
     return x, y
 
 
+def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+    """Reproduce source flag 0x20 angular and speed acceleration."""
+    x, y = bullet.x, bullet.y
+    vx, vy = bullet.vx, bullet.vy
+    angle = bullet.angle
+    speed = bullet.speed
+    timer = bullet.timer
+    active = True
+    for _ in range(frame):
+        if active:
+            if timer >= bullet.acceleration_duration:
+                active = False
+            else:
+                angle += bullet.curve_angular_velocity
+                speed += bullet.curve_speed_acceleration
+                vx = math.cos(angle) * speed
+                vy = math.sin(angle) * speed
+        x += vx
+        y += vy
+        timer += 1
+    return x, y
+
+
 def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
     if (
         bullet.state == 1
@@ -75,6 +99,18 @@ def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
         )
         x = bullet.x + bullet.vx * frame + bullet.acceleration_x * acceleration_factor
         y = bullet.y + bullet.vy * frame + bullet.acceleration_y * acceleration_factor
+        return (
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
+        )
+    if (
+        bullet.state == 1
+        and bullet.ex_flags & CURVE_ACCELERATION_FLAG
+        and not bullet.ex_flags & (COMPLEX_MOTION_FLAGS & ~CURVE_ACCELERATION_FLAG)
+    ):
+        x, y = _curve_acceleration_position(bullet, frame)
         return (
             x - bullet.half_width,
             y - bullet.half_height,

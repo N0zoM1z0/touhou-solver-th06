@@ -63,6 +63,7 @@ BULLET_SPEED_OFFSET = 0x584
 BULLET_ACCEL_SPEED_OFFSET = 0x588
 BULLET_TURN_SPEED_OFFSET = 0x58C
 BULLET_ANGLE_OFFSET = 0x590
+BULLET_CURVE_ANGULAR_VELOCITY_OFFSET = 0x594
 BULLET_DIRECTION_ROTATION_OFFSET = 0x598
 BULLET_TIMER_SUBFRAME_OFFSET = 0x5A0
 BULLET_TIMER_CURRENT_OFFSET = 0x5A4
@@ -145,6 +146,9 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         "<fff", tail, relative(BULLET_SPEED_OFFSET)
     )
     angle = struct.unpack_from("<f", tail, relative(BULLET_ANGLE_OFFSET))[0]
+    curve_angular_velocity = struct.unpack_from(
+        "<f", tail, relative(BULLET_CURVE_ANGULAR_VELOCITY_OFFSET)
+    )[0]
     direction_rotation = struct.unpack_from(
         "<f", tail, relative(BULLET_DIRECTION_ROTATION_OFFSET)
     )[0]
@@ -172,6 +176,7 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         accel_speed,
         turn_speed,
         angle,
+        curve_angular_velocity,
         direction_rotation,
         timer_subframe,
     )
@@ -205,7 +210,12 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
                 "tail_hex": tail.hex(),
             },
         )
-    if ex_flags & 0x10 and not (0 < acceleration_duration <= 99999):
+    invalid_acceleration_duration = (
+        ex_flags & 0x10 and not 0 < acceleration_duration <= 99999
+    ) or (
+        ex_flags & 0x20 and not -99999 <= acceleration_duration <= 99999
+    )
+    if invalid_acceleration_duration:
         raise NativeDecodeError(
             f"invalid bullet acceleration duration at slot {slot}",
             {
@@ -239,6 +249,8 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         direction_interval=direction_interval,
         direction_num_times=direction_num_times,
         direction_max_times=direction_max_times,
+        curve_speed_acceleration=accel_speed,
+        curve_angular_velocity=curve_angular_velocity,
     )
 
 
