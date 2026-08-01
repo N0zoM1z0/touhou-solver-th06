@@ -579,6 +579,41 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(adaptive_horizon(state), 12)
 
+    def test_near_effort_frontier_ranks_when_full_proposals_are_empty(self):
+        extended = Bullet(
+            0.0, 250.0, 0.0, 0.0, 3.0, 3.0, 1, ex_flags=0x01,
+        )
+        state = snapshot(
+            extended,
+            x=30.0,
+            y=300.0,
+            input_mask=BUTTON_FOCUS | 0x10 | BUTTON_LEFT,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        effort_horizon = adaptive_horizon(state)
+        frontier = certify_actions(state, effort_horizon - 1)
+
+        self.assertEqual(effort_horizon, 12)
+        self.assertFalse(certify_actions(state, effort_horizon))
+        self.assertFalse(any(
+            replanning_scores(
+                state,
+                hard,
+                HARD_SAFETY_HORIZON,
+                effort_horizon,
+            ).values()
+        ))
+        self.assertEqual(
+            {candidate.action.name for candidate in frontier},
+            {"down"},
+        )
+        decision = Solver().decide(state)
+        self.assertEqual(decision.action.name, "down")
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+
     def test_laser_fails_closed(self):
         decision = Solver().decide(snapshot(lasers=1))
         self.assertIsNone(decision.action)

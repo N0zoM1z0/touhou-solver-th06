@@ -222,6 +222,19 @@ class Solver:
         if (
             not durable
             and not repairable
+            and effort_horizon > HARD_SAFETY_HORIZON + 1
+        ):
+            # A physical Stage 4 branch had no full 12-frame constant action
+            # and no two-segment repair, but one action survived 11 frames
+            # while the boundary heuristic selected a four-frame dead end.
+            # Preserve that complete mixed-hazard frontier as a soft proposal.
+            durable = frozenset(
+                candidate.action
+                for candidate in self._certify(snapshot, effort_horizon - 1)
+            )
+        if (
+            not durable
+            and not repairable
             and snapshot.lasers
             and effort_horizon < LASER_EFFORT_HORIZON
         ):
