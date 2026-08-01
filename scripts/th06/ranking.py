@@ -45,6 +45,21 @@ def heads_toward_single_wall(snapshot: Snapshot, action: Action) -> bool:
     return action.dy < 0 if top_room <= bottom_room else action.dy > 0
 
 
+def boundary_relief(snapshot: Snapshot, action: Action) -> int:
+    """Positive movement room across every boundary in soft lookahead."""
+    lookahead = snapshot.focus_speed * 16.0
+    relief = 0
+    if snapshot.x - MOVEMENT_LEFT <= lookahead:
+        relief += action.dx
+    if MOVEMENT_RIGHT - snapshot.x <= lookahead:
+        relief -= action.dx
+    if snapshot.y - MOVEMENT_TOP <= lookahead:
+        relief += action.dy
+    if MOVEMENT_BOTTOM - snapshot.y <= lookahead:
+        relief -= action.dy
+    return relief
+
+
 class ProposalRanker:
     def __init__(self) -> None:
         self.preference = {action: 0.0 for action in ACTIONS}
@@ -99,8 +114,6 @@ class ProposalRanker:
             and vertical_room <= snapshot.focus_speed + 0.25
         )
 
-        boundary_lookahead = snapshot.focus_speed * 16.0
-
         def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
@@ -109,15 +122,7 @@ class ProposalRanker:
                 > current_boundary_room + 0.25
             )
             urgent_egress = near_corner and boundary_egress
-            boundary_relief = 0
-            if snapshot.x - MOVEMENT_LEFT <= boundary_lookahead:
-                boundary_relief += candidate.action.dx
-            if MOVEMENT_RIGHT - snapshot.x <= boundary_lookahead:
-                boundary_relief -= candidate.action.dx
-            if snapshot.y - MOVEMENT_TOP <= boundary_lookahead:
-                boundary_relief += candidate.action.dy
-            if MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead:
-                boundary_relief -= candidate.action.dy
+            relief = boundary_relief(snapshot, candidate.action)
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
@@ -136,7 +141,7 @@ class ProposalRanker:
                     and len(candidate_actions) <= 2
                     and candidate.action == current
                 ),
-                boundary_relief,
+                relief,
                 boundary_egress,
                 total,
                 candidate.clearance,

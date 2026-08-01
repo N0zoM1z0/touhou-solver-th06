@@ -12,7 +12,7 @@ from .laser_effort import (
     retained_current_corridor,
 )
 from .model import ACTIONS, Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
-from .ranking import ProposalRanker, heads_toward_single_wall
+from .ranking import ProposalRanker, boundary_relief, heads_toward_single_wall
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
 
@@ -252,14 +252,27 @@ class Solver:
             durable
             and len(certified) == len(ACTIONS)
             and effort_horizon >= 8
-            and all(
-                heads_toward_single_wall(snapshot, action)
-                for action in durable
+            and (
+                all(
+                    heads_toward_single_wall(snapshot, action)
+                    for action in durable
+                )
+                or (
+                    not snapshot.lasers
+                    and all(
+                        boundary_relief(snapshot, action) < 0
+                        for action in durable
+                    )
+                )
             )
         ):
             # Stage 4 f12461's sole constant h12 proposal descended into the
             # bottom wall, although the existing two-segment model proved the
             # current horizontal corridor still had a valid continuation.
+            # Bullet-only f4658 similarly had tied two-segment diagonals that
+            # could leave its near corner while the sole constant proposal
+            # spent room on both axes. Rotating lasers are deliberately
+            # excluded from that corner extension.
             # Only explore while Hard-4 is fully open: f6364 already had just
             # six hard actions, and this extra search aged a sufficient h12
             # decision by three frames. Keep such non-wall continuations in

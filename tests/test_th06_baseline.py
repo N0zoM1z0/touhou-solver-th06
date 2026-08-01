@@ -1088,6 +1088,42 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.action, down)
         kernel.replanning_scores.assert_not_called()
 
+    def test_solver_uses_a_tied_replan_to_leave_a_bullet_corner(self):
+        state = snapshot(
+            x=38.703,
+            y=401.880,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        descending = tuple(
+            candidate for candidate in hard
+            if candidate.action == down
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            descending,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            down: 1,
+            down_left: 1,
+            down_right: 1,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, down_right)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
