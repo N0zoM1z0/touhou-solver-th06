@@ -1021,6 +1021,40 @@ class BaselineTests(unittest.TestCase):
             {candidate.action for candidate in hard},
         )
 
+    def test_solver_prefers_the_stronger_tangent_toward_one_wall(self):
+        state = snapshot(
+            x=230.51,
+            y=401.888,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        descending = tuple(
+            candidate for candidate in hard
+            if candidate.action in (down, down_right)
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            descending,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            down: 1,
+            down_right: 2,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, down_right)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,

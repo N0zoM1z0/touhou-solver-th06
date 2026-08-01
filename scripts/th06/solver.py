@@ -283,8 +283,17 @@ class Solver:
                 if score > 0
                 and not heads_toward_single_wall(snapshot, action)
             )
-            if wall_continuations:
-                durable |= wall_continuations
+            best_wall_score = max(
+                (wall_scores.get(action, 0) for action in durable),
+                default=0,
+            )
+            if best_wall_score:
+                durable = frozenset(
+                    action
+                    for action in durable
+                    if wall_scores.get(action, 0) == best_wall_score
+                )
+            durable |= wall_continuations
         if not durable and effort_horizon >= 8:
             # Stage 4 entered a corner because the adaptive layer allocated 16
             # frames but the fallback repair proposal discarded everything
