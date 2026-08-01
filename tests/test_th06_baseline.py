@@ -20,7 +20,7 @@ from th06.model import (
     Snapshot,
     action_from_input,
 )
-from th06.ranking import ProposalRanker
+from th06.ranking import ProposalRanker, boundary_relief
 from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
@@ -1879,6 +1879,31 @@ class BaselineTests(unittest.TestCase):
         )
 
         self.assertEqual(chosen, inward)
+
+    def test_ranker_uses_the_early_boundary_window_for_durable_ties(self):
+        state = snapshot(
+            x=109.154,
+            y=393.189,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        down = SafeAction(
+            ACTION_BY_VECTOR[(0, 1)], 10.0, state.x, state.y + 8.0
+        )
+        left = SafeAction(
+            ACTION_BY_VECTOR[(-1, 0)], 9.0, state.x - 8.0, state.y
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            (down, left),
+            durable_actions=frozenset((down.action, left.action)),
+        )
+
+        self.assertEqual(boundary_relief(state, down.action, 16), 0)
+        self.assertEqual(boundary_relief(state, left.action, 16), 0)
+        self.assertEqual(boundary_relief(state, down.action, 20), -1)
+        self.assertEqual(boundary_relief(state, left.action, 20), 0)
+        self.assertEqual(chosen, left)
 
     def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):
         state = snapshot(Bullet(190.5, 369.0, 1.0, 1.0, 2.0, 2.0, 1))

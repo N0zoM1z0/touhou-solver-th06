@@ -138,7 +138,12 @@ class ProposalRanker:
                 > current_boundary_room + 0.25
             )
             urgent_egress = near_corner and boundary_egress
-            relief = boundary_relief(snapshot, candidate.action)
+            # Use the same one-Hard-segment-early boundary window as the
+            # solver's soft wall search. Stage 4 f4544 was 38.8 px from the
+            # bottom: the 20-frame detector had already entered its warning
+            # band, while this 16-frame tie-break still treated down and left
+            # alike and selected the descending route that emptied at f4561.
+            relief = boundary_relief(snapshot, candidate.action, 20)
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
