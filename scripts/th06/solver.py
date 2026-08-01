@@ -158,7 +158,13 @@ class Solver:
                         HARD_SAFETY_HORIZON,
                         DELIVERY_DELAYS[:-1],
                     )
-            if len(certified) == len(ACTIONS):
+            # Two Stage 4 density CEs (f2625 and f2912) still had eight
+            # Hard-4 actions, but the second h6 pass took 18.6/23.5 ms and let
+            # the held input reach an empty set. The earlier f10137 dead end
+            # needed h6 only after the hard set had narrowed to roughly five
+            # actions. Publish broad authority promptly; retain h6 once the
+            # geometry is materially constrained.
+            if len(certified) >= len(ACTIONS) - 2:
                 effort_horizon = HARD_SAFETY_HORIZON
                 effort_certified = certified
             elif certified:
