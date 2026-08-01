@@ -16,7 +16,6 @@ from .ranking import (
     ProposalRanker,
     boundary_relief,
     heads_toward_single_wall,
-    near_corner_within,
 )
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
@@ -276,9 +275,13 @@ class Solver:
             if refined_durable:
                 durable = refined_durable
         repairable = frozenset()
-        early_corner_trap = (
+        single_wall_trap = durable and all(
+            heads_toward_single_wall(snapshot, action)
+            for action in durable
+        )
+        early_boundary_trap = (
             not snapshot.lasers
-            and near_corner_within(snapshot, 20)
+            and not single_wall_trap
             and durable
             and all(
                 boundary_relief(snapshot, action, 20) < 0
@@ -291,20 +294,17 @@ class Solver:
             and len(snapshot.enemies) <= 1
             and effort_horizon >= 8
             and (
-                all(
-                    heads_toward_single_wall(snapshot, action)
-                    for action in durable
-                )
-                or early_corner_trap
+                single_wall_trap
+                or early_boundary_trap
             )
         ):
             # Stage 4 f12461's sole constant h12 proposal descended into the
             # bottom wall, although the existing two-segment model proved the
             # current horizontal corridor still had a valid continuation.
-            # Bullet-only f4658 similarly had tied two-segment diagonals that
-            # could leave its near corner while the sole constant proposal
-            # spent room on both axes. Rotating lasers are deliberately
-            # excluded from that corner extension.
+            # Bullet-only f4658 and f4540 similarly had positive two-segment
+            # continuations one Hard-4 segment before the ordinary boundary
+            # lookahead, while every constant proposal spent remaining room.
+            # Rotating lasers are deliberately excluded from this extension.
             # Only explore while Hard-4 is fully open: f6364 already had just
             # six hard actions, and this extra search aged a sufficient h12
             # decision by three frames. Keep such non-wall continuations in
@@ -327,7 +327,7 @@ class Solver:
                     effort_horizon,
                 )
             )
-            if early_corner_trap:
+            if early_boundary_trap:
                 viable = frozenset(
                     action for action, score in wall_scores.items() if score > 0
                 )
