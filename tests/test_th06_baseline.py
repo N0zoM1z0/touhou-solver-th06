@@ -608,7 +608,7 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
         )
 
-    def test_extreme_density_spends_only_the_hard_horizon(self):
+    def test_extreme_density_bounds_effort_near_the_hard_horizon(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
             for _ in range(400)
@@ -616,8 +616,8 @@ class BaselineTests(unittest.TestCase):
         state = snapshot(*bullets)
         decision = Solver().decide(state)
 
-        self.assertEqual(adaptive_horizon(state), HARD_SAFETY_HORIZON)
-        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(adaptive_horizon(state), 6)
+        self.assertEqual(decision.effort_horizon, 6)
         self.assertEqual(
             {item.action for item in decision.safe_actions},
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
