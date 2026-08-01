@@ -143,6 +143,33 @@ class Solver:
                 return certified
         return ()
 
+    def _longest_selected_horizon(
+        self,
+        snapshot: Snapshot,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        actions: tuple[Action, ...],
+    ) -> int:
+        native_method = (
+            getattr(type(self.kernel), "longest_selected_horizon", None)
+            if self.kernel is not None
+            else None
+        )
+        if native_method is not None:
+            return self.kernel.longest_selected_horizon(
+                snapshot,
+                minimum_horizon,
+                maximum_horizon,
+                actions,
+                collision_margin=0.35,
+            )
+        if self.kernel is not None:
+            return 0
+        for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
+            if self._certify_selected(snapshot, horizon, actions):
+                return horizon
+        return 0
+
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
 
@@ -623,6 +650,20 @@ class Solver:
             if any(candidate.action == held_action for candidate in effort_certified)
             else HARD_SAFETY_HORIZON
         )
+        if (
+            held_horizon == HARD_SAFETY_HORIZON
+            and any(candidate.action == held_action for candidate in certified)
+            and effort_horizon > HARD_SAFETY_HORIZON + 1
+        ):
+            held_horizon = max(
+                held_horizon,
+                self._longest_selected_horizon(
+                    snapshot,
+                    HARD_SAFETY_HORIZON + 1,
+                    effort_horizon - 1,
+                    (held_action,),
+                ),
+            )
         if any(candidate.action == held_action for candidate in fast_laser_long):
             held_horizon = max(held_horizon, LASER_SPEED_HORIZON)
         return Decision(

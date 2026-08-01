@@ -132,7 +132,7 @@ class NativeSafetyKernel:
     def _prepare_reusable(self, snapshot: Snapshot, horizon: int):
         if (
             self._prepared_snapshot is snapshot
-            and self._prepared_horizon == horizon
+            and self._prepared_horizon >= horizon
         ):
             return self._prepared_hazards
         prepared = self._prepare(snapshot, horizon)
@@ -251,6 +251,36 @@ class NativeSafetyKernel:
             candidate_mask,
         )[0]
         return hard, effort
+
+    def longest_selected_horizon(
+        self,
+        snapshot: Snapshot,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> int:
+        if minimum_horizon > maximum_horizon:
+            return 0
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in selected
+        )
+        if not candidate_mask:
+            return 0
+        prepared = self._prepare_reusable(snapshot, maximum_horizon)
+        for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
+            if self._certify_prepared(
+                snapshot,
+                horizon,
+                collision_margin,
+                prepared,
+                candidate_mask,
+            )[0]:
+                return horizon
+        return 0
 
     def certify_delivery_sets_with_selected(
         self,

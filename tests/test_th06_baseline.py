@@ -940,6 +940,33 @@ class BaselineTests(unittest.TestCase):
         kernel._prepare.assert_called_once_with(state, 40)
         self.assertEqual(kernel._certify_prepared.call_count, 2)
 
+    def test_native_held_frontier_reuses_the_effort_hazards(self):
+        state = snapshot()
+        held = action_from_input(state.input_mask)
+        prepared = object()
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepared_snapshot = state
+        kernel._prepared_horizon = 8
+        kernel._prepared_hazards = prepared
+        kernel._prepare = mock.Mock()
+        kernel._certify_prepared = mock.Mock(side_effect=(
+            ((), ()),
+            ((), ()),
+            ((SafeAction(held, 1.0, state.x, state.y),), ()),
+        ))
+
+        horizon = kernel.longest_selected_horizon(
+            state,
+            5,
+            7,
+            (held,),
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(horizon, 5)
+        kernel._prepare.assert_not_called()
+        self.assertEqual(kernel._certify_prepared.call_count, 3)
+
     def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
