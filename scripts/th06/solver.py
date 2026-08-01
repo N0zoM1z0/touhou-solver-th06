@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .kernels.safety import NativeSafetyKernel
-from .model import Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import certify_actions, nearest_current_clearance
 
@@ -42,7 +42,7 @@ class Solver:
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
 
-    def decide(self, snapshot: Snapshot) -> Decision:
+    def decide(self, snapshot: Snapshot, required_action: Action | None = None) -> Decision:
         if snapshot.in_menu:
             return Decision(None, (), 0.0, 0, "menu")
         if snapshot.replay_or_demo:
@@ -55,6 +55,33 @@ class Solver:
             return Decision(None, (), 0.0, 0, "unsupported-frame-multiplier")
         if snapshot.laser_count != len(snapshot.lasers):
             return Decision(None, (), 0.0, 0, "unsupported-laser-decode")
+        if required_action is not None:
+            # The full certificate was issued with the physical command.  On
+            # the sole pending frame, recheck both possible next inputs
+            # (current or leased) against newly observed hazards without
+            # extending a constant-action requirement past acknowledgement.
+            certified = self._certify(snapshot, 1)
+            leased = next(
+                (candidate for candidate in certified if candidate.action == required_action),
+                None,
+            )
+            if leased is None:
+                return Decision(
+                    None,
+                    certified,
+                    0.0,
+                    1,
+                    "input-lease-unsafe",
+                    1,
+                )
+            return Decision(
+                leased.action,
+                certified,
+                leased.clearance,
+                1,
+                "ok",
+                1,
+            )
         effort_horizon = adaptive_horizon(snapshot)
         certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
         if not certified:

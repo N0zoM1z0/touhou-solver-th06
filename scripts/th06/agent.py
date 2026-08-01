@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
+from .input_lease import InputLease
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot
 from .native import (
@@ -63,6 +64,7 @@ def run(args: argparse.Namespace) -> int:
     trace_path = Path(__file__).resolve().parents[2] / "artifacts" / trace_name
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     solver = Solver()
+    input_lease = InputLease()
     previous_state: int | None = None
     previous_snapshot: Snapshot | None = None
     practice_trial = PracticeTrial() if args.practice_stage is not None else None
@@ -115,6 +117,7 @@ def run(args: argparse.Namespace) -> int:
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
                 "enemies", "despawning",
                 "replay", "native_input", "held_desired_input", "input_transitions",
+                "input_lease",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
                 "effort_safe",
                 "clearance", "solve_ms",
@@ -149,6 +152,12 @@ def run(args: argparse.Namespace) -> int:
                     solver.observe(not hit)
                 previous_state = snapshot.player_state
                 solve_started = time.perf_counter()
+                lease_status = (
+                    input_lease.status(snapshot.input_mask, snapshot.frame)
+                    if keyboard is not None
+                    else None
+                )
+                leased_action = lease_status.action if lease_status is not None else None
                 if hit:
                     decision = Decision(
                         None,
@@ -158,8 +167,17 @@ def run(args: argparse.Namespace) -> int:
                         "physical-hit",
                         HARD_SAFETY_HORIZON,
                     )
+                elif lease_status is not None and lease_status.timed_out:
+                    decision = Decision(
+                        None,
+                        (),
+                        0.0,
+                        1,
+                        "input-pickup-timeout",
+                        1,
+                    )
                 else:
-                    decision = solver.decide(snapshot)
+                    decision = solver.decide(snapshot, leased_action)
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
@@ -177,9 +195,13 @@ def run(args: argparse.Namespace) -> int:
                             not snapshot.in_menu and not snapshot.replay_or_demo
                         )
                         if decision.action is not None:
-                            transition_count += len(keyboard.apply(decision.action))
+                            events = keyboard.apply(decision.action)
+                            transition_count += len(events)
+                            if leased_action is None and events:
+                                input_lease.issued(snapshot.frame, decision.action)
                         else:
                             transition_count += len(keyboard.release_all())
+                            input_lease.cleared()
                             authority_stop = authority_unavailable(decision)
                             if authority_stop:
                                 exit_code = 2
@@ -197,7 +219,8 @@ def run(args: argparse.Namespace) -> int:
                     len(snapshot.despawning_bullets), int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
-                    transition_count, f"{snapshot.frame_multiplier:.3f}", action_name,
+                    transition_count, int(leased_action is not None),
+                    f"{snapshot.frame_multiplier:.3f}", action_name,
                     len(decision.safe_actions), decision.horizon, decision.effort_horizon,
                     decision.effort_safe_count,
                     f"{decision.clearance:.3f}",
@@ -230,6 +253,9 @@ def run(args: argparse.Namespace) -> int:
                                 "decision": asdict(decision),
                                 "held_before_stop": held_before_authority,
                                 "held_desired_input": keyboard.base_input_mask if keyboard else 0,
+                                "input_lease": (
+                                    asdict(leased_action) if leased_action is not None else None
+                                ),
                             },
                             indent=2,
                             sort_keys=True,

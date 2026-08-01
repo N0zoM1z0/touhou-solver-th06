@@ -7,6 +7,7 @@ from th06.model import (
     BUTTON_BOMB,
     BUTTON_FOCUS,
     BUTTON_LEFT,
+    BUTTON_SHOOT,
     Bullet,
     EnemyBody,
     Laser,
@@ -21,6 +22,7 @@ from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
+from th06.input_lease import InputLease
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import menu
@@ -119,6 +121,24 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(batches, [events])
         self.assertEqual(keyboard.base_input_mask, 0x85)
         self.assertFalse(keyboard.base_input_mask & BUTTON_BOMB)
+
+    def test_input_lease_waits_for_native_pickup(self):
+        lease = InputLease()
+        right = ACTION_BY_VECTOR[(1, 0)]
+        lease.issued(10, right)
+
+        self.assertEqual(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 11).action, right)
+        self.assertEqual(lease.status(BUTTON_FOCUS | 0x80, 11).action, right)
+        self.assertIsNone(
+            lease.status(BUTTON_SHOOT | BUTTON_FOCUS | 0x80, 12).action
+        )
+        lease.cleared()
+        self.assertIsNone(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 12).action)
+
+    def test_input_lease_fails_closed_after_pickup_bound(self):
+        lease = InputLease()
+        lease.issued(10, ACTION_BY_VECTOR[(1, 0)])
+        self.assertTrue(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 12).timed_out)
 
     def test_missing_authority_is_not_no_write(self):
         self.assertTrue(
@@ -256,6 +276,37 @@ class BaselineTests(unittest.TestCase):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)
         safe = certify_actions(snapshot(bullet), horizon=5)
         self.assertNotIn(ACTION_BY_VECTOR[(1, 0)], {candidate.action for candidate in safe})
+
+    def test_input_lease_can_only_hold_a_hard_safe_action(self):
+        right = ACTION_BY_VECTOR[(1, 0)]
+        open_decision = Solver().decide(snapshot(), required_action=right)
+        self.assertEqual(open_decision.action, right)
+
+        blocked = snapshot(Bullet(196.0, 380.0, 0.0, 0.0, 2.0, 2.0, 1))
+        blocked_decision = Solver().decide(blocked, required_action=right)
+        self.assertIsNone(blocked_decision.action)
+        self.assertEqual(blocked_decision.reason, "input-lease-unsafe")
+        self.assertTrue(blocked_decision.safe_actions)
+
+    def test_pending_action_uses_only_the_remaining_pickup_frame(self):
+        # Reduced from the physical input-pipeline CE: extending the pending
+        # command as if newly issued rejects right, although both possible
+        # inputs on the sole remaining pickup frame are safe.
+        state = snapshot(
+            Bullet(
+                64.37475, 376.03484, 0.0, 2.3,
+                2.0, 2.0, 1, ex_flags=4, speed=2.3, turn_speed=2.3,
+            ),
+            x=64.4436,
+            y=382.3603,
+            input_mask=BUTTON_SHOOT | BUTTON_FOCUS | 0x20 | BUTTON_LEFT,
+        )
+        right = ACTION_BY_VECTOR[(1, 0)]
+        self.assertNotIn(right, {item.action for item in certify_actions(state, 4)})
+
+        pending = Solver().decide(state, required_action=right)
+        self.assertEqual(pending.action, right)
+        self.assertEqual(pending.horizon, 1)
 
     def test_adaptive_horizon_grows_near_hazard(self):
         far = snapshot(Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1))
