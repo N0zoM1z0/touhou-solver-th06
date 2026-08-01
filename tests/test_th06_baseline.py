@@ -1117,6 +1117,39 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.action, down)
         kernel.replanning_scores.assert_not_called()
 
+    def test_solver_skips_wall_search_with_multiple_enemy_bodies(self):
+        state = snapshot(
+            x=99.064,
+            y=400.378,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": tuple(
+                enemy_body(x=20.0 + index * 20.0, y=40.0)
+                for index in range(4)
+            ),
+        })
+        hard = certify_actions(snapshot(), HARD_SAFETY_HORIZON)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        descending = tuple(
+            candidate for candidate in hard
+            if candidate.action == down
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            descending,
+            hard,
+        )
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, down)
+        kernel.replanning_scores.assert_not_called()
+
     def test_solver_uses_a_tied_replan_to_leave_a_bullet_corner(self):
         state = snapshot(
             x=38.703,

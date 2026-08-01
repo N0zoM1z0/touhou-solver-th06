@@ -251,6 +251,7 @@ class Solver:
         if (
             durable
             and len(certified) == len(ACTIONS)
+            and len(snapshot.enemies) <= 1
             and effort_horizon >= 8
             and (
                 all(
@@ -276,7 +277,9 @@ class Solver:
             # Only explore while Hard-4 is fully open: f6364 already had just
             # six hard actions, and this extra search aged a sufficient h12
             # decision by three frames. Keep such non-wall continuations in
-            # the soft tier; the fixed Hard-4 set above remains the authority.
+            # the soft tier. Multi-enemy f1565 is excluded because this second
+            # branch search took 44.4 ms; the fixed Hard-4 set above remains
+            # the authority.
             wall_scores = (
                 self.kernel.replanning_scores(
                     snapshot,
