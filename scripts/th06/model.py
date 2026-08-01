@@ -51,6 +51,8 @@ class Bullet:
     acceleration: float = 0.0
     speed: float = 0.0
     turn_speed: float = 0.0
+    acceleration_x: float = 0.0
+    acceleration_y: float = 0.0
 
 
 @dataclass(frozen=True)

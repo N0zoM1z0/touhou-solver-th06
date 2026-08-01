@@ -13,6 +13,7 @@ from th06.model import (
 )
 from th06.ranking import ProposalRanker
 from th06.safety import certify_actions
+from th06.safety import _hazard_box
 from th06.solver import Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.agent import authority_unavailable
@@ -172,6 +173,26 @@ class BaselineTests(unittest.TestCase):
         safe = certify_actions(snapshot(bullet), horizon=8)
         self.assertNotIn(ACTION_BY_VECTOR[(0, 0)], {candidate.action for candidate in safe})
         self.assertTrue(safe)
+
+    def test_fired_fixed_acceleration_uses_source_motion_not_all_directions(self):
+        bullet = Bullet(
+            100.0,
+            300.0,
+            -1.0,
+            3.0,
+            2.0,
+            2.0,
+            1,
+            ex_flags=0x14,
+            acceleration=0.02,
+            acceleration_x=-0.006,
+            acceleration_y=0.019,
+        )
+        left, top, right, bottom = _hazard_box(bullet, 12)
+        self.assertGreater(left, 80.0)
+        self.assertLess(right, 91.0)
+        self.assertGreaterEqual(top, 334.0)
+        self.assertLess(bottom, 340.0)
 
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)

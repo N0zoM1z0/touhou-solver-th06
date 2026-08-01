@@ -134,3 +134,20 @@ The run processed 5,685 decisions. Median solve time was 2.79 ms, p95 was
 29.02 ms, and maximum was 73.89 ms; 771 native frames were not sampled. This is
 the main measured baseline limitation alongside future-birth and laser
 coverage. The zero-death result is one observational run, not route closure.
+
+## First fail-closed iteration (2026-08-01)
+
+The first isolated authority stop at Stage 1 frame 2462 was a false empty safe
+set: all nine actions were rejected by one fired `exFlags=0x14` acceleration
+bullet about 100 pixels away. The old generic dynamic envelope let that bullet
+move in every direction. `BulletManager::OnUpdate` instead adds one fixed
+`ex4Acceleration` vector until its timer clears bit `0x10`; the corrected bound
+enumerates each possible clear frame and preserves the native acceleration
+vector.
+
+The physical rerun changed frame 2460 from zero to nine safe actions and then
+continued without a hit or Bomb to frame 8968, where it stopped on the next
+unsupported authority: an active laser. The run sampled 6,877 states, missed
+2,039 native frames, and had a 100.86 ms maximum solve time. Laser geometry is
+the next correctness gap; the measured Python cost is also now strong evidence
+for a narrow native safety kernel once that geometry is correct.

@@ -328,8 +328,19 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
             raise RuntimeError(f"invalid bullet geometry at slot {index}")
         bullets.append(
             Bullet(
-                bx, by, vx, vy, size_x / 2.0, size_y / 2.0, state, ex_flags,
-                math.hypot(ax, ay) + abs(accel_speed), speed, turn_speed,
+                bx,
+                by,
+                vx,
+                vy,
+                size_x / 2.0,
+                size_y / 2.0,
+                state,
+                ex_flags=ex_flags,
+                acceleration=math.hypot(ax, ay) + abs(accel_speed),
+                speed=speed,
+                turn_speed=turn_speed,
+                acceleration_x=ax,
+                acceleration_y=ay,
             )
         )
 

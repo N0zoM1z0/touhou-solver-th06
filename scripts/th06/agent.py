@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from .actuator import Keyboard
@@ -176,8 +178,23 @@ def run(args: argparse.Namespace) -> int:
                 last_reason = decision.reason
                 if authority_stop:
                     output.flush()
+                    failure_path = trace_path.with_name("th06_failure_latest.json")
+                    failure_path.write_text(
+                        json.dumps(
+                            {
+                                "wall_s": time.monotonic() - started,
+                                "snapshot": asdict(snapshot),
+                                "decision": asdict(decision),
+                                "held_desired_input": keyboard.base_input_mask if keyboard else 0,
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
                     print(
-                        f"authority unavailable at f={snapshot.frame}: {decision.reason}; stopping trial",
+                        f"authority unavailable at f={snapshot.frame}: {decision.reason}; "
+                        f"counterexample={failure_path}; stopping trial",
                         flush=True,
                     )
                     break
