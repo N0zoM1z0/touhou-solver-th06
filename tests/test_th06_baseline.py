@@ -140,6 +140,15 @@ class BaselineTests(unittest.TestCase):
         lease.issued(10, ACTION_BY_VECTOR[(1, 0)])
         self.assertTrue(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 12).timed_out)
 
+    def test_input_lease_age_starts_at_physical_issue_frame(self):
+        lease = InputLease()
+        # A dialogue edge may advance the game after the decision snapshot but
+        # before SendInput. The post-SendInput frame is the lease boundary.
+        lease.issued(13, ACTION_BY_VECTOR[(1, 0)])
+        status = lease.status(BUTTON_FOCUS | BUTTON_LEFT, 14)
+        self.assertFalse(status.timed_out)
+        self.assertEqual(status.action, ACTION_BY_VECTOR[(1, 0)])
+
     def test_missing_authority_is_not_no_write(self):
         self.assertTrue(
             authority_unavailable(Decision(None, (), 0.0, 16, "hard-safe-set-empty"))

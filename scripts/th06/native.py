@@ -555,6 +555,13 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
     )
 
 
+def read_game_frame(process: NativeProcess) -> int:
+    """Read the source-defined stage frame at the physical command boundary."""
+    return struct.unpack(
+        "<I", process.read(ADDR_GAME_MANAGER + GAME_FRAMES_OFFSET, 4)
+    )[0]
+
+
 def read_menu_state(process: NativeProcess) -> tuple[int, int, int]:
     block = process.read(
         ADDR_MAIN_MENU + MAIN_MENU_CURSOR_OFFSET,

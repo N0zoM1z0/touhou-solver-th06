@@ -20,6 +20,7 @@ from .native import (
     ADDR_LIFE_PATCH,
     TARGET_SHA256,
     attach_exact,
+    read_game_frame,
     read_snapshot,
     read_supervisor_state,
 )
@@ -198,7 +199,9 @@ def run(args: argparse.Namespace) -> int:
                             events = keyboard.apply(decision.action)
                             transition_count += len(events)
                             if leased_action is None and events:
-                                input_lease.issued(snapshot.frame, decision.action)
+                                input_lease.issued(
+                                    read_game_frame(process), decision.action
+                                )
                         else:
                             transition_count += len(keyboard.release_all())
                             input_lease.cleared()
