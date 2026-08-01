@@ -71,7 +71,10 @@ def run(args: argparse.Namespace) -> int:
     input_lease = InputLease()
     previous_state: int | None = None
     previous_snapshot: Snapshot | None = None
-    snapshot_history: deque[Snapshot] = deque(maxlen=64)
+    # A rotating-laser failure can become geometrically unavoidable more than
+    # one second after its warning phase.  Keep enough source-grounded state
+    # to find the first still-viable decision, not merely the final empty set.
+    snapshot_history: deque[Snapshot] = deque(maxlen=256)
     practice_trial = PracticeTrial() if args.practice_stage is not None else None
     last_frame: int | None = None
     last_reason: str | None = None
