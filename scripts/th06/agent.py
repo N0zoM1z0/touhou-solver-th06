@@ -15,9 +15,16 @@ from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD
-from .native import ADDR_LIFE_PATCH, TARGET_SHA256, attach_exact, read_snapshot
+from .native import (
+    ADDR_LIFE_PATCH,
+    TARGET_SHA256,
+    attach_exact,
+    read_snapshot,
+    read_supervisor_state,
+)
 from .replay import ReplaySaver
-from .solver import Solver
+from .solver import HARD_SAFETY_HORIZON, Solver
+from .trial import PracticeTrial, physical_hit
 
 
 PASSIVE_NO_ACTION_REASONS = frozenset(("menu", "player-not-active", "time-stopped"))
@@ -57,6 +64,7 @@ def run(args: argparse.Namespace) -> int:
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     solver = Solver()
     previous_state: int | None = None
+    practice_trial = PracticeTrial() if args.practice_stage is not None else None
     last_frame: int | None = None
     last_reason: str | None = None
     exit_code = 0
@@ -79,6 +87,7 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         print(f"verified pid={process.pid} sha256={TARGET_SHA256}", flush=True)
+        print(f"safety backend: {solver.backend}", flush=True)
         if args.patch_lives:
             print(f"life patch: {process.patch_lives()} at 0x{ADDR_LIFE_PATCH:08X}", flush=True)
         if args.start_hard:
@@ -104,10 +113,21 @@ def run(args: argparse.Namespace) -> int:
             writer.writerow((
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
                 "replay", "native_input", "held_desired_input", "input_transitions",
-                "frame_multiplier", "action", "safe", "horizon", "clearance", "solve_ms",
+                "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
+                "effort_safe",
+                "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
             while not args.seconds or time.monotonic() - started < args.seconds:
+                if practice_trial is not None:
+                    _wanted, current = read_supervisor_state(process)
+                    if practice_trial.observe_supervisor(current):
+                        print(
+                            f"Practice Stage {args.practice_stage} reached its result path; "
+                            "trial complete",
+                            flush=True,
+                        )
+                        break
                 if replay_saver is not None:
                     replay_status = replay_saver.update(process)
                     if replay_status == "saved":
@@ -121,11 +141,22 @@ def run(args: argparse.Namespace) -> int:
                     time.sleep(0.001)
                     continue
                 last_frame = snapshot.frame
+                hit = physical_hit(previous_state, snapshot.player_state)
                 if previous_state is not None:
-                    solver.observe(not (previous_state == PLAYER_ALIVE and snapshot.player_state == PLAYER_DEAD))
+                    solver.observe(not hit)
                 previous_state = snapshot.player_state
                 solve_started = time.perf_counter()
-                decision = solver.decide(snapshot)
+                if hit:
+                    decision = Decision(
+                        None,
+                        (),
+                        0.0,
+                        HARD_SAFETY_HORIZON,
+                        "physical-hit",
+                        HARD_SAFETY_HORIZON,
+                    )
+                else:
+                    decision = solver.decide(snapshot)
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
@@ -162,7 +193,9 @@ def run(args: argparse.Namespace) -> int:
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
                     transition_count, f"{snapshot.frame_multiplier:.3f}", action_name,
-                    len(decision.safe_actions), decision.horizon, f"{decision.clearance:.3f}",
+                    len(decision.safe_actions), decision.horizon, decision.effort_horizon,
+                    decision.effort_safe_count,
+                    f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}", int(dialogue.active),
                     int(dialogue.active and dialogue.skippable), int(dialogue.pulsed_shoot),
                     int(authority_stop), decision.reason,
@@ -172,7 +205,8 @@ def run(args: argparse.Namespace) -> int:
                     print(
                         f"f={snapshot.frame} stage={snapshot.stage} state={snapshot.player_state} "
                         f"bullets={len(snapshot.bullets)} action={action_name} "
-                        f"safe={len(decision.safe_actions)} h={decision.horizon} reason={decision.reason}",
+                        f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
+                        f"h={decision.horizon} reason={decision.reason}",
                         flush=True,
                     )
                 last_reason = decision.reason

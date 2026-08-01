@@ -12,7 +12,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import Bullet, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import Bullet, Laser, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 
 
 TARGET_EXE = "th06.exe"
@@ -64,7 +64,23 @@ BULLET_EX_FLAGS_OFFSET = 0x5B8
 BULLET_STATE_OFFSET = 0x5BE
 LASER_COUNT = 64
 LASER_STRIDE = 0x270
+LASER_POSITION_OFFSET = 0x220
+LASER_ANGLE_OFFSET = 0x22C
+LASER_START_OFFSET = 0x230
+LASER_END_OFFSET = 0x234
+LASER_START_LENGTH_OFFSET = 0x238
+LASER_WIDTH_OFFSET = 0x23C
+LASER_SPEED_OFFSET = 0x240
+LASER_START_TIME_OFFSET = 0x244
+LASER_HITBOX_START_TIME_OFFSET = 0x248
+LASER_DURATION_OFFSET = 0x24C
+LASER_DESPAWN_DURATION_OFFSET = 0x250
+LASER_HITBOX_END_DELAY_OFFSET = 0x254
 LASER_IN_USE_OFFSET = 0x258
+LASER_TIMER_SUBFRAME_OFFSET = 0x260
+LASER_TIMER_OFFSET = 0x264
+LASER_FLAGS_OFFSET = 0x268
+LASER_STATE_OFFSET = 0x26C
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -345,16 +361,75 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         )
 
     laser_base = ADDR_LASER_ARRAY - ADDR_BULLET_ARRAY
-    active_lasers = sum(
-        1
-        for index in range(LASER_COUNT)
-        if struct.unpack_from("<i", pool, laser_base + index * LASER_STRIDE + LASER_IN_USE_OFFSET)[0]
-    )
+    lasers: list[Laser] = []
+    for index in range(LASER_COUNT):
+        base = laser_base + index * LASER_STRIDE
+        if not struct.unpack_from("<i", pool, base + LASER_IN_USE_OFFSET)[0]:
+            continue
+        lx, ly = struct.unpack_from("<ff", pool, base + LASER_POSITION_OFFSET)
+        angle, start_offset, end_offset, start_length, width, laser_speed = struct.unpack_from(
+            "<ffffff", pool, base + LASER_ANGLE_OFFSET
+        )
+        start_time, hitbox_start_time, duration, despawn_duration, hitbox_end_delay = struct.unpack_from(
+            "<iiiii", pool, base + LASER_START_TIME_OFFSET
+        )
+        timer_subframe = struct.unpack_from("<f", pool, base + LASER_TIMER_SUBFRAME_OFFSET)[0]
+        timer = struct.unpack_from("<i", pool, base + LASER_TIMER_OFFSET)[0]
+        flags = struct.unpack_from("<H", pool, base + LASER_FLAGS_OFFSET)[0]
+        state = pool[base + LASER_STATE_OFFSET]
+        laser_numbers = (
+            lx,
+            ly,
+            angle,
+            start_offset,
+            end_offset,
+            start_length,
+            width,
+            laser_speed,
+            timer_subframe,
+        )
+        laser_times = (
+            start_time,
+            hitbox_start_time,
+            duration,
+            despawn_duration,
+            hitbox_end_delay,
+            timer,
+        )
+        if (
+            not all(math.isfinite(value) for value in laser_numbers)
+            or not 0.0 < width <= 1024.0
+            or not 0.0 <= start_length <= 4096.0
+            or not all(0 <= value < 10_000_000 for value in laser_times)
+            or state not in (0, 1, 2)
+        ):
+            raise RuntimeError(f"invalid laser state at slot {index}")
+        lasers.append(
+            Laser(
+                lx,
+                ly,
+                angle,
+                start_offset,
+                end_offset,
+                start_length,
+                width,
+                laser_speed,
+                start_time,
+                hitbox_start_time,
+                duration,
+                despawn_duration,
+                hitbox_end_delay,
+                timer,
+                timer + timer_subframe,
+                flags,
+                state,
+            )
+        )
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
         normal_speed, focus_speed, normal_diagonal, focus_diagonal,
-        frame_multiplier, input_mask, tuple(bullets), active_lasers, in_menu, time_stopped,
-        bool(is_replay or demo_mode),
+        frame_multiplier, input_mask, tuple(bullets), len(lasers), in_menu, time_stopped,
+        bool(is_replay or demo_mode), tuple(lasers),
     )
 
 

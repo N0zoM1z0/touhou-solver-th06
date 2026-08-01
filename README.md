@@ -25,25 +25,34 @@ The distilled, non-architectural lessons from the older TH08 workspace are in
 The implementation is intentionally small, with one module per responsibility:
 
 - `native.py`: exact process identity, process-only patch, and state decoding.
-- `safety.py`: the only module allowed to certify actions.
+- `hazards/bullets.py` and `hazards/lasers.py`: separate source-grounded hazard
+  motion and collision semantics.
+- `safety.py`: the only composition layer allowed to certify actions.
+- `kernels/safety.cpp`: the general dense collision scan only; hazard semantics
+  remain in the separate Python modules and have a Python reference path.
 - `solver.py`: adaptive horizon and layer composition.
 - `ranking.py`: proposals and online preferences inside the certified set.
 - `actuator.py`: foreground-guarded physical keyboard output.
 - `menu.py`: source-grounded full-run and Practice Hard/Reimu-A startup using
   only Up/Down/Z.
 - `dialogue.py`: native dialogue sensing and isolated Ctrl/Skip ownership.
+- `trial.py`: first-HIT and Practice-result lifecycle checks.
 - `agent.py`: the thin runtime loop.
 
 The three solver layers are:
 
 1. **Hard current-hazard authority:** enumerate nine focused directions and
-   reject any that collide with an observed native bullet over a short horizon,
-   across input pickup delays 0, 1, and 2 frames.
+   reject any that collide with an observed native bullet or laser over the
+   fixed four-frame issue window, across input pickup delays 0, 1, and 2
+   frames. Four is the current physical bound: at most two hazardous-state
+   frames between decisions plus at most two input-pickup frames.
 2. **Adaptive solver:** use an 8, 12, or 16 frame horizon according to current
-   bullet proximity and density.
-3. **Proposal/ranking:** rank only the surviving actions using clearance,
-   a conservative bottom-center position, mild continuity, and a tiny
-   death-penalty preference. Mere survival is deliberately not rewarded.
+   bullet proximity and density. This longer constant-action rollout ranks
+   hard-allowed actions but cannot remove or add hard eligibility.
+3. **Proposal/ranking:** first prefer a hard-allowed action that survives the
+   adaptive rollout when one exists, then use clearance, a conservative
+   bottom-center position, mild continuity, and a tiny death-penalty
+   preference. Mere survival is deliberately not rewarded.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.
@@ -54,12 +63,11 @@ that exact phase. For an active but unskippable WAIT, it creates a fresh Z edge
 every 250 ms because the shipped code requires `WAS_PRESSED(SHOOT)`; an already
 held Z cannot advance it. Neither operation changes a movement proposal.
 
-This is not yet a route-level safety proof.  **Known unsupported authority:**
-future ECL births and active lasers.  In armed control, an active laser or an
-empty/unknown hard authority releases input and ends the trial instead of
-silently continuing a previously held direction.  The first physical runs
-exist to validate native layouts, timing, actuation, and this narrow authority
-before we add either missing model.
+This is not yet a route-level safety proof. Future ECL births and hostile
+bodies are not yet modeled, and the four-frame issue window is physically
+measured rather than protected by a command lease. In armed control, an
+empty/unknown hard authority or the first physical HIT releases input and ends
+the trial instead of silently continuing a previously held direction.
 
 The native gameplay gate also excludes pause/retry menus, replay playback, and
 the built-in demo.
@@ -111,6 +119,7 @@ run_th06_observe.bat 30
 Run the small platform-independent tests from WSL/Linux:
 
 ```bash
+./build_th06_native.sh
 ./check_th06_baseline.sh
 ```
 
@@ -151,3 +160,29 @@ unsupported authority: an active laser. The run sampled 6,877 states, missed
 2,039 native frames, and had a 100.86 ms maximum solve time. Laser geometry is
 the next correctness gap; the measured Python cost is also now strong evidence
 for a narrow native safety kernel once that geometry is correct.
+
+## Complete Practice Stage 1 checkpoint (2026-08-01)
+
+The laser pool is now decoded from the source-defined `Laser` layout. Its
+warning, active, despawn, moving segment, rotated player transform, and shipped
+midpoint-hitbox bugs are isolated in `hazards/lasers.py`. Bullet semantics are
+independently isolated in `hazards/bullets.py`. A Windows C++ DLL performs only
+the dense nine-action collision scan; synthetic bullet and laser cases matched
+the Python reference at 4/6/16-frame horizons during parity checks.
+
+Two physical empty-safe-set counterexamples separated the fixed issue window
+from adaptive effort. At f7185 every action survived three frames and seven
+survived four, but no single constant action survived six; the observed issue
+interval is two decision frames plus two pickup frames. At f6364 a short-term
+clearance choice had entered the bottom-right corner even though earlier
+16-frame survivors existed. Longer rollout survival is therefore now the
+primary ranking signal among—not instead of—the fixed hard-safe set.
+
+The next physical run completed Hard/Reimu-A Practice Stage 1 at frame 12567:
+12,337 sampled states, zero dead rows, zero authority stops, and no Bomb bit in
+native or desired input. It covered up to 422 bullets, up to 6 simultaneous
+decoded lasers, and 472 laser-bearing decisions. The maximum hazardous-state
+decision gap remained two frames. Native solve timing was 2.21 ms median,
+10.71 ms p95, 17.50 ms p99, and 33.83 ms maximum. This validates integrated
+Stage 1 behavior and clean Practice-result termination, not later-stage or
+full-route safety.

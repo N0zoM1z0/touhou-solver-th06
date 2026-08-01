@@ -56,6 +56,27 @@ class Bullet:
 
 
 @dataclass(frozen=True)
+class Laser:
+    x: float
+    y: float
+    angle: float
+    start_offset: float
+    end_offset: float
+    start_length: float
+    width: float
+    speed: float
+    start_time: int
+    hitbox_start_time: int
+    duration: int
+    despawn_duration: int
+    hitbox_end_delay: int
+    timer: int
+    timer_float: float
+    flags: int
+    state: int
+
+
+@dataclass(frozen=True)
 class Snapshot:
     frame: int
     stage: int
@@ -75,6 +96,7 @@ class Snapshot:
     in_menu: bool
     time_stopped: bool
     replay_or_demo: bool
+    lasers: tuple[Laser, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +114,8 @@ class Decision:
     clearance: float
     horizon: int
     reason: str
+    effort_horizon: int = 0
+    effort_safe_count: int = 0
 
 
 def action_from_input(mask: int) -> Action:

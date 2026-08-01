@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import os
+
+from .kernels.safety import NativeSafetyKernel
 from .model import Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import certify_actions, nearest_current_clearance
 
 
+# Physical runs currently bound a hazardous-state decision interval to two
+# native frames and input pickup to two more.  Longer 8/12/16-frame rollouts
+# allocate ranking effort; they must not turn constant-action rollout into a
+# hard eligibility requirement.
+HARD_SAFETY_HORIZON = 4
+
+
 def adaptive_horizon(snapshot: Snapshot) -> int:
+    if snapshot.lasers:
+        return 16
     nearest = nearest_current_clearance(snapshot)
     if nearest < 48.0 or len(snapshot.bullets) >= 220:
         return 16
@@ -19,6 +31,13 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
 class Solver:
     def __init__(self, ranker: ProposalRanker | None = None) -> None:
         self.ranker = ranker or ProposalRanker()
+        self.kernel = NativeSafetyKernel() if os.name == "nt" else None
+        self.backend = "native-c++" if self.kernel is not None else "python-reference"
+
+    def _certify(self, snapshot: Snapshot, horizon: int):
+        if self.kernel is not None:
+            return self.kernel.certify(snapshot, horizon, collision_margin=0.35)
+        return certify_actions(snapshot, horizon)
 
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
@@ -34,11 +53,32 @@ class Solver:
             return Decision(None, (), 0.0, 0, "player-not-active")
         if not 0.99 <= snapshot.frame_multiplier <= 1.01:
             return Decision(None, (), 0.0, 0, "unsupported-frame-multiplier")
-        if snapshot.laser_count:
-            return Decision(None, (), 0.0, 0, "unsupported-active-laser")
-        horizon = adaptive_horizon(snapshot)
-        certified = certify_actions(snapshot, horizon)
+        if snapshot.laser_count != len(snapshot.lasers):
+            return Decision(None, (), 0.0, 0, "unsupported-laser-decode")
+        effort_horizon = adaptive_horizon(snapshot)
+        certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
         if not certified:
-            return Decision(None, (), 0.0, horizon, "hard-safe-set-empty")
-        chosen = self.ranker.choose(snapshot, certified)
-        return Decision(chosen.action, certified, chosen.clearance, horizon, "ok")
+            return Decision(
+                None,
+                (),
+                0.0,
+                HARD_SAFETY_HORIZON,
+                "hard-safe-set-empty",
+                effort_horizon,
+            )
+        durable = frozenset(
+            candidate.action
+            for candidate in self._certify(snapshot, effort_horizon)
+        ) if effort_horizon > HARD_SAFETY_HORIZON else frozenset(
+            candidate.action for candidate in certified
+        )
+        chosen = self.ranker.choose(snapshot, certified, durable)
+        return Decision(
+            chosen.action,
+            certified,
+            chosen.clearance,
+            HARD_SAFETY_HORIZON,
+            "ok",
+            effort_horizon,
+            len(durable),
+        )

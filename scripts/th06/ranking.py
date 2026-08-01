@@ -22,14 +22,32 @@ class ProposalRanker:
         updated = old * 0.997 if survived else old - 1.0
         self.preference[self.previous_action] = max(-2.0, min(0.0, updated))
 
-    def choose(self, snapshot: Snapshot, candidates: tuple[SafeAction, ...]) -> SafeAction:
+    def choose(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        durable_actions: frozenset[Action] = frozenset(),
+    ) -> SafeAction:
         current = action_from_input(snapshot.input_mask)
 
-        def score(candidate: SafeAction) -> tuple[float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
-            total = min(80.0, candidate.clearance) + useful_position + continuity + self.preference[candidate.action]
-            return total, candidate.clearance, continuity, candidate.action.name
+            total = (
+                min(80.0, candidate.clearance)
+                + useful_position
+                + continuity
+                + self.preference[candidate.action]
+            )
+            # A longer source-grounded survival rollout is the primary soft
+            # proposal signal, but it never adds to or removes from candidates.
+            return (
+                candidate.action in durable_actions,
+                total,
+                candidate.clearance,
+                continuity,
+                candidate.action.name,
+            )
 
         chosen = max(candidates, key=score)
         self.previous_action = chosen.action

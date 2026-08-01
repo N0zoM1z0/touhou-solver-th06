@@ -25,13 +25,17 @@ This separation is the idea; the algorithms are intentionally not fixed.
   `cc475a0bc3fef38683b0f02224c87ddba0a021d9`
 - Runtime-only no-life-decrement patch: VA `0x428DEC`, byte `01 -> 00`
 - Hard/Reimu-A menu start and independent dialogue skipping work physically.
-- One 110-second Stage 1 run reached frame 6508 with no observed death or Bomb.
-  Input pickup was consistently one or two frames.
+- Hard Practice Stage 1 now reaches its source-defined result path and stops
+  cleanly with no death or Bomb. The complete run reached frame 12567, decoded
+  up to 422 bullets and 6 simultaneous lasers, and used the native C++ safety
+  kernel. Input pickup and hazardous-state decision intervals remain bounded
+  to two observed frames each.
 
-Known gaps are current-hazard-only safety, unsupported lasers/future emissions,
-and missed decisions on slow dense frames. A later Practice Stage 1 run reached
-frame 8968 without a hit or Bomb and stopped on the first active laser. This is
-a baseline, not proof of a clear. See `README.md` for the compact details and module map.
+Known gaps include future ECL births, hostile bodies, a guaranteed command
+lease beyond the observed timing bound, and physical coverage of later stages.
+Actual replay file creation also still needs a non-Practice result. This is a
+Stage 1 checkpoint, not proof of a route clear. See `README.md` for compact
+details and the module map.
 Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
 counterexample appears; do not recreate the TH08 architecture from it.
 
@@ -56,6 +60,7 @@ slot and validates the written replay before exit. Every launcher stops the
 exact verified trial process after releasing input.
 
 ```bash
+./build_th06_native.sh
 ./check_th06_baseline.sh
 ```
 
