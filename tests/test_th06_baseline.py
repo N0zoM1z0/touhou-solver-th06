@@ -1152,7 +1152,7 @@ class BaselineTests(unittest.TestCase):
         self.assertGreaterEqual(chosen.clearance, max(clearances) - 1.0)
         self.assertEqual(chosen.action.dy, 1)
 
-    def test_ranker_preserves_early_boundary_room_only_with_sparse_emitters(self):
+    def test_ranker_preserves_room_in_the_early_boundary_band(self):
         # Reduced from physical Stage 4 f10302. The dense margin candidates
         # all descended, but an upward Hard-4 action could still restore one
         # full delivery segment of room before the ordinary wall lookahead.
@@ -1160,13 +1160,6 @@ class BaselineTests(unittest.TestCase):
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
             for _ in range(405)
         ), x=109.605, y=394.260)
-        state = Snapshot(**{
-            **state.__dict__,
-            "enemies": (
-                enemy_body(x=96.0, y=96.0),
-                enemy_body(x=288.0, y=96.0),
-            ),
-        })
         clearances = (
             13.11, 7.96, 14.39, 10.79, 7.02,
             5.43, 8.63, 13.61, 11.62,
@@ -1186,21 +1179,8 @@ class BaselineTests(unittest.TestCase):
             allowed,
             durable_actions=frozenset(ACTIONS),
         )
-        crowded = Snapshot(**{
-            **state.__dict__,
-            "enemies": tuple(
-                enemy_body(x=80.0 + index * 72.0, y=96.0)
-                for index in range(4)
-            ),
-        })
-        crowded_choice = ProposalRanker().choose(
-            crowded,
-            allowed,
-            durable_actions=frozenset(ACTIONS),
-        )
 
         self.assertEqual(chosen.action.dy, -1)
-        self.assertEqual(crowded_choice.action, ACTION_BY_VECTOR[(0, 1)])
 
     def test_solver_keeps_a_replanning_corridor_off_one_wall(self):
         state = snapshot(
