@@ -52,10 +52,10 @@ def _prioritize_control_loop() -> None:
     kernel32.SetPriorityClass.restype = ctypes.c_int
     kernel32.SetThreadPriority.argtypes = (ctypes.c_void_p, ctypes.c_int)
     kernel32.SetThreadPriority.restype = ctypes.c_int
-    # ABOVE_NORMAL_PRIORITY_CLASS plus THREAD_PRIORITY_HIGHEST gives the
-    # safety loop preference over ordinary background work while leaving the
-    # game and operating system outside dangerous realtime scheduling.
-    if not kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00008000):
+    # HIGH_PRIORITY_CLASS plus THREAD_PRIORITY_HIGHEST bounds the safety-loop
+    # tail more tightly while leaving the game and operating system outside
+    # dangerous REALTIME_PRIORITY_CLASS scheduling.
+    if not kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080):
         raise ctypes.WinError(ctypes.get_last_error())
     if not kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 2):
         raise ctypes.WinError(ctypes.get_last_error())
@@ -126,7 +126,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         print(f"verified pid={process.pid} sha256={TARGET_SHA256}", flush=True)
         print(f"safety backend: {solver.backend}", flush=True)
-        print("control priority: above-normal/highest", flush=True)
+        print("control priority: high/highest", flush=True)
         if args.patch_lives:
             print(f"life patch: {process.patch_lives()} at 0x{ADDR_LIFE_PATCH:08X}", flush=True)
         if args.start_hard:
@@ -154,7 +154,7 @@ def run(args: argparse.Namespace) -> int:
                 "enemies", "despawning",
                 "bullet_retries",
                 "replay", "native_input", "held_desired_input", "input_transitions",
-                "command_issue_age",
+                "decision_age", "command_issue_age",
                 "input_lease",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
                 "effort_safe", "repairable",
@@ -277,6 +277,7 @@ def run(args: argparse.Namespace) -> int:
                 stale_retry = False
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
+                decision_age = ""
                 command_issue_age = ""
                 authority_stop = False
                 held_before_authority = keyboard.base_input_mask if keyboard is not None else 0
@@ -294,10 +295,9 @@ def run(args: argparse.Namespace) -> int:
                         if (
                             decision.action is not None
                             and leased_action is None
-                            and action_from_input(keyboard.base_input_mask)
-                            != decision.action
                         ):
                             observed_frame = read_game_frame(process)
+                            decision_age = observed_frame - snapshot.frame
                             delivery_age = bounded_delivery_age(
                                 snapshot.frame, observed_frame
                             )
@@ -373,7 +373,8 @@ def run(args: argparse.Namespace) -> int:
                     int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
-                    transition_count, command_issue_age, int(leased_action is not None),
+                    transition_count, decision_age, command_issue_age,
+                    int(leased_action is not None),
                     f"{snapshot.frame_multiplier:.3f}", action_name,
                     len(decision.safe_actions), decision.horizon, decision.effort_horizon,
                     decision.effort_safe_count, decision.repairable_count,
