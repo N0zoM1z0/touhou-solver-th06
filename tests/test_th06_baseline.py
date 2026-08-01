@@ -1,0 +1,102 @@
+import unittest
+
+from th06.model import (
+    ACTION_BY_VECTOR,
+    ACTIONS,
+    BUTTON_BOMB,
+    BUTTON_FOCUS,
+    BUTTON_LEFT,
+    Bullet,
+    Snapshot,
+    action_from_input,
+)
+from th06.ranking import ProposalRanker
+from th06.safety import certify_actions
+from th06.solver import Solver, adaptive_horizon
+from th06.actuator import Keyboard
+
+
+def snapshot(*bullets, x=192.0, y=380.0, input_mask=BUTTON_FOCUS, lasers=0):
+    return Snapshot(
+        frame=1,
+        stage=1,
+        player_state=0,
+        x=x,
+        y=y,
+        half_width=1.25,
+        half_height=1.25,
+        normal_speed=4.0,
+        focus_speed=2.0,
+        normal_diagonal_speed=2.828427,
+        focus_diagonal_speed=1.414214,
+        frame_multiplier=1.0,
+        input_mask=input_mask,
+        bullets=tuple(bullets),
+        laser_count=lasers,
+        in_menu=False,
+        time_stopped=False,
+        replay_or_demo=False,
+    )
+
+
+class BaselineTests(unittest.TestCase):
+    def test_native_direction_precedence(self):
+        self.assertEqual(action_from_input(BUTTON_LEFT).name, "left")
+
+    def test_bomb_is_never_an_action(self):
+        self.assertEqual(BUTTON_BOMB, 0x02)
+        self.assertNotIn("bomb", {action.name for action in ACTIONS})
+        self.assertNotIn("bomb", Keyboard.SCANCODES)
+        self.assertEqual(Keyboard.SCANCODES["skip"], (0x1D, False))
+
+    def test_head_on_bullet_rejects_stay(self):
+        bullet = Bullet(192.0, 360.0, 0.0, 3.0, 2.0, 2.0, 1)
+        safe = certify_actions(snapshot(bullet), horizon=8)
+        self.assertNotIn(ACTION_BY_VECTOR[(0, 0)], {candidate.action for candidate in safe})
+        self.assertTrue(safe)
+
+    def test_pickup_delay_branch_rejects_late_escape(self):
+        bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)
+        safe = certify_actions(snapshot(bullet), horizon=5)
+        self.assertNotIn(ACTION_BY_VECTOR[(1, 0)], {candidate.action for candidate in safe})
+
+    def test_adaptive_horizon_grows_near_hazard(self):
+        far = snapshot(Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1))
+        near = snapshot(Bullet(192.0, 390.0, 0.0, 0.0, 2.0, 2.0, 1))
+        self.assertGreater(adaptive_horizon(near), adaptive_horizon(far))
+
+    def test_laser_fails_closed(self):
+        decision = Solver().decide(snapshot(lasers=1))
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "unsupported-active-laser")
+
+    def test_non_unit_native_timing_fails_closed(self):
+        state = snapshot()
+        state = Snapshot(**{**state.__dict__, "frame_multiplier": 0.8})
+        decision = Solver().decide(state)
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "unsupported-frame-multiplier")
+
+    def test_replay_fails_closed(self):
+        state = snapshot()
+        state = Snapshot(**{**state.__dict__, "replay_or_demo": True})
+        decision = Solver().decide(state)
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "replay-or-demo")
+
+    def test_ranker_can_only_choose_from_safe_set(self):
+        state = snapshot()
+        allowed = tuple(candidate for candidate in certify_actions(state, 8) if candidate.action.name in ("stay", "right"))
+        chosen = ProposalRanker().choose(state, allowed)
+        self.assertIn(chosen, allowed)
+
+    def test_ranker_recovers_from_top_right_boundary(self):
+        state = snapshot(x=376.0, y=16.0)
+        candidates = certify_actions(state, 8)
+        chosen = ProposalRanker().choose(state, candidates)
+        self.assertLess(chosen.final_x, state.x)
+        self.assertGreater(chosen.final_y, state.y)
+
+
+if __name__ == "__main__":
+    unittest.main()
