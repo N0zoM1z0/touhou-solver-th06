@@ -41,65 +41,82 @@ struct Direction {
     std::int32_t dy;
 };
 
-constexpr Direction kActions[9] = {
-    {0, 0}, {0, -1}, {0, 1}, {-1, 0}, {1, 0},
-    {-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+struct ControlAction {
+    Direction direction;
+    bool focused;
 };
-constexpr std::uint16_t kActionMasks[9] = {
+
+constexpr std::int32_t kFocusedActionCount = 9;
+constexpr std::int32_t kControlActionCount = 18;
+constexpr ControlAction kActions[kControlActionCount] = {
+    {{0, 0}, true}, {{0, -1}, true}, {{0, 1}, true},
+    {{-1, 0}, true}, {{1, 0}, true}, {{-1, -1}, true},
+    {{1, -1}, true}, {{-1, 1}, true}, {{1, 1}, true},
+    {{0, 0}, false}, {{0, -1}, false}, {{0, 1}, false},
+    {{-1, 0}, false}, {{1, 0}, false}, {{-1, -1}, false},
+    {{1, -1}, false}, {{-1, 1}, false}, {{1, 1}, false},
+};
+constexpr std::uint16_t kActionMasks[kControlActionCount] = {
+    0x04U, 0x14U, 0x24U, 0x44U, 0x84U,
+    0x54U, 0x94U, 0x64U, 0xA4U,
     0x00U, 0x10U, 0x20U, 0x40U, 0x80U,
     0x50U, 0x90U, 0x60U, 0xA0U,
 };
-constexpr std::uint16_t kDirectionBits[4] = {0x20U, 0x40U, 0x80U, 0x10U};
+constexpr std::uint16_t kControlBits[5] = {
+    0x20U, 0x04U, 0x40U, 0x80U, 0x10U,
+};
 constexpr std::int32_t kDelays[4] = {0, 1, 2, 3};
 
-Direction actionFromInput(std::uint16_t mask) {
-    Direction result{0, 0};
+ControlAction actionFromInput(std::uint16_t mask) {
+    ControlAction result{{0, 0}, (mask & 0x04U) != 0U};
     if ((mask & 0x10U) != 0U) {
-        result.dy = -1;
-        if ((mask & 0x40U) != 0U) result.dx = -1;
-        if ((mask & 0x80U) != 0U) result.dx = 1;
+        result.direction.dy = -1;
+        if ((mask & 0x40U) != 0U) result.direction.dx = -1;
+        if ((mask & 0x80U) != 0U) result.direction.dx = 1;
     } else if ((mask & 0x20U) != 0U) {
-        result.dy = 1;
-        if ((mask & 0x40U) != 0U) result.dx = -1;
-        if ((mask & 0x80U) != 0U) result.dx = 1;
+        result.direction.dy = 1;
+        if ((mask & 0x40U) != 0U) result.direction.dx = -1;
+        if ((mask & 0x80U) != 0U) result.direction.dx = 1;
     } else {
-        if ((mask & 0x40U) != 0U) result.dx = -1;
-        if ((mask & 0x80U) != 0U) result.dx = 1;
+        if ((mask & 0x40U) != 0U) result.direction.dx = -1;
+        if ((mask & 0x80U) != 0U) result.direction.dx = 1;
     }
     return result;
 }
 
-bool sameDirection(Direction left, Direction right) {
-    return left.dx == right.dx && left.dy == right.dy;
+bool sameAction(ControlAction left, ControlAction right) {
+    return left.direction.dx == right.direction.dx
+        && left.direction.dy == right.direction.dy
+        && left.focused == right.focused;
 }
 
-std::int32_t transitionDirections(
+std::int32_t transitionActions(
     std::uint16_t currentMask,
     std::uint16_t targetMask,
-    Direction output[4]
+    ControlAction output[5]
 ) {
-    currentMask &= 0xF0U;
-    targetMask &= 0xF0U;
+    currentMask &= 0xF4U;
+    targetMask &= 0xF4U;
     std::uint16_t prefixMask = currentMask;
-    const Direction current = actionFromInput(currentMask);
-    const Direction target = actionFromInput(targetMask);
+    const ControlAction current = actionFromInput(currentMask);
+    const ControlAction target = actionFromInput(targetMask);
     std::int32_t count = 0;
-    const auto append = [&](Direction prefix) {
-        if (sameDirection(prefix, current) || sameDirection(prefix, target)) return;
+    const auto append = [&](ControlAction prefix) {
+        if (sameAction(prefix, current) || sameAction(prefix, target)) return;
         for (std::int32_t index = 0; index < count; ++index) {
-            if (sameDirection(prefix, output[index])) return;
+            if (sameAction(prefix, output[index])) return;
         }
         output[count++] = prefix;
     };
-    // Keyboard::_sync sorts movement key names as down, left, right, up,
+    // Keyboard::_sync sorts control key names as down, focus, left, right, up,
     // publishing every release before every press in one SendInput batch.
-    for (const std::uint16_t bit : kDirectionBits) {
+    for (const std::uint16_t bit : kControlBits) {
         if ((currentMask & bit) != 0U && (targetMask & bit) == 0U) {
             prefixMask &= ~bit;
             append(actionFromInput(prefixMask));
         }
     }
-    for (const std::uint16_t bit : kDirectionBits) {
+    for (const std::uint16_t bit : kControlBits) {
         if ((targetMask & bit) != 0U && (currentMask & bit) == 0U) {
             prefixMask |= bit;
             append(actionFromInput(prefixMask));
@@ -108,12 +125,12 @@ std::int32_t transitionDirections(
     return count;
 }
 
-Direction scheduledDirection(
+ControlAction scheduledAction(
     std::int32_t frame,
     std::int32_t delay,
-    Direction current,
-    Direction target,
-    const Direction* transition
+    ControlAction current,
+    ControlAction target,
+    const ControlAction* transition
 ) {
     if (transition != nullptr) {
         if (frame < delay) return current;
@@ -123,10 +140,25 @@ Direction scheduledDirection(
     return frame <= delay ? current : target;
 }
 
-void stepPlayer(float& x, float& y, Direction action, float cardinal, float diagonal) {
-    const float speed = action.dx != 0 && action.dy != 0 ? diagonal : cardinal;
-    x = std::clamp(x + static_cast<float>(action.dx) * speed, 8.0F, 376.0F);
-    y = std::clamp(y + static_cast<float>(action.dy) * speed, 16.0F, 432.0F);
+void stepPlayer(
+    float& x,
+    float& y,
+    ControlAction action,
+    float normalCardinal,
+    float focusCardinal,
+    float normalDiagonal,
+    float focusDiagonal
+) {
+    const bool diagonal = action.direction.dx != 0 && action.direction.dy != 0;
+    const float speed = action.focused
+        ? (diagonal ? focusDiagonal : focusCardinal)
+        : (diagonal ? normalDiagonal : normalCardinal);
+    x = std::clamp(
+        x + static_cast<float>(action.direction.dx) * speed, 8.0F, 376.0F
+    );
+    y = std::clamp(
+        y + static_cast<float>(action.direction.dy) * speed, 16.0F, 432.0F
+    );
 }
 
 float signedClearance(
@@ -333,7 +365,7 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     float focusDiagonalSpeed,
     std::uint16_t inputMask,
     std::int32_t horizon,
-    std::uint16_t candidateMask,
+    std::uint32_t candidateMask,
     const std::uint32_t* bulletOffsets,
     const Aabb* bullets,
     const std::uint32_t* laserOffsets,
@@ -348,12 +380,9 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     ) {
         return -1;
     }
-    const Direction current = actionFromInput(inputMask);
-    const bool currentFocus = (inputMask & 0x04U) != 0U;
-    const float currentCardinal = currentFocus ? focusSpeed : normalSpeed;
-    const float currentDiagonal = currentFocus ? focusDiagonalSpeed : normalDiagonalSpeed;
+    const ControlAction current = actionFromInput(inputMask);
 
-    for (std::int32_t actionIndex = 0; actionIndex < 9; ++actionIndex) {
+    for (std::int32_t actionIndex = 0; actionIndex < kControlActionCount; ++actionIndex) {
         if ((candidateMask & (1U << actionIndex)) == 0U) {
             output[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
             ageZeroOutput[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
@@ -361,8 +390,8 @@ TH06_EXPORT std::int32_t th06_certify_actions(
         }
         SafeResult result{1, 999.0F, playerX, playerY};
         SafeResult ageZeroResult{0, 0.0F, playerX, playerY};
-        Direction transitions[4];
-        const std::int32_t transitionCount = transitionDirections(
+        ControlAction transitions[5];
+        const std::int32_t transitionCount = transitionActions(
             inputMask, kActionMasks[actionIndex], transitions
         );
         for (const std::int32_t delay : kDelays) {
@@ -370,21 +399,22 @@ TH06_EXPORT std::int32_t th06_certify_actions(
             float normalFinalY = playerY;
             const std::int32_t branchCount = 1 + (delay > 0 ? transitionCount : 0);
             for (std::int32_t branch = 0; branch < branchCount; ++branch) {
-                const Direction* transition = branch == 0 ? nullptr : &transitions[branch - 1];
+                const ControlAction* transition = branch == 0
+                    ? nullptr
+                    : &transitions[branch - 1];
                 float x = playerX;
                 float y = playerY;
                 for (std::int32_t frame = 1; frame <= horizon; ++frame) {
-                    const bool currentSpeed = transition == nullptr
-                        ? frame <= delay
-                        : frame < delay;
                     stepPlayer(
                         x,
                         y,
-                        scheduledDirection(
+                        scheduledAction(
                             frame, delay, current, kActions[actionIndex], transition
                         ),
-                        currentSpeed ? currentCardinal : focusSpeed,
-                        currentSpeed ? currentDiagonal : focusDiagonalSpeed
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
                     );
                     if (!safeAtFrame(
                         x,
@@ -440,7 +470,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
     std::uint16_t inputMask,
     std::int32_t split,
     std::int32_t horizon,
-    std::uint16_t candidateMask,
+    std::uint32_t candidateMask,
     const std::uint32_t* bulletOffsets,
     const Aabb* bullets,
     const std::uint32_t* laserOffsets,
@@ -454,55 +484,55 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
     ) {
         return -1;
     }
-    const Direction current = actionFromInput(inputMask);
-    const bool currentFocus = (inputMask & 0x04U) != 0U;
-    const float currentCardinal = currentFocus ? focusSpeed : normalSpeed;
-    const float currentDiagonal = currentFocus ? focusDiagonalSpeed : normalDiagonalSpeed;
+    const ControlAction current = actionFromInput(inputMask);
     // Delivery and transition branches revisit the same small movement
     // lattice thousands of times.  Cache exact float positions per future
     // frame so each dense hazard slice is scanned once without changing the
     // conservative branch set or its scores.
     std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
-    for (std::int32_t firstIndex = 0; firstIndex < 9; ++firstIndex) {
+    for (std::int32_t firstIndex = 0; firstIndex < kControlActionCount; ++firstIndex) {
         output[firstIndex] = 0;
         if ((candidateMask & (1U << firstIndex)) == 0U) continue;
-        Direction firstTransitions[4];
-        const std::int32_t firstTransitionCount = transitionDirections(
+        ControlAction firstTransitions[5];
+        const std::int32_t firstTransitionCount = transitionActions(
             inputMask, kActionMasks[firstIndex], firstTransitions
         );
-        std::int32_t worstBranchCount = 9;
+        std::int32_t worstBranchCount = kFocusedActionCount;
         for (const std::int32_t firstDelay : kDelays) {
             const std::int32_t firstBranchCount = 1 + (
                 firstDelay > 0 ? firstTransitionCount : 0
             );
             for (std::int32_t firstBranch = 0; firstBranch < firstBranchCount; ++firstBranch) {
-                const Direction* firstTransition = firstBranch == 0
+                const ControlAction* firstTransition = firstBranch == 0
                     ? nullptr
                     : &firstTransitions[firstBranch - 1];
                 float splitX = playerX;
                 float splitY = playerY;
                 for (std::int32_t frame = 1; frame <= split; ++frame) {
-                    const bool currentSpeed = firstTransition == nullptr
-                        ? frame <= firstDelay
-                        : frame < firstDelay;
                     stepPlayer(
                         splitX,
                         splitY,
-                        scheduledDirection(
+                        scheduledAction(
                             frame,
                             firstDelay,
                             current,
                             kActions[firstIndex],
                             firstTransition
                         ),
-                        currentSpeed ? currentCardinal : focusSpeed,
-                        currentSpeed ? currentDiagonal : focusDiagonalSpeed
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
                     );
                 }
                 std::int32_t continuationCount = 0;
-                for (std::int32_t secondIndex = 0; secondIndex < 9; ++secondIndex) {
-                    Direction secondTransitions[4];
-                    const std::int32_t secondTransitionCount = transitionDirections(
+                for (
+                    std::int32_t secondIndex = 0;
+                    secondIndex < kFocusedActionCount;
+                    ++secondIndex
+                ) {
+                    ControlAction secondTransitions[5];
+                    const std::int32_t secondTransitionCount = transitionActions(
                         kActionMasks[firstIndex],
                         kActionMasks[secondIndex],
                         secondTransitions
@@ -517,7 +547,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                             secondBranch < secondBranchCount;
                             ++secondBranch
                         ) {
-                            const Direction* secondTransition = secondBranch == 0
+                            const ControlAction* secondTransition = secondBranch == 0
                                 ? nullptr
                                 : &secondTransitions[secondBranch - 1];
                             float x = splitX;
@@ -527,14 +557,16 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                                 stepPlayer(
                                     x,
                                     y,
-                                    scheduledDirection(
+                                    scheduledAction(
                                         elapsed,
                                         secondDelay,
                                         kActions[firstIndex],
                                         kActions[secondIndex],
                                         secondTransition
                                     ),
+                                    normalSpeed,
                                     focusSpeed,
+                                    normalDiagonalSpeed,
                                     focusDiagonalSpeed
                                 );
                                 if (!cachedSafeAtFrame(

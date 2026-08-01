@@ -11,6 +11,7 @@ from .hazards.lasers import signed_laser_clearance
 from .model import (
     ACTIONS,
     BUTTON_DOWN,
+    BUTTON_FOCUS,
     BUTTON_LEFT,
     BUTTON_RIGHT,
     BUTTON_UP,
@@ -30,8 +31,9 @@ MOVEMENT_BOTTOM = 432.0
 # must cover the combined 0..3-frame delivery window.
 DELIVERY_DELAYS = (0, 1, 2, 3)
 COLLISION_MARGIN = 0.35
-_DIRECTION_KEYS = (
+_CONTROL_KEYS = (
     ("down", BUTTON_DOWN),
+    ("focus", BUTTON_FOCUS),
     ("left", BUTTON_LEFT),
     ("right", BUTTON_RIGHT),
     ("up", BUTTON_UP),
@@ -39,7 +41,7 @@ _DIRECTION_KEYS = (
 
 
 def _action_mask(action: Action) -> int:
-    mask = 0
+    mask = BUTTON_FOCUS if action.focused else 0
     if action.dx < 0:
         mask |= BUTTON_LEFT
     elif action.dx > 0:
@@ -52,17 +54,17 @@ def _action_mask(action: Action) -> int:
 
 
 def transition_actions(current: Action, target: Action) -> tuple[Action, ...]:
-    """Directions observable inside Keyboard's sorted release/press batch."""
+    """Control states observable inside Keyboard's sorted release/press batch."""
     current_mask = _action_mask(current)
     target_mask = _action_mask(target)
     prefix_mask = current_mask
     prefixes: list[Action] = []
 
     events = tuple(
-        bit for _key, bit in _DIRECTION_KEYS
+        bit for _key, bit in _CONTROL_KEYS
         if current_mask & bit and not target_mask & bit
     ) + tuple(
-        bit for _key, bit in _DIRECTION_KEYS
+        bit for _key, bit in _CONTROL_KEYS
         if target_mask & bit and not current_mask & bit
     )
     for bit in events:
@@ -99,24 +101,23 @@ def candidate_path(
     if transition_action is not None and delay <= 0:
         raise ValueError("a transition prefix requires a positive delivery delay")
     current = action_from_input(snapshot.input_mask)
-    current_focus = bool(snapshot.input_mask & 0x04)
-    current_cardinal = snapshot.focus_speed if current_focus else snapshot.normal_speed
-    current_diagonal = snapshot.focus_diagonal_speed if current_focus else snapshot.normal_diagonal_speed
     x, y = snapshot.x, snapshot.y
     path: list[tuple[float, float]] = []
     for frame in range(1, horizon + 1):
         if transition_action is not None and frame == delay:
             step_action = transition_action
-            cardinal = snapshot.focus_speed
-            diagonal = snapshot.focus_diagonal_speed
         elif frame < delay or (transition_action is None and frame <= delay):
             step_action = current
-            cardinal = current_cardinal
-            diagonal = current_diagonal
         else:
             step_action = action
-            cardinal = snapshot.focus_speed
-            diagonal = snapshot.focus_diagonal_speed
+        cardinal = (
+            snapshot.focus_speed if step_action.focused else snapshot.normal_speed
+        )
+        diagonal = (
+            snapshot.focus_diagonal_speed
+            if step_action.focused
+            else snapshot.normal_diagonal_speed
+        )
         x, y = _step_player(x, y, step_action, cardinal, diagonal)
         path.append((x, y))
     return path
@@ -142,6 +143,7 @@ def certify_actions(
     snapshot: Snapshot,
     horizon: int,
     delivery_delays: tuple[int, ...] = DELIVERY_DELAYS,
+    actions: tuple[Action, ...] = ACTIONS,
 ) -> tuple[SafeAction, ...]:
     if not delivery_delays:
         raise ValueError("delivery delays cannot be empty")
@@ -149,7 +151,7 @@ def certify_actions(
     enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
     certified: list[SafeAction] = []
-    for action in ACTIONS:
+    for action in actions:
         action_clearance = 999.0
         valid = True
         final_x = snapshot.x

@@ -126,7 +126,9 @@ class Keyboard:
         return mask
 
     def apply(self, action: Action) -> tuple[tuple[str, bool], ...]:
-        desired = {"shoot", "focus"}
+        desired = {"shoot"}
+        if action.focused:
+            desired.add("focus")
         if action.dx < 0:
             desired.add("left")
         elif action.dx > 0:

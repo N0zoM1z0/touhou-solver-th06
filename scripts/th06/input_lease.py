@@ -50,7 +50,7 @@ class LeaseStatus:
 
 
 def _issued_mask(action: Action) -> int:
-    mask = BUTTON_FOCUS
+    mask = BUTTON_FOCUS if action.focused else 0
     if action.dx < 0:
         mask |= BUTTON_LEFT
     elif action.dx > 0:

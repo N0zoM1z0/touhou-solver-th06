@@ -1,3 +1,4 @@
+import os
 import unittest
 import struct
 from unittest import mock
@@ -9,6 +10,9 @@ from th06.model import (
     BUTTON_FOCUS,
     BUTTON_LEFT,
     BUTTON_SHOOT,
+    CONTROL_ACTIONS,
+    FAST_ACTIONS,
+    FAST_ACTION_BY_VECTOR,
     Bullet,
     EnemyBody,
     Laser,
@@ -131,11 +135,15 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(coherent.frame, 2)
 
     def test_native_direction_precedence(self):
-        self.assertEqual(action_from_input(BUTTON_LEFT).name, "left")
+        self.assertEqual(action_from_input(BUTTON_LEFT).name, "left_fast")
+        self.assertEqual(
+            action_from_input(BUTTON_FOCUS | BUTTON_LEFT).name,
+            "left",
+        )
 
     def test_bomb_is_never_an_action(self):
         self.assertEqual(BUTTON_BOMB, 0x02)
-        self.assertNotIn("bomb", {action.name for action in ACTIONS})
+        self.assertNotIn("bomb", {action.name for action in CONTROL_ACTIONS})
         self.assertNotIn("bomb", Keyboard.SCANCODES)
         self.assertEqual(Keyboard.SCANCODES["skip"], (0x1D, False))
         self.assertEqual(Keyboard.SCANCODES["menu"], (0x01, False))
@@ -154,6 +162,25 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(events, (("left", False), ("right", True)))
         self.assertEqual(batches, [events])
         self.assertEqual(keyboard.base_input_mask, 0x85)
+        self.assertFalse(keyboard.base_input_mask & BUTTON_BOMB)
+
+    def test_fast_transition_releases_focus_without_a_bomb_mapping(self):
+        keyboard = object.__new__(Keyboard)
+        keyboard.held = {"shoot", "focus", "left"}
+        keyboard.base_desired = {"shoot", "focus", "left"}
+        keyboard.auxiliary_desired = set()
+        keyboard.suppressed = set()
+        batches = []
+        keyboard._events = lambda events: batches.append(events)
+
+        events = keyboard.apply(FAST_ACTION_BY_VECTOR[(1, 0)])
+
+        self.assertEqual(
+            events,
+            (("focus", False), ("left", False), ("right", True)),
+        )
+        self.assertEqual(batches, [events])
+        self.assertEqual(keyboard.base_input_mask, BUTTON_SHOOT | 0x80)
         self.assertFalse(keyboard.base_input_mask & BUTTON_BOMB)
 
     def test_input_lease_waits_for_native_pickup(self):
@@ -606,6 +633,41 @@ class BaselineTests(unittest.TestCase):
         near = snapshot(Bullet(192.0, 390.0, 0.0, 0.0, 2.0, 2.0, 1))
         self.assertGreater(adaptive_horizon(near), adaptive_horizon(far))
 
+    def test_fast_action_uses_source_normal_movement_speed(self):
+        state = snapshot(x=192.0, y=380.0)
+        focused = certify_actions(
+            state,
+            2,
+            (0,),
+            actions=(ACTION_BY_VECTOR[(-1, 0)],),
+        )[0]
+        fast = certify_actions(
+            state,
+            2,
+            (0,),
+            actions=(FAST_ACTION_BY_VECTOR[(-1, 0)],),
+        )[0]
+
+        self.assertEqual(focused.final_x, 188.0)
+        self.assertEqual(fast.final_x, 184.0)
+
+    def test_native_fast_action_matches_the_reference_speed_model(self):
+        if os.name != "nt":
+            self.skipTest("native kernel is loaded only by Windows Python")
+        state = snapshot(x=192.0, y=380.0)
+        action = FAST_ACTION_BY_VECTOR[(-1, 0)]
+        expected = certify_actions(state, 2, (0, 1, 2, 3), actions=(action,))
+        actual = NativeSafetyKernel().certify_selected(
+            state,
+            2,
+            (action,),
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(len(actual), 1)
+        self.assertEqual(actual[0].action, expected[0].action)
+        self.assertAlmostEqual(actual[0].final_x, expected[0].final_x, places=5)
+
     def test_dense_scene_reduces_effort_without_changing_hard_authority(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
@@ -846,6 +908,37 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(effort, hard)
         kernel._prepare.assert_called_once_with(state, 6)
 
+    def test_native_fast_pair_prepares_the_long_horizon_once(self):
+        state = snapshot()
+        fast_hard = certify_actions(
+            state,
+            HARD_SAFETY_HORIZON,
+            actions=FAST_ACTIONS,
+        )
+        fast_long = fast_hard[:3]
+        prepared = object()
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepared_snapshot = None
+        kernel._prepared_horizon = 0
+        kernel._prepared_hazards = None
+        kernel._prepare = mock.Mock(return_value=prepared)
+        kernel._certify_prepared = mock.Mock(side_effect=(
+            (fast_hard, ()),
+            (fast_long, ()),
+        ))
+
+        actual = kernel.certify_selected_pair(
+            state,
+            HARD_SAFETY_HORIZON,
+            40,
+            FAST_ACTIONS,
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(actual, (fast_hard, fast_long))
+        kernel._prepare.assert_called_once_with(state, 40)
+        self.assertEqual(kernel._certify_prepared.call_count, 2)
+
     def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
@@ -1045,7 +1138,7 @@ class BaselineTests(unittest.TestCase):
             0.0, 20.0, 0.0, 0.0, 100.0, 100.0, 8.0, 0.0,
             25, 25, 75, 16, 14, 5, 5.0, 0, 1,
             slot=5,
-            angular_velocity=0.0081954,
+            angular_velocity=0.004,
             motion_known=True,
         )
         state = snapshot(
@@ -1092,6 +1185,45 @@ class BaselineTests(unittest.TestCase):
             collision_margin=0.35,
         )
         kernel.certify.assert_not_called()
+
+    def test_rotating_laser_can_rank_a_hard_certified_fast_action(self):
+        active_laser = Laser(
+            0.0, 20.0, 0.0, 0.0, 500.0, 500.0, 8.0, 0.0,
+            25, 25, 75, 16, 14, 5, 5.0, 0, 1,
+            slot=5,
+            angular_velocity=0.0081954,
+            motion_known=True,
+        )
+        state = snapshot(x=261.0, y=402.0, lasers=1)
+        state = Snapshot(**{**state.__dict__, "lasers": (active_laser,)})
+        focused_hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        fast_hard = certify_actions(
+            state,
+            HARD_SAFETY_HORIZON,
+            actions=FAST_ACTIONS,
+        )
+        fast_left = next(
+            candidate for candidate in fast_hard
+            if candidate.action == FAST_ACTION_BY_VECTOR[(-1, 0)]
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            focused_hard,
+            focused_hard,
+            focused_hard,
+        )
+        kernel.certify_selected.side_effect = (fast_hard, (fast_left,))
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, fast_left.action)
+        self.assertFalse(decision.action.focused)
+        self.assertIn(fast_left, decision.safe_actions)
+        self.assertFalse(BUTTON_BOMB & 0x80)
+        self.assertEqual(kernel.certify_selected.call_count, 2)
+        kernel.replanning_scores.assert_not_called()
 
     def test_dense_active_laser_skips_the_long_mixed_replan(self):
         active_laser = Laser(

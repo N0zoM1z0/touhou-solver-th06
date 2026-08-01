@@ -22,6 +22,7 @@ class Action:
     name: str
     dx: int
     dy: int
+    focused: bool = True
 
 
 ACTIONS = (
@@ -36,6 +37,14 @@ ACTIONS = (
     Action("down_right", 1, 1),
 )
 ACTION_BY_VECTOR = {(action.dx, action.dy): action for action in ACTIONS}
+FAST_ACTIONS = tuple(
+    Action(f"{action.name}_fast", action.dx, action.dy, False)
+    for action in ACTIONS
+)
+FAST_ACTION_BY_VECTOR = {
+    (action.dx, action.dy): action for action in FAST_ACTIONS
+}
+CONTROL_ACTIONS = ACTIONS + FAST_ACTIONS
 
 
 @dataclass(frozen=True)
@@ -180,4 +189,5 @@ def action_from_input(mask: int) -> Action:
             dx = -1
         if mask & BUTTON_RIGHT:
             dx = 1
-    return ACTION_BY_VECTOR[(dx, dy)]
+    actions = ACTION_BY_VECTOR if mask & BUTTON_FOCUS else FAST_ACTION_BY_VECTOR
+    return actions[(dx, dy)]

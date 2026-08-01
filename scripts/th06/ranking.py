@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import math
 
-from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
+from .model import (
+    ACTIONS,
+    CONTROL_ACTIONS,
+    Action,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 from .safety import MOVEMENT_BOTTOM, MOVEMENT_LEFT, MOVEMENT_RIGHT, MOVEMENT_TOP
 
 
@@ -66,7 +73,7 @@ def boundary_relief(
 
 class ProposalRanker:
     def __init__(self) -> None:
-        self.preference = {action: 0.0 for action in ACTIONS}
+        self.preference = {action: 0.0 for action in CONTROL_ACTIONS}
         self.previous_action: Action | None = None
         self.repair_action: Action | None = None
         self.repair_stage: int | None = None

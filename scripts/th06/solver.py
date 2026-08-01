@@ -8,12 +8,15 @@ from .hazards.lasers import future_hazards as future_laser_hazards
 from .kernels.safety import NativeSafetyKernel
 from .laser_effort import (
     LASER_EFFORT_HORIZON,
+    LASER_SPEED_HORIZON,
     isolate_lasers,
     needs_active_mixed_replan,
+    needs_normal_speed,
     retained_current_corridor,
 )
 from .model import (
     ACTIONS,
+    FAST_ACTIONS,
     Action,
     Decision,
     PLAYER_ALIVE,
@@ -78,6 +81,49 @@ class Solver:
             return self.kernel.certify(snapshot, horizon, collision_margin=0.35)
         return certify_actions(snapshot, horizon)
 
+    def _certify_selected(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+    ):
+        if self.kernel is not None:
+            return self.kernel.certify_selected(
+                snapshot,
+                horizon,
+                actions,
+                collision_margin=0.35,
+            )
+        return certify_actions(snapshot, horizon, actions=actions)
+
+    def _certify_selected_pair(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        effort_horizon: int,
+        actions: tuple[Action, ...],
+    ):
+        native_method = (
+            getattr(type(self.kernel), "certify_selected_pair", None)
+            if self.kernel is not None
+            else None
+        )
+        if native_method is not None:
+            return self.kernel.certify_selected_pair(
+                snapshot,
+                hard_horizon,
+                effort_horizon,
+                actions,
+                collision_margin=0.35,
+            )
+        hard = self._certify_selected(snapshot, hard_horizon, actions)
+        effort = self._certify_selected(
+            snapshot,
+            effort_horizon,
+            tuple(candidate.action for candidate in hard),
+        ) if hard else ()
+        return hard, effort
+
     def _last_viable_frontier(
         self,
         snapshot: Snapshot,
@@ -124,7 +170,11 @@ class Solver:
             # the sole pending frame, recheck both possible next inputs
             # (current or leased) against newly observed hazards without
             # extending a constant-action requirement past acknowledgement.
-            certified = self._certify(snapshot, 1)
+            certified = (
+                self._certify(snapshot, 1)
+                if required_action.focused
+                else self._certify_selected(snapshot, 1, (required_action,))
+            )
             leased = next(
                 (candidate for candidate in certified if candidate.action == required_action),
                 None,
@@ -305,6 +355,17 @@ class Solver:
                 if certified and effort_horizon > HARD_SAFETY_HORIZON
                 else certified
             )
+        fast_laser_hard = ()
+        fast_laser_long = ()
+        if effort_horizon >= 16 and needs_normal_speed(snapshot):
+            fast_laser_hard, fast_laser_long = self._certify_selected_pair(
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                LASER_SPEED_HORIZON,
+                FAST_ACTIONS,
+            )
+            if fast_laser_hard:
+                certified = tuple(certified) + tuple(fast_laser_hard)
         if not certified:
             if self.kernel is None:
                 age_zero_certified = certify_actions(
@@ -335,8 +396,17 @@ class Solver:
             for candidate in effort_certified
         )
         laser_survivors = frozenset()
-        mixed_laser_ranked = False
-        if needs_active_mixed_replan(snapshot, effort_horizon):
+        mixed_laser_ranked = bool(fast_laser_long)
+        if fast_laser_long:
+            # Stage 4 f12102 followed the sole focused corridor for 42 frames,
+            # but the source laser sweep at that radius moved 2.46 px/frame
+            # while focus limited Reimu to 2.0.  Source-normal movement had
+            # three constant h56 survivors on the saved path.  These actions
+            # have their own unchanged Hard-4 delivery certificates above.
+            durable = frozenset(
+                candidate.action for candidate in fast_laser_long
+            )
+        elif needs_active_mixed_replan(snapshot, effort_horizon):
             # At Stage 4 f15032, down-left survived both the short mixed
             # rollout and a laser-only h24 rollout, but had no continuation
             # when bullets and the active rotating laser were rolled out

@@ -9,7 +9,7 @@ from pathlib import Path
 from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
-from ..model import ACTIONS, Action, SafeAction, Snapshot
+from ..model import ACTIONS, CONTROL_ACTIONS, Action, SafeAction, Snapshot
 
 
 class _Aabb(ctypes.Structure):
@@ -56,7 +56,7 @@ class NativeSafetyKernel:
             ctypes.c_float,
             ctypes.c_uint16,
             ctypes.c_int32,
-            ctypes.c_uint16,
+            ctypes.c_uint32,
             ctypes.POINTER(ctypes.c_uint32),
             ctypes.POINTER(_Aabb),
             ctypes.POINTER(ctypes.c_uint32),
@@ -79,7 +79,7 @@ class NativeSafetyKernel:
             ctypes.c_uint16,
             ctypes.c_int32,
             ctypes.c_int32,
-            ctypes.c_uint16,
+            ctypes.c_uint32,
             ctypes.POINTER(ctypes.c_uint32),
             ctypes.POINTER(_Aabb),
             ctypes.POINTER(ctypes.c_uint32),
@@ -150,8 +150,8 @@ class NativeSafetyKernel:
         candidate_mask: int = (1 << len(ACTIONS)) - 1,
     ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         bullet_offsets, bullets, laser_offsets, lasers = prepared
-        output = (_SafeResult * len(ACTIONS))()
-        age_zero_output = (_SafeResult * len(ACTIONS))()
+        output = (_SafeResult * len(CONTROL_ACTIONS))()
+        age_zero_output = (_SafeResult * len(CONTROL_ACTIONS))()
         status = self.function(
             snapshot.x,
             snapshot.y,
@@ -176,12 +176,12 @@ class NativeSafetyKernel:
             raise RuntimeError(f"native safety kernel rejected input with status {status}")
         fixed = tuple(
             SafeAction(action, result.clearance, result.final_x, result.final_y)
-            for action, result in zip(ACTIONS, output)
+            for action, result in zip(CONTROL_ACTIONS, output)
             if result.safe
         )
         age_zero = tuple(
             SafeAction(action, result.clearance, result.final_x, result.final_y)
-            for action, result in zip(ACTIONS, age_zero_output)
+            for action, result in zip(CONTROL_ACTIONS, age_zero_output)
             if result.safe
         )
         return fixed, age_zero
@@ -204,7 +204,7 @@ class NativeSafetyKernel:
         selected = frozenset(actions)
         candidate_mask = sum(
             1 << index
-            for index, action in enumerate(ACTIONS)
+            for index, action in enumerate(CONTROL_ACTIONS)
             if action in selected
         )
         if not candidate_mask:
@@ -216,6 +216,41 @@ class NativeSafetyKernel:
             self._prepare_reusable(snapshot, horizon),
             candidate_mask,
         )[0]
+
+    def certify_selected_pair(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        effort_horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
+        if effort_horizon < hard_horizon:
+            raise ValueError("effort horizon cannot be shorter than hard horizon")
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in selected
+        )
+        if not candidate_mask:
+            return (), ()
+        prepared = self._prepare_reusable(snapshot, effort_horizon)
+        hard = self._certify_prepared(
+            snapshot,
+            hard_horizon,
+            collision_margin,
+            prepared,
+            candidate_mask,
+        )[0]
+        effort = self._certify_prepared(
+            snapshot,
+            effort_horizon,
+            collision_margin,
+            prepared,
+            candidate_mask,
+        )[0]
+        return hard, effort
 
     def certify_delivery_sets_with_selected(
         self,
@@ -234,7 +269,7 @@ class NativeSafetyKernel:
         selected = frozenset(actions)
         candidate_mask = sum(
             1 << index
-            for index, action in enumerate(ACTIONS)
+            for index, action in enumerate(CONTROL_ACTIONS)
             if action in selected
         )
         prepared = self._prepare_reusable(snapshot, selected_horizon)
@@ -349,10 +384,10 @@ class NativeSafetyKernel:
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
             1 << index
-            for index, action in enumerate(ACTIONS)
+            for index, action in enumerate(CONTROL_ACTIONS)
             if action in candidate_actions
         )
-        output = (ctypes.c_int32 * len(ACTIONS))()
+        output = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
         status = self.replanning_function(
             snapshot.x,
             snapshot.y,
@@ -379,6 +414,6 @@ class NativeSafetyKernel:
             )
         return {
             action: output[index]
-            for index, action in enumerate(ACTIONS)
+            for index, action in enumerate(CONTROL_ACTIONS)
             if action in candidate_actions
         }

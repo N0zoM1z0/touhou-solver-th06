@@ -59,8 +59,16 @@ def replanning_scores(
                                     future_x,
                                     future_y,
                                     step_action,
-                                    snapshot.focus_speed,
-                                    snapshot.focus_diagonal_speed,
+                                    (
+                                        snapshot.focus_speed
+                                        if step_action.focused
+                                        else snapshot.normal_speed
+                                    ),
+                                    (
+                                        snapshot.focus_diagonal_speed
+                                        if step_action.focused
+                                        else snapshot.normal_diagonal_speed
+                                    ),
                                 )
                                 hazards = bullet_frames[frame - 1] + enemy_frames[frame - 1]
                                 if any(
