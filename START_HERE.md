@@ -33,11 +33,16 @@ This separation is the idea; the algorithms are intentionally not fixed.
 - Hard Practice Stage 2 also completes without a death or Bomb after adding
   source-layout enemy-body sensing. It covered up to 20 simultaneously lethal
   enemy bodies and 334 bullets; current bodies now participate in hard safety.
+- A second complete Stage 2 validation now serializes physical movement
+  commands until native pickup, uses non-blocking dialogue edges, and shares
+  one native hazard rollout between hard and soft scans. It sampled 15,984
+  states with no death or authority stop; hazardous and dialogue decision gaps
+  were at most two and one frames respectively.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
-beyond the observed timing bound, and physical coverage of later stages.
+beyond the observed two-frame pickup bound, and physical coverage of later stages.
 Actual replay file creation also still needs a non-Practice result. This is a
-Stage 1 checkpoint, not proof of a route clear. See `README.md` for compact
+Stage 2 checkpoint, not proof of a route clear. See `README.md` for compact
 details and the module map.
 Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
 counterexample appears; do not recreate the TH08 architecture from it.

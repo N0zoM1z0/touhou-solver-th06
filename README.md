@@ -36,6 +36,7 @@ The implementation is intentionally small, with one module per responsibility:
 - `menu.py`: source-grounded full-run and Practice Hard/Reimu-A startup using
   only Up/Down/Z.
 - `dialogue.py`: native dialogue sensing and isolated Ctrl/Skip ownership.
+- `input_lease.py`: one in-flight movement command and native-pickup timeout.
 - `trial.py`: first-HIT and Practice-result lifecycle checks.
 - `agent.py`: the thin runtime loop.
 
@@ -62,11 +63,14 @@ During a native active, skippable `GuiMsgVm`, `dialogue.py` holds Left Ctrl,
 which the shipped controller maps to `TH_BUTTON_SKIP`. It releases Ctrl outside
 that exact phase. For an active but unskippable WAIT, it creates a fresh Z edge
 every 250 ms because the shipped code requires `WAS_PRESSED(SHOOT)`; an already
-held Z cannot advance it. Neither operation changes a movement proposal.
+held Z cannot advance it. The 50 ms release/re-press is a non-blocking state,
+so dialogue control cannot stall safety sampling. Neither operation changes a
+movement proposal.
 
 This is not yet a route-level safety proof. Future ECL births/instructions are
-not yet modeled, and the four-frame issue window is physically measured rather
-than protected by a command lease. In armed control, an
+not yet modeled. The four-frame issue window is physically measured; a command
+lease prevents another direction from being sent until the native input shows
+the exact focused movement, and fails closed if pickup exceeds two frames. In armed control, an
 empty/unknown hard authority or the first physical HIT releases input and ends
 the trial instead of silently continuing a previously held direction.
 
@@ -212,3 +216,38 @@ simultaneous despawning-bullet witnesses. Native solve timing remained 3.52 ms
 median, 11.20 ms p95, 15.27 ms p99, and 25.18 ms maximum. This physically
 validates the layout and integrated current-body model; a same-route full run
 is still needed to make the f2248 causal A/B strong.
+
+## Stage 2 physical-input checkpoint (2026-08-01)
+
+A later full-route HIT at Stage 2 frame 9790 isolated an input-pipeline bug. The
+colliding state-5 bullet was at `(64.375, 380.635)` while the player was at
+`(65.029, 383.775)`. At the preceding frame the solver selected right, but the
+game sampled an older down-left command. Branching only over delays of the
+current native direction could not represent this queued intermediate action.
+
+Physical movement commands are now serialized: a newly selected direction is
+held until the exact focused direction appears in native input. While pending,
+the already issued full certificate remains authoritative and a one-frame
+current/leased recheck covers newly observed hazards. Pickup beyond the
+observed two-frame bound fails closed. The lease timestamp is read after the
+actual `SendInput`, which fixed a separate false timeout caused by the old
+blocking dialogue pulse advancing three native frames before command issue.
+
+Two attempted timing fixes were physically falsified rather than retained.
+Extending the constant-action hard horizon to five produced an empty safe set
+at frame 3687, where the four-frame authority still had down, down-left, and
+down-right available. Hard eligibility therefore remains four frames. Dialogue
+Z edges are now non-blocking, and the native wrapper builds the maximum-horizon
+hazard buffer once for both the hard and adaptive scans; a saved 154-bullet
+Windows replay of the calculation preserved both action sets while reducing
+median paired scan time from 4.48 to 3.57 ms.
+
+The final integrated Hard Practice Stage 2 run reached its result path at frame
+16059 after 15,984 sampled states, with zero dead rows, zero authority stops,
+and no Bomb bit in native or desired input. It covered up to 337 bullets, nine
+lasers, and 13 lethal enemy bodies; 654 rows exercised an in-flight command and
+32 non-blocking dialogue edges completed. Both the overall and hazardous-state
+decision gaps were at most two frames, while the dialogue gap was at most one.
+Native solve time was 2.85 ms median, 9.68 ms p95, 13.77 ms p99, and 31.04 ms
+maximum. This validates Stage 2 input timing; later stages and non-Practice
+replay saving remain physical gaps.
