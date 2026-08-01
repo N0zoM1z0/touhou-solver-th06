@@ -99,13 +99,13 @@ class ProposalRanker:
             )
             urgent_egress = near_corner and boundary_egress
             boundary_relief = 0
-            if "left" in self.boundary_guards:
+            if snapshot.x - MOVEMENT_LEFT <= boundary_lookahead:
                 boundary_relief += candidate.action.dx
-            if "right" in self.boundary_guards:
+            if MOVEMENT_RIGHT - snapshot.x <= boundary_lookahead:
                 boundary_relief -= candidate.action.dx
-            if "top" in self.boundary_guards:
+            if snapshot.y - MOVEMENT_TOP <= boundary_lookahead:
                 boundary_relief += candidate.action.dy
-            if "bottom" in self.boundary_guards:
+            if MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead:
                 boundary_relief -= candidate.action.dy
             moves_toward_near_wall = (
                 "left" in self.boundary_guards
