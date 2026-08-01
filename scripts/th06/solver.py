@@ -204,11 +204,18 @@ class Solver:
                 # set. Probe only that held action. This stays a soft ranking
                 # signal: the unchanged Hard-4 set remains authoritative, and
                 # a discouraged action remains selectable when it is alone.
+                # f2763 showed that the adaptive dense h6 could still retain
+                # up-right one frame before it disappeared at h8. A selected
+                # h8 probe remains cheaper than restoring the full h6 pass.
                 current = action_from_input(snapshot.input_mask)
                 if any(candidate.action == current for candidate in certified):
+                    current_probe_horizon = max(
+                        effort_horizon,
+                        HARD_SAFETY_HORIZON * 2,
+                    )
                     current_effort = self.kernel.certify_selected(
                         snapshot,
-                        effort_horizon,
+                        current_probe_horizon,
                         (current,),
                         collision_margin=0.35,
                     )
