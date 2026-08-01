@@ -1055,6 +1055,39 @@ class BaselineTests(unittest.TestCase):
             {candidate.action for candidate in hard},
         )
 
+    def test_solver_skips_wall_search_after_hard_authority_narrows(self):
+        state = snapshot(
+            x=295.078,
+            y=401.696,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        all_hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        constrained = tuple(
+            candidate for candidate in all_hard
+            if candidate.action.name in (
+                "stay", "up", "down", "right", "up_right", "down_right"
+            )
+        )
+        descending = tuple(
+            candidate for candidate in constrained
+            if candidate.action == down
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            constrained,
+            descending,
+            constrained,
+        )
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(len(constrained), 6)
+        self.assertEqual(decision.action, down)
+        kernel.replanning_scores.assert_not_called()
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,

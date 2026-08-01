@@ -250,6 +250,7 @@ class Solver:
         repairable = frozenset()
         if (
             durable
+            and len(certified) == len(ACTIONS)
             and effort_horizon >= 8
             and all(
                 heads_toward_single_wall(snapshot, action)
@@ -259,8 +260,10 @@ class Solver:
             # Stage 4 f12461's sole constant h12 proposal descended into the
             # bottom wall, although the existing two-segment model proved the
             # current horizontal corridor still had a valid continuation.
-            # Keep such non-wall continuations in the soft tier; the fixed
-            # Hard-4 set above remains the only authority.
+            # Only explore while Hard-4 is fully open: f6364 already had just
+            # six hard actions, and this extra search aged a sufficient h12
+            # decision by three frames. Keep such non-wall continuations in
+            # the soft tier; the fixed Hard-4 set above remains the authority.
             wall_scores = (
                 self.kernel.replanning_scores(
                     snapshot,
