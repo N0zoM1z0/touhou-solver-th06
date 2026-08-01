@@ -1,5 +1,6 @@
 import unittest
 import struct
+from unittest import mock
 
 from th06.model import (
     ACTION_BY_VECTOR,
@@ -26,7 +27,7 @@ from th06.dialogue import DialogueSkipper
 from th06.input_lease import InputLease, bounded_delivery_age
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
-from th06 import dialogue, menu
+from th06 import dialogue, menu, native
 from th06.native import (
     ADDR_CHAIN,
     ADDR_ENEMY_CALC_CHAIN,
@@ -108,6 +109,24 @@ def enemy_body(**changes):
 
 
 class BaselineTests(unittest.TestCase):
+    def test_snapshot_read_retries_a_torn_game_frame(self):
+        first = snapshot()
+        second = Snapshot(**{**first.__dict__, "frame": 2})
+        process = object()
+
+        with mock.patch.object(
+            native,
+            "read_game_frame",
+            side_effect=(1, 2, 2, 2),
+        ), mock.patch.object(
+            native,
+            "_read_snapshot_once",
+            side_effect=(first, second),
+        ):
+            coherent = native.read_snapshot(process)
+
+        self.assertEqual(coherent.frame, 2)
+
     def test_native_direction_precedence(self):
         self.assertEqual(action_from_input(BUTTON_LEFT).name, "left")
 

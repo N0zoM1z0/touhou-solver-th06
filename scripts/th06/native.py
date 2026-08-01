@@ -421,7 +421,7 @@ def attach_exact(game_dir: Path, timeout: float = 20.0) -> NativeProcess:
     raise RuntimeError(f"exact target not found at {game_dir / TARGET_EXE}")
 
 
-def read_snapshot(process: NativeProcess) -> Snapshot:
+def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     game = process.read(ADDR_GAME_MANAGER + GAME_FLAGS_OFFSET, GAME_STAGE_OFFSET + 4 - GAME_FLAGS_OFFSET)
     game_menu, retry_menu, gameplay_active, _completed, _practice, demo_mode = game[0:6]
     # Despite its name, GameManager::OnUpdate sets isInMenu=1 during normal
@@ -666,6 +666,22 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         frame_multiplier, input_mask, tuple(bullets), len(lasers), in_menu, time_stopped,
         bool(is_replay or demo_mode), tuple(lasers), tuple(enemies),
         tuple(despawning_bullets), bullet_read_retries,
+    )
+
+
+def read_snapshot(process: NativeProcess) -> Snapshot:
+    """Return one frame-coherent native snapshot or fail closed."""
+    observed_epochs = []
+    for _attempt in range(8):
+        before = read_game_frame(process)
+        snapshot = _read_snapshot_once(process)
+        after = read_game_frame(process)
+        observed_epochs.append((before, snapshot.frame, after))
+        if before == snapshot.frame == after:
+            return snapshot
+    raise NativeDecodeError(
+        "native state changed throughout snapshot reads",
+        {"observed_epochs": observed_epochs},
     )
 
 
