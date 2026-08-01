@@ -62,27 +62,24 @@ def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
         bullet.state == 1
         and bullet.ex_flags & ACCELERATION_FLAG
         and not bullet.ex_flags & COMPLEX_MOTION_FLAGS
+        and bullet.acceleration_duration > 0
     ):
-        # BulletManager::OnUpdate adds one fixed ex4Acceleration vector before
-        # position, until an internal timer clears 0x10. The timer is not yet
-        # sensed, so enumerate every possible number of future acceleration
-        # applications. Spawn-effect bits 0x2/0x4/0x8 are inert once fired.
-        positions = []
-        for applications in range(frame + 1):
-            acceleration_factor = (
-                applications * frame - applications * (applications - 1) / 2.0
-            )
-            positions.append(
-                (
-                    bullet.x + bullet.vx * frame + bullet.acceleration_x * acceleration_factor,
-                    bullet.y + bullet.vy * frame + bullet.acceleration_y * acceleration_factor,
-                )
-            )
+        # BulletManager::OnUpdate applies ex4Acceleration before position only
+        # while timer.current < ex5Int0. Spawn-effect bits are inert once fired.
+        applications = min(
+            frame,
+            max(0, bullet.acceleration_duration - bullet.timer),
+        )
+        acceleration_factor = (
+            applications * frame - applications * (applications - 1) / 2.0
+        )
+        x = bullet.x + bullet.vx * frame + bullet.acceleration_x * acceleration_factor
+        y = bullet.y + bullet.vy * frame + bullet.acceleration_y * acceleration_factor
         return (
-            min(x for x, _y in positions) - bullet.half_width,
-            min(y for _x, y in positions) - bullet.half_height,
-            max(x for x, _y in positions) + bullet.half_width,
-            max(y for _x, y in positions) + bullet.half_height,
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
         )
     if bullet.ex_flags & DYNAMIC_EX_FLAGS:
         # Extended bullets may accelerate, turn, home, or bounce, but do not

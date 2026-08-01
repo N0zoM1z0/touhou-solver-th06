@@ -32,6 +32,7 @@ from th06.native import (
     ADDR_ENEMY_CALC_CHAIN,
     ADDR_ENEMY_MANAGER,
     BULLET_POSITION_OFFSET,
+    BULLET_ACCELERATION_DURATION_OFFSET,
     BULLET_DIRECTION_MAX_TIMES_OFFSET,
     BULLET_EX_FLAGS_OFFSET,
     BULLET_SIZE_OFFSET,
@@ -277,6 +278,24 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual((bullet.x, bullet.y), (123.0, 234.0))
         self.assertEqual((bullet.half_width, bullet.half_height), (2.0, 3.0))
 
+    def test_bullet_acceleration_duration_uses_source_layout(self):
+        tail = bytearray(BULLET_STRIDE - BULLET_SIZE_OFFSET)
+        struct.pack_into("<ff", tail, 0, 4.0, 4.0)
+        struct.pack_into("<H", tail, BULLET_STATE_OFFSET - BULLET_SIZE_OFFSET, 1)
+        struct.pack_into(
+            "<H", tail, BULLET_EX_FLAGS_OFFSET - BULLET_SIZE_OFFSET, 0x14
+        )
+        struct.pack_into(
+            "<i",
+            tail,
+            BULLET_ACCELERATION_DURATION_OFFSET - BULLET_SIZE_OFFSET,
+            140,
+        )
+
+        bullet = _decode_bullet_tail(tail, 8)
+
+        self.assertEqual(bullet.acceleration_duration, 140)
+
     def test_direction_schedule_without_an_interval_fails_closed(self):
         tail = bytearray(BULLET_STRIDE - BULLET_SIZE_OFFSET)
         struct.pack_into("<ff", tail, 0, 4.0, 4.0)
@@ -369,12 +388,14 @@ class BaselineTests(unittest.TestCase):
             acceleration=0.02,
             acceleration_x=-0.006,
             acceleration_y=0.019,
+            timer=0,
+            acceleration_duration=6,
         )
         left, top, right, bottom = hazard_box(bullet, 12)
-        self.assertGreater(left, 80.0)
-        self.assertLess(right, 91.0)
-        self.assertGreaterEqual(top, 334.0)
-        self.assertLess(bottom, 340.0)
+        self.assertAlmostEqual(left, 85.658, places=3)
+        self.assertAlmostEqual(right, 89.658, places=3)
+        self.assertAlmostEqual(top, 335.083, places=3)
+        self.assertAlmostEqual(bottom, 339.083, places=3)
 
     def test_timed_direction_rotation_uses_source_deceleration(self):
         bullet = Bullet(

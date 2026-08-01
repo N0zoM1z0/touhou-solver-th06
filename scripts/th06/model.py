@@ -57,6 +57,7 @@ class Bullet:
     direction_rotation: float = 0.0
     timer: int = 0
     timer_float: float = 0.0
+    acceleration_duration: int = 0
     direction_interval: int = 0
     direction_num_times: int = 0
     direction_max_times: int = 0
