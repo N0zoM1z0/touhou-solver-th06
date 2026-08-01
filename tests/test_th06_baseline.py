@@ -21,6 +21,7 @@ from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
+from th06.kernels.safety import NativeSafetyKernel
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
@@ -802,6 +803,38 @@ class BaselineTests(unittest.TestCase):
             (held,),
             0.35,
         )])
+
+    def test_native_dense_followup_reuses_the_prepared_hazards(self):
+        state = snapshot()
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        held = action_from_input(state.input_mask)
+        held_effort = tuple(
+            candidate for candidate in hard if candidate.action == held
+        )
+        prepared = object()
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepared_snapshot = None
+        kernel._prepared_horizon = 0
+        kernel._prepared_hazards = None
+        kernel._prepare = mock.Mock(return_value=prepared)
+        kernel._certify_prepared = mock.Mock(side_effect=(
+            (hard, hard),
+            (held_effort, ()),
+            (hard, ()),
+        ))
+
+        combined = kernel.certify_delivery_sets_with_selected(
+            state,
+            HARD_SAFETY_HORIZON,
+            6,
+            (held,),
+            collision_margin=0.35,
+        )
+        effort = kernel.certify(state, 6, collision_margin=0.35)
+
+        self.assertEqual(combined, (hard, hard, held_effort))
+        self.assertEqual(effort, hard)
+        kernel._prepare.assert_called_once_with(state, 6)
 
     def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
         state = snapshot(*(

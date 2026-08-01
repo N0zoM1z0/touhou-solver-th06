@@ -191,7 +191,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon),
         )[0]
 
     def certify_selected(
@@ -213,7 +213,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon),
             candidate_mask,
         )[0]
 
@@ -237,7 +237,7 @@ class NativeSafetyKernel:
             for index, action in enumerate(ACTIONS)
             if action in selected
         )
-        prepared = self._prepare(snapshot, selected_horizon)
+        prepared = self._prepare_reusable(snapshot, selected_horizon)
         hard, age_zero = self._certify_prepared(
             snapshot,
             hard_horizon,
