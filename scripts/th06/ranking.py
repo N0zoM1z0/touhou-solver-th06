@@ -71,7 +71,9 @@ class ProposalRanker:
             and vertical_room <= snapshot.focus_speed + 0.25
         )
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, float, float, float, str]:
+        boundary_lookahead = snapshot.focus_speed * 16.0
+
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -79,6 +81,15 @@ class ProposalRanker:
                 > current_boundary_room + 0.25
             )
             urgent_egress = near_corner and boundary_egress
+            boundary_relief = 0
+            if snapshot.x - MOVEMENT_LEFT <= boundary_lookahead:
+                boundary_relief += candidate.action.dx
+            if MOVEMENT_RIGHT - snapshot.x <= boundary_lookahead:
+                boundary_relief -= candidate.action.dx
+            if snapshot.y - MOVEMENT_TOP <= boundary_lookahead:
+                boundary_relief += candidate.action.dy
+            if MOVEMENT_BOTTOM - snapshot.y <= boundary_lookahead:
+                boundary_relief -= candidate.action.dy
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
@@ -92,6 +103,7 @@ class ProposalRanker:
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
+                boundary_relief,
                 boundary_egress,
                 total,
                 candidate.clearance,
