@@ -33,3 +33,6 @@ Offline checks cannot replace physical play. Do not hardcode a stage or spell
 before a general cause has been tested. Keep menu and dialogue control separate
 from movement. Do not commit the game, source clone, traces, logs, or caches;
 release input and stop all trial processes after a run.
+
+When launching the Windows game from WSL, use non-PTY execution. A PTY can
+stall `cmd.exe` before the game and agent attach correctly.

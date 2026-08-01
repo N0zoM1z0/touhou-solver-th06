@@ -29,7 +29,9 @@ This separation is the idea; the algorithms are intentionally not fixed.
   cleanly with no death or Bomb. The complete run reached frame 12567, decoded
   up to 422 bullets and 6 simultaneous lasers, and used the native C++ safety
   kernel. Input pickup and hazardous-state decision intervals remain bounded
-  to two observed frames each.
+  to two observed frames each. A later pickup-aware repair rerun also completed
+  at frame 11383 with no death, authority stop, or Bomb after the two-segment
+  proposal began covering both command pickup windows.
 - Hard Practice Stage 2 also completes without a death or Bomb after adding
   source-layout enemy-body sensing. It covered up to 20 simultaneously lethal
   enemy bodies and 334 bullets; current bodies now participate in hard safety.
@@ -56,11 +58,12 @@ counterexample appears; do not recreate the TH08 architecture from it.
 
 ## How to continue
 
-Run a fresh full Hard route from Stage 1 and treat its first hit—or its successful
-next stage—as the main evidence. Explain one concrete failure from native
-state and source, make one small change, run the focused check, then test it
-physically. Timing, future emissions, lasers, ranking, or another mechanism may
-be next; choose from evidence rather than this document.
+Per the current one-time ordering decision, use Practice Stage 4 next and treat
+its first hit or successful result as the main evidence. After Stage 4 passes,
+run a fresh full Hard route from Stage 1. Explain one concrete failure from
+native state and source, make one small change, run the focused check, then test
+it physically. Timing, future emissions, lasers, ranking, or another mechanism
+may be next; choose from evidence rather than this document.
 
 ```bat
 run_th06_baseline.bat --seconds 120
@@ -81,3 +84,4 @@ exact verified trial process after releasing input.
 
 The Windows launchers use the current machine defaults. Override them without
 editing scripts via `TH06_GAME_DIR` and `TH06_PYTHON`.
+When calling them through WSL automation, do not allocate a PTY.

@@ -291,3 +291,31 @@ were at most three frames, and one changed command was issued from a snapshot
 three frames old. Those rare timing ages remain an explicit unresolved bound;
 the successful Practice run is not permission to weaken hard safety. A fresh
 full route from Stage 1 is the next regression.
+
+## Pickup-aware repair checkpoint (2026-08-02)
+
+That full-route regression exposed a linear-bullet trap in Stage 1: the
+two-segment proposal selected a viable first segment at f10724, but ordinary
+ranking discarded it one frame later. A repair proposal is now retained for
+one four-frame segment only while it remains in every fresh hard-safe set.
+
+The focused Practice rerun then found a second, distinct optimism at f7210.
+At f7208 the nominal two-segment scan uniquely preferred right while native
+input was still up-left. The command took two frames to appear in native input;
+at f7209 up-left still survived eight frames, while right no longer survived a
+fresh four-frame rollout. Once right was sampled at f7210, no action survived
+three frames. The two-segment proposal had modeled both commands as immediate.
+
+The Python reference and native C++ proposal now branch over the measured
+0/1/2-frame pickup delay for both the first and continuation commands. A first
+action receives the minimum continuation count across its possible pickup
+states. This changes proposal ranking only; the hard-safe set is unchanged.
+
+The next Hard/Reimu-A Practice Stage 1 run reached its result path at frame
+11383 after 11,276 sampled states with zero dead rows, authority stops, or Bomb
+inputs. It covered up to 433 bullets, six lasers, and 18 enemy bodies. The
+pickup-aware repair scan ran on 24 rows; its median solve time was 13.00 ms and
+maximum was 25.53 ms. Overall solve time was 1.92 ms median, 14.30 ms p99, and
+27.20 ms maximum; hazardous decision gaps and command issue ages were at most
+three and two frames respectively. Per the one-time iteration order, Practice
+Stage 4 is next, followed by a full route from Stage 1.
