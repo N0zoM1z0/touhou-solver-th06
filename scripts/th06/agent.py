@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import csv
 import json
 import os
@@ -70,6 +71,7 @@ def run(args: argparse.Namespace) -> int:
     input_lease = InputLease()
     previous_state: int | None = None
     previous_snapshot: Snapshot | None = None
+    snapshot_history: deque[Snapshot] = deque(maxlen=16)
     practice_trial = PracticeTrial() if args.practice_stage is not None else None
     last_frame: int | None = None
     last_reason: str | None = None
@@ -206,6 +208,7 @@ def run(args: argparse.Namespace) -> int:
                             ),
                         }
                     )
+                snapshot_history.append(snapshot)
                 last_frame = snapshot.frame
                 prior_snapshot = previous_snapshot
                 hit = physical_hit(previous_state, snapshot.player_state)
@@ -352,6 +355,9 @@ def run(args: argparse.Namespace) -> int:
                             {
                                 "wall_s": time.monotonic() - started,
                                 "snapshot": asdict(snapshot),
+                                "snapshot_history": [
+                                    asdict(item) for item in snapshot_history
+                                ],
                                 "previous_snapshot": (
                                     asdict(prior_snapshot) if prior_snapshot is not None else None
                                 ),
