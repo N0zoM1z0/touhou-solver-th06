@@ -687,6 +687,36 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.safe_actions, (stay, right))
         self.assertEqual(decision.repairable_count, 1)
 
+    def test_replanning_uses_the_allocated_adaptive_horizon(self):
+        stay = SafeAction(ACTION_BY_VECTOR[(0, 0)], 2.0, 192.0, 380.0)
+
+        class ReplanningKernel:
+            def certify_pair(
+                self, _snapshot, _hard, effort, collision_margin
+            ):
+                self.assertEqual(collision_margin, 0.35)
+                self.effort = effort
+                return (stay,), ()
+
+            def replanning_scores(
+                self, _snapshot, _candidates, split, horizon, collision_margin
+            ):
+                self.assertEqual(collision_margin, 0.35)
+                self.repair = (split, horizon)
+                return {stay.action: 1}
+
+            assertEqual = self.assertEqual
+
+        state = snapshot()
+        state = Snapshot(**{**state.__dict__, "enemies": (enemy_body(x=20.0, y=20.0),)})
+        solver = Solver()
+        solver.kernel = ReplanningKernel()
+
+        solver.decide(state)
+
+        self.assertEqual(solver.kernel.effort, 16)
+        self.assertEqual(solver.kernel.repair, (HARD_SAFETY_HORIZON, 16))
+
     def test_hard_issue_window_is_not_a_constant_action_rollout(self):
         # Reduced witness from the physical f7185 CE: both source-linear
         # bullets can be avoided by replanning, but no one direction can be

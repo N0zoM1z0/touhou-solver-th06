@@ -120,7 +120,11 @@ class Solver:
         )
         repairable = frozenset()
         if not durable and effort_horizon >= 8:
-            repair_horizon = 8
+            # Stage 4 entered a corner because the adaptive layer allocated 16
+            # frames but the fallback repair proposal discarded everything
+            # after frame 8.  Spend the existing soft budget; hard eligibility
+            # remains the fixed four-frame set above.
+            repair_horizon = effort_horizon
             scores = (
                 self.kernel.replanning_scores(
                     snapshot,
