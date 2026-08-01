@@ -11,9 +11,9 @@ LASER_EFFORT_HORIZON = 24
 
 
 def needs_active_mixed_replan(snapshot: Snapshot, effort_horizon: int) -> bool:
-    """Spend the long mixed-hazard budget only after a laser is fully active."""
+    """Spend the long mixed budget only in the low-density active phase."""
     return (
-        effort_horizon < LASER_EFFORT_HORIZON
+        16 <= effort_horizon < LASER_EFFORT_HORIZON
         and any(laser.state == 1 for laser in snapshot.lasers)
     )
 

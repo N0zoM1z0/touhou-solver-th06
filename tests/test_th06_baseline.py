@@ -1016,6 +1016,32 @@ class BaselineTests(unittest.TestCase):
         )
         kernel.certify.assert_not_called()
 
+    def test_dense_active_laser_skips_the_long_mixed_replan(self):
+        active_laser = Laser(
+            0.0, 20.0, 0.0, 0.0, 100.0, 100.0, 8.0, 0.0,
+            25, 25, 75, 16, 14, 5, 5.0, 0, 1,
+            slot=5,
+            angular_velocity=0.0081954,
+            motion_known=True,
+        )
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(100)
+        ), lasers=1)
+        state = Snapshot(**{**state.__dict__, "lasers": (active_laser,)})
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (hard, hard, hard)
+        kernel.certify.return_value = hard
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 12)
+        self.assertIn(decision.action, {candidate.action for candidate in hard})
+        kernel.replanning_scores.assert_not_called()
+
     def test_empty_mixed_proposal_only_retains_an_existing_laser_corridor(self):
         rotating_warning = Laser(
             192.0, 116.0, 2.2086773, 64.0, 500.0, 500.0, 24.0, 0.0,

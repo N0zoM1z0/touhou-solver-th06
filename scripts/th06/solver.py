@@ -328,6 +328,8 @@ class Solver:
             # together.  Rank the unchanged Hard-4 actions by that joint
             # evidence.  Warning lasers stay on the cheap path: the saved
             # warning snapshot made this search take longer than one frame.
+            # The adaptive h16 requirement also excludes dense f6301, where
+            # a 251-bullet joint search took 64 ms and expired at delivery.
             mixed_laser_scores = (
                 self.kernel.replanning_scores(
                     snapshot,
