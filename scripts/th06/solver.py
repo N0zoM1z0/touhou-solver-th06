@@ -32,12 +32,17 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
         return HARD_SAFETY_HORIZON
     if len(snapshot.bullets) >= 220:
         return 8
+    if len(snapshot.bullets) >= 100:
+        # Stage 4 f6425 spent 49.5 ms on a 16-frame repair with 119
+        # bullets and six lasers, although four constant actions survived 12
+        # frames. Keep mixed scenes inside one delivery interval here.
+        return 12
     if snapshot.lasers or snapshot.enemies:
         return 16
     nearest = nearest_current_clearance(snapshot)
     if nearest < 48.0:
         return 16
-    if nearest < 120.0 or len(snapshot.bullets) >= 100:
+    if nearest < 120.0:
         return 12
     return 8
 

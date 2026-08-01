@@ -548,6 +548,18 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
         )
 
+    def test_mixed_hazard_density_bounds_adaptive_effort(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(100)
+        )
+        state = snapshot(*bullets)
+        state = Snapshot(
+            **{**state.__dict__, "enemies": (enemy_body(x=20.0, y=20.0),)}
+        )
+
+        self.assertEqual(adaptive_horizon(state), 12)
+
     def test_laser_fails_closed(self):
         decision = Solver().decide(snapshot(lasers=1))
         self.assertIsNone(decision.action)
