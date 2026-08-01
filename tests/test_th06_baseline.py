@@ -550,6 +550,33 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertEqual(chosen.action, right)
 
+    def test_replanning_proposal_covers_both_pickup_delays(self):
+        state = snapshot(
+            Bullet(
+                35.62, 413.40, 3.376, -2.133, 4.0, 4.0, 1,
+                ex_flags=4, speed=3.993, turn_speed=3.993, angle=5.720,
+            ),
+            Bullet(
+                10.90, 387.80, 0.134, 2.344, 4.0, 3.0, 1,
+                ex_flags=4, speed=2.348, turn_speed=2.348, angle=1.514,
+            ),
+            Bullet(
+                5.54, 436.25, 0.889, -1.771, 3.0, 3.0, 1,
+                ex_flags=4, speed=1.982, turn_speed=1.982, angle=5.177,
+            ),
+            x=10.25,
+            y=405.0,
+            input_mask=BUTTON_FOCUS | 0x10 | BUTTON_LEFT,
+        )
+        candidates = certify_actions(state, HARD_SAFETY_HORIZON)
+        scores = replanning_scores(state, candidates)
+
+        # Immediate pickup makes right look best (six continuations), but a
+        # one- or two-frame pickup leaves none.  Down retains two continuations
+        # in the worst first-pickup branch.
+        self.assertEqual(scores[ACTION_BY_VECTOR[(1, 0)]], 0)
+        self.assertEqual(scores[ACTION_BY_VECTOR[(0, 1)]], 2)
+
     def test_selective_repair_proposal_survives_one_hard_segment(self):
         ranker = ProposalRanker()
         right = ACTION_BY_VECTOR[(1, 0)]
