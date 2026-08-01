@@ -751,6 +751,32 @@ class BaselineTests(unittest.TestCase):
             down,
         )
 
+    def test_boundary_guard_keeps_rewarding_egress_until_release(self):
+        ranker = ProposalRanker()
+        neutral = SafeAction(ACTION_BY_VECTOR[(0, 1)], 20.0, 39.0, 380.0)
+        inward = SafeAction(ACTION_BY_VECTOR[(1, 1)], 5.0, 45.0, 380.0)
+        entered = snapshot(x=39.0, y=372.0, input_mask=BUTTON_FOCUS | 0x20)
+        still_guarded = Snapshot(
+            **{
+                **entered.__dict__,
+                "frame": entered.frame + 1,
+                "x": 40.6,
+            }
+        )
+
+        ranker.choose(
+            entered,
+            (neutral, inward),
+            frozenset((neutral.action, inward.action)),
+        )
+        chosen = ranker.choose(
+            still_guarded,
+            (neutral, inward),
+            frozenset((neutral.action, inward.action)),
+        )
+
+        self.assertEqual(chosen, inward)
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
