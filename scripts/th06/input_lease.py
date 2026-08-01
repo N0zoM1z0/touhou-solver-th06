@@ -11,6 +11,7 @@ from .model import (
     BUTTON_LEFT,
     BUTTON_RIGHT,
     BUTTON_UP,
+    SafeAction,
 )
 
 
@@ -24,6 +25,22 @@ def bounded_delivery_age(snapshot_frame: int, issue_frame: int) -> int | None:
     if 0 <= age <= INPUT_PICKUP_MAX_FRAMES:
         return age
     return None
+
+
+def covered_current_retry(
+    snapshot_frame: int,
+    observed_frame: int,
+    horizon: int,
+    current: Action,
+    safe_actions: tuple[SafeAction, ...],
+) -> bool:
+    """Whether one late frame may retain an explicitly certified current input."""
+    age = observed_frame - snapshot_frame
+    return (
+        age == INPUT_PICKUP_MAX_FRAMES + 1
+        and age < horizon
+        and any(candidate.action == current for candidate in safe_actions)
+    )
 
 
 @dataclass(frozen=True)

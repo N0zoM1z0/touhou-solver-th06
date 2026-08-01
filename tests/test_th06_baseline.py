@@ -24,7 +24,7 @@ from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_mo
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
-from th06.input_lease import InputLease, bounded_delivery_age
+from th06.input_lease import InputLease, bounded_delivery_age, covered_current_retry
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import dialogue, menu, native
@@ -219,6 +219,16 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(bounded_delivery_age(10, 12), 2)
         self.assertIsNone(bounded_delivery_age(10, 13))
         self.assertIsNone(bounded_delivery_age(10, 9))
+
+    def test_late_retry_only_holds_an_explicitly_safe_current_action(self):
+        down = ACTION_BY_VECTOR[(0, 1)]
+        up = ACTION_BY_VECTOR[(0, -1)]
+        safe = (SafeAction(down, 20.0, 192.0, 388.0),)
+
+        self.assertTrue(covered_current_retry(10, 13, 4, down, safe))
+        self.assertFalse(covered_current_retry(10, 13, 4, up, safe))
+        self.assertFalse(covered_current_retry(10, 14, 4, down, safe))
+        self.assertFalse(covered_current_retry(10, 13, 3, down, safe))
 
     def test_input_lease_age_starts_at_physical_issue_frame(self):
         lease = InputLease()

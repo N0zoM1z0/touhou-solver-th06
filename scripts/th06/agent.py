@@ -15,7 +15,12 @@ from pathlib import Path
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
 from .hazards.lasers import track_motion as track_laser_motion
-from .input_lease import INPUT_PICKUP_MAX_FRAMES, InputLease, bounded_delivery_age
+from .input_lease import (
+    INPUT_PICKUP_MAX_FRAMES,
+    InputLease,
+    bounded_delivery_age,
+    covered_current_retry,
+)
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot, action_from_input
 from .native import (
@@ -269,20 +274,36 @@ def run(args: argparse.Namespace) -> int:
                             and action_from_input(keyboard.base_input_mask)
                             != decision.action
                         ):
+                            observed_frame = read_game_frame(process)
                             delivery_age = bounded_delivery_age(
-                                snapshot.frame, read_game_frame(process)
+                                snapshot.frame, observed_frame
                             )
                             if delivery_age is None:
-                                decision = Decision(
-                                    None,
-                                    decision.safe_actions,
-                                    0.0,
+                                # Never issue an aged proposal. At exactly
+                                # age 3, the fixed Hard-4 certificate can keep
+                                # the observed current action for its fourth
+                                # and final covered frame only when that
+                                # constant action is itself in the hard set.
+                                # Retry immediately from a fresh snapshot.
+                                if covered_current_retry(
+                                    snapshot.frame,
+                                    observed_frame,
                                     decision.horizon,
-                                    "unsupported-delivery-age",
-                                    decision.effort_horizon,
-                                    decision.effort_safe_count,
-                                    decision.repairable_count,
-                                )
+                                    action_from_input(snapshot.input_mask),
+                                    decision.safe_actions,
+                                ):
+                                    stale_retry = True
+                                else:
+                                    decision = Decision(
+                                        None,
+                                        decision.safe_actions,
+                                        0.0,
+                                        decision.horizon,
+                                        "unsupported-delivery-age",
+                                        decision.effort_horizon,
+                                        decision.effort_safe_count,
+                                        decision.repairable_count,
+                                    )
                             elif delivery_age == INPUT_PICKUP_MAX_FRAMES:
                                 # One frame of compute age plus the measured
                                 # two-frame native pickup is covered by hard
