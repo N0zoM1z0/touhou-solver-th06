@@ -928,6 +928,61 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, durable)
 
+    def test_ranker_keeps_the_current_corridor_along_one_wall(self):
+        state = snapshot(
+            x=184.885,
+            y=421.081,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        right = SafeAction(
+            ACTION_BY_VECTOR[(1, 0)], 1.364, 191.13, 425.32
+        )
+        down_right = SafeAction(
+            ACTION_BY_VECTOR[(1, 1)], 3.600, 190.54, 426.74
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            (right, down_right),
+            durable_actions=frozenset((right.action, down_right.action)),
+        )
+
+        self.assertEqual(chosen, down_right)
+
+    def test_solver_keeps_a_replanning_corridor_off_one_wall(self):
+        state = snapshot(
+            x=164.5,
+            y=402.697,
+            input_mask=BUTTON_FOCUS | 0x80,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        right = ACTION_BY_VECTOR[(1, 0)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        descending = tuple(
+            candidate for candidate in hard
+            if candidate.action == down_right
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            descending,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            right: 1,
+            down_right: 2,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, right)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,

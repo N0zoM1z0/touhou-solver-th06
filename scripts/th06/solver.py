@@ -12,7 +12,7 @@ from .laser_effort import (
     retained_current_corridor,
 )
 from .model import ACTIONS, Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
-from .ranking import ProposalRanker
+from .ranking import ProposalRanker, heads_toward_single_wall
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
 
@@ -242,6 +242,43 @@ class Solver:
             if refined_durable:
                 durable = refined_durable
         repairable = frozenset()
+        if (
+            durable
+            and effort_horizon >= 8
+            and all(
+                heads_toward_single_wall(snapshot, action)
+                for action in durable
+            )
+        ):
+            # Stage 4 f12461's sole constant h12 proposal descended into the
+            # bottom wall, although the existing two-segment model proved the
+            # current horizontal corridor still had a valid continuation.
+            # Keep such non-wall continuations in the soft tier; the fixed
+            # Hard-4 set above remains the only authority.
+            wall_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                )
+            )
+            wall_continuations = frozenset(
+                action
+                for action, score in wall_scores.items()
+                if score > 0
+                and not heads_toward_single_wall(snapshot, action)
+            )
+            if wall_continuations:
+                durable |= wall_continuations
         if not durable and effort_horizon >= 8:
             # Stage 4 entered a corner because the adaptive layer allocated 16
             # frames but the fallback repair proposal discarded everything

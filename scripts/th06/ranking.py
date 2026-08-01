@@ -17,6 +17,34 @@ def _boundary_room(x: float, y: float) -> float:
     )
 
 
+def near_single_wall(snapshot: Snapshot) -> bool:
+    """Whether one boundary axis, but not a corner, is in soft lookahead."""
+    lookahead = snapshot.focus_speed * 16.0
+    horizontal_near = min(
+        snapshot.x - MOVEMENT_LEFT,
+        MOVEMENT_RIGHT - snapshot.x,
+    ) <= lookahead
+    vertical_near = min(
+        snapshot.y - MOVEMENT_TOP,
+        MOVEMENT_BOTTOM - snapshot.y,
+    ) <= lookahead
+    return horizontal_near != vertical_near
+
+
+def heads_toward_single_wall(snapshot: Snapshot, action: Action) -> bool:
+    """Identify proposals that spend room along the sole nearby wall axis."""
+    if not near_single_wall(snapshot):
+        return False
+    lookahead = snapshot.focus_speed * 16.0
+    left_room = snapshot.x - MOVEMENT_LEFT
+    right_room = MOVEMENT_RIGHT - snapshot.x
+    if min(left_room, right_room) <= lookahead:
+        return action.dx < 0 if left_room <= right_room else action.dx > 0
+    top_room = snapshot.y - MOVEMENT_TOP
+    bottom_room = MOVEMENT_BOTTOM - snapshot.y
+    return action.dy < 0 if top_room <= bottom_room else action.dy > 0
+
+
 class ProposalRanker:
     def __init__(self) -> None:
         self.preference = {action: 0.0 for action in ACTIONS}
@@ -73,7 +101,7 @@ class ProposalRanker:
 
         boundary_lookahead = snapshot.focus_speed * 16.0
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, int, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -103,6 +131,7 @@ class ProposalRanker:
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
+                near_single_wall(snapshot) and candidate.action == current,
                 boundary_relief,
                 boundary_egress,
                 total,
