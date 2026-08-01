@@ -76,7 +76,7 @@ class NativeSafetyKernel:
         value_array = (value_type * max(1, len(values)))(*values)
         return offset_array, value_array
 
-    def certify(self, snapshot: Snapshot, horizon: int, collision_margin: float) -> tuple[SafeAction, ...]:
+    def _prepare(self, snapshot: Snapshot, horizon: int):
         bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
         enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
         aabb_frames = tuple(
@@ -100,6 +100,16 @@ class NativeSafetyKernel:
                 value.size_y,
             ),
         )
+        return bullet_offsets, bullets, laser_offsets, lasers
+
+    def _certify_prepared(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        collision_margin: float,
+        prepared,
+    ) -> tuple[SafeAction, ...]:
+        bullet_offsets, bullets, laser_offsets, lasers = prepared
         output = (_SafeResult * len(ACTIONS))()
         status = self.function(
             snapshot.x,
@@ -126,3 +136,31 @@ class NativeSafetyKernel:
             for action, result in zip(ACTIONS, output)
             if result.safe
         )
+
+    def certify(self, snapshot: Snapshot, horizon: int, collision_margin: float) -> tuple[SafeAction, ...]:
+        return self._certify_prepared(
+            snapshot,
+            horizon,
+            collision_margin,
+            self._prepare(snapshot, horizon),
+        )
+
+    def certify_pair(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        effort_horizon: int,
+        collision_margin: float,
+    ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
+        if effort_horizon < hard_horizon:
+            raise ValueError("effort horizon cannot be shorter than hard horizon")
+        prepared = self._prepare(snapshot, effort_horizon)
+        hard = self._certify_prepared(
+            snapshot, hard_horizon, collision_margin, prepared
+        )
+        if not hard or effort_horizon == hard_horizon:
+            return hard, hard
+        effort = self._certify_prepared(
+            snapshot, effort_horizon, collision_margin, prepared
+        )
+        return hard, effort

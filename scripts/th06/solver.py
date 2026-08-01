@@ -10,11 +10,11 @@ from .ranking import ProposalRanker
 from .safety import certify_actions, nearest_current_clearance
 
 
-# Physical runs currently bound a hazardous-state decision interval to three
+# Physical runs normally bound a hazardous-state decision interval to two
 # native frames and input pickup to two more.  Longer 8/12/16-frame rollouts
 # allocate ranking effort; they must not turn constant-action rollout into a
 # hard eligibility requirement.
-HARD_SAFETY_HORIZON = 5
+HARD_SAFETY_HORIZON = 4
 
 
 def adaptive_horizon(snapshot: Snapshot) -> int:
@@ -83,7 +83,20 @@ class Solver:
                 1,
             )
         effort_horizon = adaptive_horizon(snapshot)
-        certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
+        if self.kernel is not None and effort_horizon > HARD_SAFETY_HORIZON:
+            certified, effort_certified = self.kernel.certify_pair(
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                effort_horizon,
+                collision_margin=0.35,
+            )
+        else:
+            certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
+            effort_certified = (
+                self._certify(snapshot, effort_horizon)
+                if certified and effort_horizon > HARD_SAFETY_HORIZON
+                else certified
+            )
         if not certified:
             return Decision(
                 None,
@@ -95,9 +108,7 @@ class Solver:
             )
         durable = frozenset(
             candidate.action
-            for candidate in self._certify(snapshot, effort_horizon)
-        ) if effort_horizon > HARD_SAFETY_HORIZON else frozenset(
-            candidate.action for candidate in certified
+            for candidate in effort_certified
         )
         chosen = self.ranker.choose(snapshot, certified, durable)
         return Decision(

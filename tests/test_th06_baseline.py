@@ -462,6 +462,29 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertEqual(decision.horizon, HARD_SAFETY_HORIZON)
 
+    def test_native_pair_keeps_hard_and_effort_sets_separate(self):
+        hard = (SafeAction(ACTION_BY_VECTOR[(0, 0)], 10.0, 192.0, 380.0),)
+        effort = (SafeAction(ACTION_BY_VECTOR[(0, 0)], 4.0, 192.0, 380.0),)
+
+        class PairKernel:
+            def __init__(self):
+                self.calls = []
+
+            def certify_pair(self, _snapshot, hard_horizon, effort_horizon, collision_margin):
+                self.calls.append((hard_horizon, effort_horizon, collision_margin))
+                return hard, effort
+
+        solver = Solver()
+        solver.kernel = PairKernel()
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(
+            solver.kernel.calls,
+            [(HARD_SAFETY_HORIZON, 8, 0.35)],
+        )
+
     def test_hard_issue_window_is_not_a_constant_action_rollout(self):
         # Reduced witness from the physical f7185 CE: both source-linear
         # bullets can be avoided by replanning, but no one direction can be
