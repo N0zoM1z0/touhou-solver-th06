@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
+from .hazards.lasers import track_motion as track_laser_motion
 from .input_lease import INPUT_PICKUP_MAX_FRAMES, InputLease, bounded_delivery_age
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot, action_from_input
@@ -194,6 +195,17 @@ def run(args: argparse.Namespace) -> int:
                 if snapshot.frame == last_frame:
                     time.sleep(0.001)
                     continue
+                if previous_snapshot is not None and snapshot.stage == previous_snapshot.stage:
+                    snapshot = Snapshot(
+                        **{
+                            **snapshot.__dict__,
+                            "lasers": track_laser_motion(
+                                previous_snapshot.lasers,
+                                snapshot.lasers,
+                                snapshot.frame - previous_snapshot.frame,
+                            ),
+                        }
+                    )
                 last_frame = snapshot.frame
                 prior_snapshot = previous_snapshot
                 hit = physical_hit(previous_state, snapshot.player_state)

@@ -558,6 +558,7 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
                 timer + timer_subframe,
                 flags,
                 state,
+                slot=index,
             )
         )
 

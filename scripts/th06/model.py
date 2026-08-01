@@ -82,6 +82,9 @@ class Laser:
     timer_float: float
     flags: int
     state: int
+    slot: int = -1
+    angular_velocity: float = 0.0
+    motion_known: bool = False
 
 
 @dataclass(frozen=True)

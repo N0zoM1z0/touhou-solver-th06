@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from .hazards.lasers import future_hazards as future_laser_hazards
 from .kernels.safety import NativeSafetyKernel
 from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
@@ -74,6 +75,12 @@ class Solver:
             return Decision(None, (), 0.0, 0, "unsupported-frame-multiplier")
         if snapshot.laser_count != len(snapshot.lasers):
             return Decision(None, (), 0.0, 0, "unsupported-laser-decode")
+        if any(
+            not laser.motion_known
+            and any(future_laser_hazards(laser, HARD_SAFETY_HORIZON))
+            for laser in snapshot.lasers
+        ):
+            return Decision(None, (), 0.0, 0, "unsupported-laser-motion")
         if required_action is not None:
             # The full certificate was issued with the physical command.  On
             # the sole pending frame, recheck both possible next inputs

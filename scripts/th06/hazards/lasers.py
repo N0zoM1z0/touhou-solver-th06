@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..model import Laser
 from .geometry import signed_clearance
@@ -19,8 +19,33 @@ class LaserHazard:
     size_y: float
 
 
+def track_motion(
+    previous: tuple[Laser, ...],
+    current: tuple[Laser, ...],
+    frame_delta: int,
+) -> tuple[Laser, ...]:
+    """Infer source ECL laser rotation from stable native pool slots."""
+    if frame_delta <= 0:
+        return current
+    by_slot = {laser.slot: laser for laser in previous if laser.slot >= 0}
+    tracked = []
+    for laser in current:
+        prior = by_slot.get(laser.slot)
+        if prior is None:
+            tracked.append(laser)
+            continue
+        angle_delta = math.remainder(laser.angle - prior.angle, math.tau)
+        tracked.append(replace(
+            laser,
+            angular_velocity=angle_delta / frame_delta,
+            motion_known=True,
+        ))
+    return tuple(tracked)
+
+
 def _geometry(
     laser: Laser,
+    angle: float,
     start_offset: float,
     end_offset: float,
     size_x: float,
@@ -28,7 +53,7 @@ def _geometry(
     return LaserHazard(
         laser.x,
         laser.y,
-        laser.angle,
+        angle,
         (end_offset - start_offset) / 2.0 + start_offset,
         max(0.0, size_x),
         laser.width / 2.0,
@@ -41,6 +66,7 @@ def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
     state = laser.state
     timer = laser.timer
     timer_float = laser.timer_float
+    angle = laser.angle
     active = True
     result: list[tuple[LaserHazard, ...]] = []
 
@@ -48,6 +74,9 @@ def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
         if not active:
             result.append(())
             continue
+        # EclManager's LASERROTATE instruction updates the stored angle before
+        # BulletManager builds and tests this frame's laser hitbox.
+        angle += laser.angular_velocity
         end_offset += laser.speed
         if laser.start_length < end_offset - start_offset:
             start_offset = end_offset - laser.start_length
@@ -69,7 +98,7 @@ def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
                 # producing a small midpoint hitbox during warmup.
                 size_x = width_now / 2.0
             if timer >= laser.hitbox_start_time:
-                frame_hazards.append(_geometry(laser, start_offset, end_offset, size_x))
+                frame_hazards.append(_geometry(laser, angle, start_offset, end_offset, size_x))
             if timer >= laser.start_time:
                 state = 1
                 timer = 0
@@ -84,7 +113,9 @@ def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
                 continue
 
         if state == 1:
-            frame_hazards.append(_geometry(laser, start_offset, end_offset, state_one_size_x))
+            frame_hazards.append(_geometry(
+                laser, angle, start_offset, end_offset, state_one_size_x
+            ))
             if timer >= laser.duration:
                 state = 2
                 timer = 0
@@ -102,7 +133,9 @@ def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
                 # Same shipped midpoint-hitbox bug during despawn.
                 size_x = width_now / 2.0
             if timer < laser.hitbox_end_delay:
-                frame_hazards.append(_geometry(laser, start_offset, end_offset, size_x))
+                frame_hazards.append(_geometry(
+                    laser, angle, start_offset, end_offset, size_x
+                ))
             if timer >= laser.despawn_duration:
                 active = False
 

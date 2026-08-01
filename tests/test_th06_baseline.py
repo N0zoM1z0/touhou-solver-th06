@@ -19,7 +19,7 @@ from th06.ranking import ProposalRanker
 from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
-from th06.hazards.lasers import future_hazards, signed_laser_clearance
+from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
@@ -575,7 +575,7 @@ class BaselineTests(unittest.TestCase):
     def test_active_laser_uses_rotated_source_hitbox(self):
         laser = Laser(
             0.0, 380.0, 0.0, 0.0, 384.0, 384.0, 16.0, 0.0,
-            0, 0, 120, 30, 10, 0, 0.0, 0, 1,
+            0, 0, 120, 30, 10, 0, 0.0, 0, 1, motion_known=True,
         )
         hazard = future_hazards(laser, 1)[0][0]
         self.assertLess(signed_laser_clearance(192.0, 380.0, 1.25, 1.25, hazard), 0.0)
@@ -584,6 +584,25 @@ class BaselineTests(unittest.TestCase):
         decision = Solver().decide(state)
         self.assertIsNone(decision.action)
         self.assertEqual(decision.reason, "hard-safe-set-empty")
+
+    def test_observed_laser_rotation_precedes_next_hitbox(self):
+        previous = Laser(
+            192.0, 116.0, 1.5065950, 64.0, 500.0, 500.0, 24.0, 0.0,
+            25, 25, 58, 16, 14, 5, 5.0, 0, 2, slot=3,
+        )
+        current = Laser(
+            192.0, 116.0, 1.5147904, 64.0, 500.0, 500.0, 24.0, 0.0,
+            25, 25, 58, 16, 14, 6, 6.0, 0, 2, slot=3,
+        )
+        tracked = track_motion((previous,), (current,), 1)[0]
+        hazard = future_hazards(tracked, 1)[0][0]
+
+        self.assertTrue(tracked.motion_known)
+        self.assertAlmostEqual(tracked.angular_velocity, 0.0081954, places=6)
+        self.assertLess(
+            signed_laser_clearance(198.4020, 393.0986, 1.25, 1.25, hazard),
+            0.0,
+        )
 
     def test_enemy_body_is_a_hard_hazard(self):
         state = snapshot()
