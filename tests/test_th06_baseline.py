@@ -23,7 +23,7 @@ from th06.hazards.lasers import future_hazards, signed_laser_clearance
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
-from th06.input_lease import InputLease
+from th06.input_lease import InputLease, bounded_delivery_age
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import dialogue, menu
@@ -191,6 +191,12 @@ class BaselineTests(unittest.TestCase):
         lease = InputLease()
         lease.issued(10, ACTION_BY_VECTOR[(1, 0)])
         self.assertTrue(lease.status(BUTTON_FOCUS | BUTTON_LEFT, 12).timed_out)
+
+    def test_stale_issue_retries_only_inside_certified_pickup_window(self):
+        self.assertEqual(bounded_delivery_age(10, 10), 0)
+        self.assertEqual(bounded_delivery_age(10, 12), 2)
+        self.assertIsNone(bounded_delivery_age(10, 13))
+        self.assertIsNone(bounded_delivery_age(10, 9))
 
     def test_input_lease_age_starts_at_physical_issue_frame(self):
         lease = InputLease()

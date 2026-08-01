@@ -18,6 +18,14 @@ _CONTROL_MASK = BUTTON_FOCUS | BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RI
 INPUT_PICKUP_MAX_FRAMES = 2
 
 
+def bounded_delivery_age(snapshot_frame: int, issue_frame: int) -> int | None:
+    """Return an age still covered by the hard pickup branches."""
+    age = issue_frame - snapshot_frame
+    if 0 <= age <= INPUT_PICKUP_MAX_FRAMES:
+        return age
+    return None
+
+
 @dataclass(frozen=True)
 class LeaseStatus:
     action: Action | None = None

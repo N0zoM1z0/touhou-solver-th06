@@ -13,9 +13,9 @@ from pathlib import Path
 
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
-from .input_lease import InputLease
+from .input_lease import InputLease, bounded_delivery_age
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
-from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot
+from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot, action_from_input
 from .native import (
     ADDR_LIFE_PATCH,
     NativeDecodeError,
@@ -228,6 +228,7 @@ def run(args: argparse.Namespace) -> int:
                 else:
                     decision = solver.decide(snapshot, leased_action)
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
+                stale_retry = False
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
                 command_issue_age = ""
@@ -244,7 +245,33 @@ def run(args: argparse.Namespace) -> int:
                         dialogue = dialogue_skipper.update(
                             not snapshot.in_menu and not snapshot.replay_or_demo
                         )
-                        if decision.action is not None:
+                        if (
+                            decision.action is not None
+                            and leased_action is None
+                            and action_from_input(keyboard.base_input_mask)
+                            != decision.action
+                        ):
+                            delivery_age = bounded_delivery_age(
+                                snapshot.frame, read_game_frame(process)
+                            )
+                            if delivery_age is None:
+                                decision = Decision(
+                                    None,
+                                    decision.safe_actions,
+                                    0.0,
+                                    decision.horizon,
+                                    "unsupported-delivery-age",
+                                    decision.effort_horizon,
+                                    decision.effort_safe_count,
+                                    decision.repairable_count,
+                                )
+                            elif delivery_age:
+                                # Do not send a transition computed from an
+                                # older position. Holding the current input is
+                                # already covered by every hard candidate's
+                                # 0/1/2-frame pickup branches; retry fresh.
+                                stale_retry = True
+                        if decision.action is not None and not stale_retry:
                             events = keyboard.apply(decision.action)
                             transition_count += len(events)
                             if leased_action is None and events:
@@ -253,14 +280,17 @@ def run(args: argparse.Namespace) -> int:
                                 input_lease.issued(
                                     issued_frame, decision.action
                                 )
-                        else:
+                        elif decision.action is None:
                             transition_count += len(keyboard.release_all())
                             input_lease.cleared()
                             authority_stop = authority_unavailable(decision)
                             if authority_stop:
                                 exit_code = 2
 
-                if decision.action is not None:
+                row_reason = "stale-decision-retry" if stale_retry else decision.reason
+                if stale_retry:
+                    action_name = "stale-retry"
+                elif decision.action is not None:
                     action_name = decision.action.name
                 elif authority_stop:
                     action_name = "authority-stop"
@@ -281,9 +311,9 @@ def run(args: argparse.Namespace) -> int:
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}", int(dialogue.active),
                     int(dialogue.active and dialogue.skippable), int(dialogue.pulsed_shoot),
-                    int(authority_stop), decision.reason,
+                    int(authority_stop), row_reason,
                 ))
-                if snapshot.frame % 60 == 0 or decision.reason != last_reason:
+                if snapshot.frame % 60 == 0 or row_reason != last_reason:
                     output.flush()
                     print(
                         f"f={snapshot.frame} stage={snapshot.stage} state={snapshot.player_state} "
@@ -291,10 +321,10 @@ def run(args: argparse.Namespace) -> int:
                         f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
                         f"repairable={decision.repairable_count} "
-                        f"h={decision.horizon} reason={decision.reason}",
+                        f"h={decision.horizon} reason={row_reason}",
                         flush=True,
                     )
-                last_reason = decision.reason
+                last_reason = row_reason
                 if authority_stop:
                     output.flush()
                     failure_path = trace_path.with_name("th06_failure_latest.json")
