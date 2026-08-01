@@ -696,6 +696,27 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, durable)
 
+    def test_ranker_does_not_follow_durability_toward_a_near_wall(self):
+        state = snapshot(
+            x=210.0,
+            y=403.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        wallward = SafeAction(
+            ACTION_BY_VECTOR[(0, 1)], 20.0, 210.0, 411.0
+        )
+        lateral = SafeAction(
+            ACTION_BY_VECTOR[(1, 0)], 5.0, 218.0, 403.0
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            (wallward, lateral),
+            durable_actions=frozenset((wallward.action,)),
+        )
+
+        self.assertEqual(chosen, lateral)
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
