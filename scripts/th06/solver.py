@@ -400,6 +400,22 @@ class Solver:
             )
             if fast_laser_hard:
                 certified = tuple(certified) + tuple(fast_laser_hard)
+        fast_recovery_long = ()
+        if not certified:
+            # Stage 4 f4773 had no focused Hard-4 action at the lower-left
+            # boundary, while source-normal down/down-left/down-right all
+            # passed the same delivery and transition authority; two also
+            # survived h12. Expand the control state only after the focused
+            # action space is empty, and require independent Hard-4 proof.
+            fast_recovery_hard, fast_recovery_long = self._certify_selected_pair(
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                effort_horizon,
+                FAST_ACTIONS,
+            )
+            if fast_recovery_hard:
+                certified = fast_recovery_hard
+                effort_certified = fast_recovery_long
         if not certified:
             if self.kernel is None:
                 age_zero_certified = certify_actions(
@@ -681,6 +697,8 @@ class Solver:
             )
         if any(candidate.action == held_action for candidate in fast_laser_long):
             held_horizon = max(held_horizon, LASER_SPEED_HORIZON)
+        if any(candidate.action == held_action for candidate in fast_recovery_long):
+            held_horizon = max(held_horizon, effort_horizon)
         return Decision(
             chosen.action,
             certified,

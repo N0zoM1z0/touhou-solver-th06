@@ -1255,6 +1255,28 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(kernel.certify_selected.call_count, 2)
         kernel.replanning_scores.assert_not_called()
 
+    def test_empty_focused_authority_can_use_a_hard_certified_fast_action(self):
+        state = snapshot()
+        fast_down = SafeAction(
+            FAST_ACTION_BY_VECTOR[(0, 1)],
+            3.0,
+            state.x,
+            state.y + state.normal_speed * HARD_SAFETY_HORIZON,
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = ((), (), ())
+        kernel.certify_selected.side_effect = ((fast_down,), (fast_down,))
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, fast_down.action)
+        self.assertEqual(decision.safe_actions, (fast_down,))
+        self.assertFalse(decision.action.focused)
+        self.assertFalse(BUTTON_BOMB & 0x20)
+        self.assertEqual(kernel.certify_selected.call_count, 2)
+
     def test_dense_active_laser_skips_the_long_mixed_replan(self):
         active_laser = Laser(
             0.0, 20.0, 0.0, 0.0, 100.0, 100.0, 8.0, 0.0,
