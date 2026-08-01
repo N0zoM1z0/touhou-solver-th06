@@ -118,6 +118,55 @@ class ResultScreenState:
     selected_character: int
 
 
+class NativeDecodeError(RuntimeError):
+    def __init__(self, message: str, evidence: dict):
+        super().__init__(message)
+        self.evidence = evidence
+
+
+def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
+    relative = lambda absolute: absolute - BULLET_SIZE_OFFSET
+    state = struct.unpack_from("<H", tail, relative(BULLET_STATE_OFFSET))[0]
+    if state == 0:
+        return None
+    size_x, size_y = struct.unpack_from("<ff", tail, 0)
+    bx, by = struct.unpack_from("<ff", tail, relative(BULLET_POSITION_OFFSET))
+    vx, vy = struct.unpack_from("<ff", tail, relative(BULLET_VELOCITY_OFFSET))
+    ax, ay = struct.unpack_from("<ff", tail, relative(BULLET_ACCELERATION_OFFSET))
+    speed, accel_speed, turn_speed = struct.unpack_from(
+        "<fff", tail, relative(BULLET_SPEED_OFFSET)
+    )
+    ex_flags = struct.unpack_from("<H", tail, relative(BULLET_EX_FLAGS_OFFSET))[0]
+    numbers = (size_x, size_y, bx, by, vx, vy, ax, ay, speed, accel_speed, turn_speed)
+    if state not in (1, 2, 3, 4, 5) or not all(
+        math.isfinite(value) for value in numbers
+    ) or not (0.0 < size_x <= 256.0 and 0.0 < size_y <= 256.0):
+        raise NativeDecodeError(
+            f"invalid bullet geometry at slot {slot}",
+            {
+                "slot": slot,
+                "state": state,
+                "values": tuple(repr(value) for value in numbers),
+                "tail_hex": tail.hex(),
+            },
+        )
+    return Bullet(
+        bx,
+        by,
+        vx,
+        vy,
+        size_x / 2.0,
+        size_y / 2.0,
+        state,
+        ex_flags=ex_flags,
+        acceleration=math.hypot(ax, ay) + abs(accel_speed),
+        speed=speed,
+        turn_speed=turn_speed,
+        acceleration_x=ax,
+        acceleration_y=ay,
+    )
+
+
 def _kernel32():
     if os.name != "nt":
         raise RuntimeError("native TH06 access requires Windows Python")
@@ -344,40 +393,29 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
     )
     bullets: list[Bullet] = []
     despawning_bullets: list[Bullet] = []
+    bullet_read_retries = 0
     for index in range(BULLET_COUNT):
         base = index * BULLET_STRIDE
-        state = struct.unpack_from("<H", pool, base + BULLET_STATE_OFFSET)[0]
-        if state == 0:
+        tail = bytes(pool[base + BULLET_SIZE_OFFSET : base + BULLET_STRIDE])
+        for attempt in range(4):
+            try:
+                bullet = _decode_bullet_tail(tail, index)
+                break
+            except NativeDecodeError as error:
+                if attempt == 3:
+                    error.evidence["read_retries"] = attempt
+                    raise
+                # SpawnSingleBullet publishes state before the collision size,
+                # position, and velocity. Re-read this exact tail until that
+                # short source-defined publication window has closed.
+                tail = process.read(
+                    ADDR_BULLET_ARRAY + base + BULLET_SIZE_OFFSET,
+                    BULLET_STRIDE - BULLET_SIZE_OFFSET,
+                )
+                bullet_read_retries += 1
+        if bullet is None:
             continue
-        if state not in (1, 2, 3, 4, 5):
-            raise RuntimeError(f"invalid bullet state {state} at slot {index}")
-        size_x, size_y = struct.unpack_from("<ff", pool, base + BULLET_SIZE_OFFSET)
-        bx, by = struct.unpack_from("<ff", pool, base + BULLET_POSITION_OFFSET)
-        vx, vy = struct.unpack_from("<ff", pool, base + BULLET_VELOCITY_OFFSET)
-        ax, ay = struct.unpack_from("<ff", pool, base + BULLET_ACCELERATION_OFFSET)
-        speed, accel_speed, turn_speed = struct.unpack_from("<fff", pool, base + BULLET_SPEED_OFFSET)
-        ex_flags = struct.unpack_from("<H", pool, base + BULLET_EX_FLAGS_OFFSET)[0]
-        numbers = (size_x, size_y, bx, by, vx, vy, ax, ay, speed, accel_speed, turn_speed)
-        if not all(math.isfinite(value) for value in numbers) or not (
-            0.0 < size_x <= 256.0 and 0.0 < size_y <= 256.0
-        ):
-            raise RuntimeError(f"invalid bullet geometry at slot {index}")
-        bullet = Bullet(
-            bx,
-            by,
-            vx,
-            vy,
-            size_x / 2.0,
-            size_y / 2.0,
-            state,
-            ex_flags=ex_flags,
-            acceleration=math.hypot(ax, ay) + abs(accel_speed),
-            speed=speed,
-            turn_speed=turn_speed,
-            acceleration_x=ax,
-            acceleration_y=ay,
-        )
-        if state == 5:
+        if bullet.state == 5:
             despawning_bullets.append(bullet)
         else:
             bullets.append(bullet)
@@ -551,7 +589,7 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         normal_speed, focus_speed, normal_diagonal, focus_diagonal,
         frame_multiplier, input_mask, tuple(bullets), len(lasers), in_menu, time_stopped,
         bool(is_replay or demo_mode), tuple(lasers), tuple(enemies),
-        tuple(despawning_bullets),
+        tuple(despawning_bullets), bullet_read_retries,
     )
 
 

@@ -31,9 +31,15 @@ from th06.native import (
     ADDR_CHAIN,
     ADDR_ENEMY_CALC_CHAIN,
     ADDR_ENEMY_MANAGER,
+    BULLET_POSITION_OFFSET,
+    BULLET_SIZE_OFFSET,
+    BULLET_STATE_OFFSET,
+    BULLET_STRIDE,
     ENEMY_MANAGER_SIZE,
+    NativeDecodeError,
     PROCESS_ACCESS,
     RESULT_SCREEN_ON_UPDATE,
+    _decode_bullet_tail,
     read_result_screen,
 )
 from th06.replay import ALPHABET, _move_character, _next_character_key, validate_replay_bytes
@@ -238,6 +244,29 @@ class BaselineTests(unittest.TestCase):
 
     def test_enemy_manager_layout_ends_at_mapped_calc_chain(self):
         self.assertEqual(ADDR_ENEMY_MANAGER + ENEMY_MANAGER_SIZE, ADDR_ENEMY_CALC_CHAIN)
+
+    def test_published_bullet_without_geometry_fails_closed(self):
+        tail = bytearray(BULLET_STRIDE - BULLET_SIZE_OFFSET)
+        struct.pack_into("<H", tail, BULLET_STATE_OFFSET - BULLET_SIZE_OFFSET, 1)
+
+        with self.assertRaises(NativeDecodeError) as raised:
+            _decode_bullet_tail(tail, 271)
+
+        self.assertEqual(raised.exception.evidence["slot"], 271)
+        self.assertEqual(raised.exception.evidence["state"], 1)
+
+    def test_bullet_is_accepted_after_geometry_publication(self):
+        tail = bytearray(BULLET_STRIDE - BULLET_SIZE_OFFSET)
+        struct.pack_into("<ff", tail, 0, 4.0, 6.0)
+        struct.pack_into(
+            "<ff", tail, BULLET_POSITION_OFFSET - BULLET_SIZE_OFFSET, 123.0, 234.0
+        )
+        struct.pack_into("<H", tail, BULLET_STATE_OFFSET - BULLET_SIZE_OFFSET, 1)
+
+        bullet = _decode_bullet_tail(tail, 271)
+
+        self.assertEqual((bullet.x, bullet.y), (123.0, 234.0))
+        self.assertEqual((bullet.half_width, bullet.half_height), (2.0, 3.0))
 
     def test_result_screen_is_found_through_calc_chain(self):
         chain_elem = bytearray(0x20)

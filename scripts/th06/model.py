@@ -123,6 +123,7 @@ class Snapshot:
     lasers: tuple[Laser, ...] = ()
     enemies: tuple[EnemyBody, ...] = ()
     despawning_bullets: tuple[Bullet, ...] = ()
+    bullet_read_retries: int = 0
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,7 @@ from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot
 from .native import (
     ADDR_LIFE_PATCH,
+    NativeDecodeError,
     TARGET_SHA256,
     attach_exact,
     read_game_frame,
@@ -117,6 +118,7 @@ def run(args: argparse.Namespace) -> int:
             writer.writerow((
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
                 "enemies", "despawning",
+                "bullet_retries",
                 "replay", "native_input", "held_desired_input", "input_transitions",
                 "input_lease",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
@@ -142,7 +144,52 @@ def run(args: argparse.Namespace) -> int:
                     if replay_status == "active":
                         time.sleep(0.01)
                         continue
-                snapshot = read_snapshot(process)
+                try:
+                    snapshot = read_snapshot(process)
+                except NativeDecodeError as error:
+                    decision = Decision(
+                        None,
+                        (),
+                        0.0,
+                        0,
+                        "native-decode-error",
+                    )
+                    held_before_authority = (
+                        keyboard.base_input_mask if keyboard is not None else 0
+                    )
+                    if keyboard is not None:
+                        keyboard.release_all()
+                        input_lease.cleared()
+                    exit_code = 2
+                    failure_path = trace_path.with_name("th06_failure_latest.json")
+                    failure_path.write_text(
+                        json.dumps(
+                            {
+                                "wall_s": time.monotonic() - started,
+                                "snapshot": None,
+                                "previous_snapshot": (
+                                    asdict(previous_snapshot)
+                                    if previous_snapshot is not None
+                                    else None
+                                ),
+                                "decision": asdict(decision),
+                                "decode_evidence": error.evidence,
+                                "held_before_stop": held_before_authority,
+                                "held_desired_input": (
+                                    keyboard.base_input_mask if keyboard else 0
+                                ),
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"authority unavailable: {error}; "
+                        f"counterexample={failure_path}; stopping trial",
+                        flush=True,
+                    )
+                    break
                 if snapshot.frame == last_frame:
                     time.sleep(0.001)
                     continue
@@ -219,7 +266,8 @@ def run(args: argparse.Namespace) -> int:
                     f"{time.monotonic() - started:.3f}", snapshot.frame, snapshot.stage,
                     snapshot.player_state, f"{snapshot.x:.3f}", f"{snapshot.y:.3f}",
                     len(snapshot.bullets), snapshot.laser_count, len(snapshot.enemies),
-                    len(snapshot.despawning_bullets), int(snapshot.replay_or_demo),
+                    len(snapshot.despawning_bullets), snapshot.bullet_read_retries,
+                    int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
                     transition_count, int(leased_action is not None),
