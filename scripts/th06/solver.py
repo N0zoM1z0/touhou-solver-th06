@@ -175,7 +175,6 @@ class Solver:
             candidate.action
             for candidate in effort_certified
         )
-        laser_survivors = frozenset()
         if durable and snapshot.lasers and effort_horizon < LASER_EFFORT_HORIZON:
             laser_survivors = frozenset(
                 candidate.action
@@ -215,29 +214,6 @@ class Solver:
                 repairable = frozenset(
                     action for action, score in scores.items() if score == best_score
                 )
-        if (
-            not durable
-            and not repairable
-            and snapshot.lasers
-            and effort_horizon < LASER_EFFORT_HORIZON
-        ):
-            if not laser_survivors:
-                laser_survivors = frozenset(
-                    candidate.action
-                    for candidate in self._certify(
-                        isolate_lasers(snapshot),
-                        LASER_EFFORT_HORIZON,
-                    )
-                )
-            # When mixed constant-action and piecewise proposals are both
-            # exhausted, retain the cheap long rotating-laser corridor as a
-            # ranking signal.  The intersection keeps this strictly inside
-            # the fixed hard authority set.
-            laser_fallback = frozenset(
-                candidate.action for candidate in certified
-            ) & laser_survivors
-            if laser_fallback:
-                durable = laser_fallback
         chosen = self.ranker.choose(
             snapshot,
             certified,
