@@ -71,7 +71,7 @@ def run(args: argparse.Namespace) -> int:
     input_lease = InputLease()
     previous_state: int | None = None
     previous_snapshot: Snapshot | None = None
-    snapshot_history: deque[Snapshot] = deque(maxlen=16)
+    snapshot_history: deque[Snapshot] = deque(maxlen=64)
     practice_trial = PracticeTrial() if args.practice_stage is not None else None
     last_frame: int | None = None
     last_reason: str | None = None
