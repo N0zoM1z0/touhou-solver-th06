@@ -867,7 +867,7 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(kernel.calls, [(
             state,
             HARD_SAFETY_HORIZON,
-            6,
+            7,
             (held,),
             0.35,
         )])
@@ -1021,7 +1021,7 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.action, held)
         self.assertEqual(decision.effort_safe_count, 1)
         self.assertEqual(decision.horizon, HARD_SAFETY_HORIZON)
-        self.assertEqual(decision.held_horizon, 6)
+        self.assertEqual(decision.held_horizon, 7)
         self.assertEqual(solver.kernel.collision_margin, 0.35)
 
     def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):

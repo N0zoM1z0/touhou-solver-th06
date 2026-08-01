@@ -227,6 +227,7 @@ class Solver:
         age_zero_certified = ()
         discouraged = frozenset()
         precomputed_current_effort = None
+        precomputed_current_horizon = 0
         if (
             len(snapshot.bullets) >= 350
             and effort_horizon > HARD_SAFETY_HORIZON
@@ -251,6 +252,12 @@ class Solver:
                 )
                 if len(snapshot.bullets) >= 400 and combined_method is not None:
                     current = action_from_input(snapshot.input_mask)
+                    # Stage 4 f10171's held up-right path survived h6 but not
+                    # h7. Waiting for the ordinary h6 probe to fail left the
+                    # corrective up-left decision two frames too late for
+                    # publication. Probe only the already-held action one
+                    # ranking frame farther; Hard-4 eligibility is unchanged.
+                    precomputed_current_horizon = effort_horizon + 1
                     (
                         certified,
                         age_zero_certified,
@@ -258,7 +265,7 @@ class Solver:
                     ) = self.kernel.certify_delivery_sets_with_selected(
                         snapshot,
                         HARD_SAFETY_HORIZON,
-                        effort_horizon,
+                        precomputed_current_horizon,
                         (current,),
                         collision_margin=0.35,
                     )
@@ -650,6 +657,14 @@ class Solver:
             if any(candidate.action == held_action for candidate in effort_certified)
             else HARD_SAFETY_HORIZON
         )
+        if (
+            precomputed_current_effort
+            and any(
+                candidate.action == held_action
+                for candidate in precomputed_current_effort
+            )
+        ):
+            held_horizon = max(held_horizon, precomputed_current_horizon)
         if (
             held_horizon == HARD_SAFETY_HORIZON
             and any(candidate.action == held_action for candidate in certified)
