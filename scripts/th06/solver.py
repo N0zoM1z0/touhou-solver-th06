@@ -8,6 +8,7 @@ from .kernels.safety import NativeSafetyKernel
 from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import certify_actions, nearest_current_clearance
+from .viability import replanning_scores
 
 
 # Physical runs normally bound a hazardous-state decision interval to two
@@ -117,7 +118,31 @@ class Solver:
             candidate.action
             for candidate in effort_certified
         )
-        chosen = self.ranker.choose(snapshot, certified, durable)
+        repairable = frozenset()
+        if not durable and effort_horizon >= 8:
+            repair_horizon = 8
+            scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    repair_horizon,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    repair_horizon,
+                )
+            )
+            best_score = max(scores.values(), default=0)
+            if best_score:
+                repairable = frozenset(
+                    action for action, score in scores.items() if score == best_score
+                )
+        chosen = self.ranker.choose(snapshot, certified, durable, repairable)
         return Decision(
             chosen.action,
             certified,
@@ -126,4 +151,5 @@ class Solver:
             "ok",
             effort_horizon,
             len(durable),
+            len(repairable),
         )

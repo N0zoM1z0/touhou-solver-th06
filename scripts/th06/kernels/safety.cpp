@@ -187,3 +187,87 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     }
     return 0;
 }
+
+// This is a proposal score only. candidateMask must already come from the
+// hard authority; the result can rank those candidates but cannot add one.
+TH06_EXPORT std::int32_t th06_replanning_scores(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float focusSpeed,
+    float focusDiagonalSpeed,
+    std::int32_t split,
+    std::int32_t horizon,
+    std::uint16_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    std::int32_t* output
+) {
+    if (
+        split <= 0 || horizon <= split || horizon > 64 ||
+        bulletOffsets == nullptr || laserOffsets == nullptr || output == nullptr
+    ) {
+        return -1;
+    }
+    for (std::int32_t firstIndex = 0; firstIndex < 9; ++firstIndex) {
+        output[firstIndex] = 0;
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+        float splitX = playerX;
+        float splitY = playerY;
+        for (std::int32_t frame = 1; frame <= split; ++frame) {
+            stepPlayer(
+                splitX,
+                splitY,
+                kActions[firstIndex],
+                focusSpeed,
+                focusDiagonalSpeed
+            );
+        }
+        for (std::int32_t secondIndex = 0; secondIndex < 9; ++secondIndex) {
+            float x = splitX;
+            float y = splitY;
+            bool survived = true;
+            for (std::int32_t frame = split + 1; frame <= horizon; ++frame) {
+                stepPlayer(
+                    x,
+                    y,
+                    kActions[secondIndex],
+                    focusSpeed,
+                    focusDiagonalSpeed
+                );
+                const std::uint32_t bulletStart = bulletOffsets[frame - 1];
+                const std::uint32_t bulletEnd = bulletOffsets[frame];
+                for (std::uint32_t index = bulletStart; index < bulletEnd; ++index) {
+                    if (
+                        signedClearance(
+                            x, y, playerHalfWidth, playerHalfHeight, bullets[index]
+                        ) <= collisionMargin
+                    ) {
+                        survived = false;
+                        break;
+                    }
+                }
+                if (!survived) break;
+                const std::uint32_t laserStart = laserOffsets[frame - 1];
+                const std::uint32_t laserEnd = laserOffsets[frame];
+                for (std::uint32_t index = laserStart; index < laserEnd; ++index) {
+                    if (
+                        signedLaserClearance(
+                            x, y, playerHalfWidth, playerHalfHeight, lasers[index]
+                        ) <= collisionMargin
+                    ) {
+                        survived = false;
+                        break;
+                    }
+                }
+                if (!survived) break;
+            }
+            output[firstIndex] += static_cast<std::int32_t>(survived);
+        }
+    }
+    return 0;
+}

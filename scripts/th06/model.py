@@ -143,6 +143,7 @@ class Decision:
     reason: str
     effort_horizon: int = 0
     effort_safe_count: int = 0
+    repairable_count: int = 0
 
 
 def action_from_input(mask: int) -> Action:

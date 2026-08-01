@@ -123,7 +123,7 @@ def run(args: argparse.Namespace) -> int:
                 "command_issue_age",
                 "input_lease",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
-                "effort_safe",
+                "effort_safe", "repairable",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
@@ -277,7 +277,7 @@ def run(args: argparse.Namespace) -> int:
                     transition_count, command_issue_age, int(leased_action is not None),
                     f"{snapshot.frame_multiplier:.3f}", action_name,
                     len(decision.safe_actions), decision.horizon, decision.effort_horizon,
-                    decision.effort_safe_count,
+                    decision.effort_safe_count, decision.repairable_count,
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}", int(dialogue.active),
                     int(dialogue.active and dialogue.skippable), int(dialogue.pulsed_shoot),
@@ -290,6 +290,7 @@ def run(args: argparse.Namespace) -> int:
                         f"bullets={len(snapshot.bullets)} enemies={len(snapshot.enemies)} "
                         f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
+                        f"repairable={decision.repairable_count} "
                         f"h={decision.horizon} reason={decision.reason}",
                         flush=True,
                     )

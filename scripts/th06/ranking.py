@@ -37,12 +37,13 @@ class ProposalRanker:
         snapshot: Snapshot,
         candidates: tuple[SafeAction, ...],
         durable_actions: frozenset[Action] = frozenset(),
+        repairable_actions: frozenset[Action] = frozenset(),
     ) -> SafeAction:
         current = action_from_input(snapshot.input_mask)
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -59,6 +60,7 @@ class ProposalRanker:
             # proposal signal, but it never adds to or removes from candidates.
             return (
                 candidate.action in durable_actions,
+                candidate.action in repairable_actions,
                 boundary_egress,
                 total,
                 candidate.clearance,

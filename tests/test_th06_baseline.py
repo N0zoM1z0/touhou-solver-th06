@@ -51,6 +51,7 @@ from th06.trial import (
     SUPERVISOR_RESULT_FROM_GAME,
     physical_hit,
 )
+from th06.viability import replanning_scores
 
 
 def snapshot(*bullets, x=192.0, y=380.0, input_mask=BUTTON_FOCUS, lasers=0):
@@ -490,6 +491,23 @@ class BaselineTests(unittest.TestCase):
         chosen = ProposalRanker().choose(state, (trapped, egress))
         self.assertEqual(chosen, egress)
 
+    def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):
+        state = snapshot(Bullet(208.0, 380.0, 0.0, 0.0, 2.0, 2.0, 1))
+        candidates = certify_actions(state, HARD_SAFETY_HORIZON)
+        right = ACTION_BY_VECTOR[(1, 0)]
+        self.assertIn(right, {candidate.action for candidate in candidates})
+        self.assertNotIn(right, {candidate.action for candidate in certify_actions(state, 8)})
+
+        scores = replanning_scores(state, candidates)
+
+        self.assertGreater(scores[right], 0)
+        chosen = ProposalRanker().choose(
+            state,
+            candidates,
+            repairable_actions=frozenset((right,)),
+        )
+        self.assertEqual(chosen.action, right)
+
     def test_adaptive_effort_cannot_remove_hard_allowed_actions(self):
         bullets = tuple(
             Bullet(120.0 + index * 4.0, 360.0, 0.0, 4.0, 2.0, 2.0, 1, ex_flags=8)
@@ -526,6 +544,32 @@ class BaselineTests(unittest.TestCase):
             solver.kernel.calls,
             [(HARD_SAFETY_HORIZON, 8, 0.35)],
         )
+
+    def test_replanning_score_ranks_but_cannot_add_an_action(self):
+        stay = SafeAction(ACTION_BY_VECTOR[(0, 0)], 2.0, 192.0, 380.0)
+        right = SafeAction(ACTION_BY_VECTOR[(1, 0)], 1.0, 194.0, 380.0)
+
+        class ReplanningKernel:
+            def certify_pair(self, _snapshot, _hard, _effort, collision_margin):
+                self.assertEqual(collision_margin, 0.35)
+                return (stay, right), ()
+
+            def replanning_scores(
+                self, _snapshot, candidates, split, horizon, collision_margin
+            ):
+                self.assertEqual(candidates, (stay, right))
+                self.assertEqual((split, horizon, collision_margin), (4, 8, 0.35))
+                return {stay.action: 0, right.action: 3}
+
+            assertEqual = self.assertEqual
+
+        solver = Solver()
+        solver.kernel = ReplanningKernel()
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, right.action)
+        self.assertEqual(decision.safe_actions, (stay, right))
+        self.assertEqual(decision.repairable_count, 1)
 
     def test_hard_issue_window_is_not_a_constant_action_rollout(self):
         # Reduced witness from the physical f7185 CE: both source-linear

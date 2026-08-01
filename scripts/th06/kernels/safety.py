@@ -64,6 +64,25 @@ class NativeSafetyKernel:
             ctypes.POINTER(_SafeResult),
         )
         self.function.restype = ctypes.c_int32
+        self.replanning_function = self.library.th06_replanning_scores
+        self.replanning_function.argtypes = (
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(_Aabb),
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(_LaserHazard),
+            ctypes.c_float,
+            ctypes.POINTER(ctypes.c_int32),
+        )
+        self.replanning_function.restype = ctypes.c_int32
 
     @staticmethod
     def _flatten(frames, value_type, convert):
@@ -164,3 +183,47 @@ class NativeSafetyKernel:
             snapshot, effort_horizon, collision_margin, prepared
         )
         return hard, effort
+
+    def replanning_scores(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        split: int,
+        horizon: int,
+        collision_margin: float,
+    ):
+        prepared = self._prepare(snapshot, horizon)
+        bullet_offsets, bullets, laser_offsets, lasers = prepared
+        candidate_actions = {candidate.action for candidate in candidates}
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(ACTIONS)
+            if action in candidate_actions
+        )
+        output = (ctypes.c_int32 * len(ACTIONS))()
+        status = self.replanning_function(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.focus_speed,
+            snapshot.focus_diagonal_speed,
+            split,
+            horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+            output,
+        )
+        if status != 0:
+            raise RuntimeError(
+                f"native replanning kernel rejected input with status {status}"
+            )
+        return {
+            action: output[index]
+            for index, action in enumerate(ACTIONS)
+            if action in candidate_actions
+        }
