@@ -623,6 +623,37 @@ class BaselineTests(unittest.TestCase):
             0.0,
         )
 
+    def test_long_laser_effort_refines_only_the_soft_proposal(self):
+        rotating_warning = Laser(
+            192.0, 116.0, 2.2086773, 64.0, 500.0, 500.0, 24.0, 0.0,
+            25, 25, 75, 16, 14, 18, 18.0, 0, 0,
+            slot=5,
+            angular_velocity=-0.0081954,
+            motion_known=True,
+        )
+        state = snapshot(
+            x=56.7696,
+            y=312.3098,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+            lasers=1,
+        )
+        state = Snapshot(**{**state.__dict__, "lasers": (rotating_warning,)})
+
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        long_laser = certify_actions(state, 24)
+        decision = Solver().decide(state)
+
+        self.assertEqual(len(hard), 9)
+        self.assertEqual(
+            {candidate.action.name for candidate in long_laser},
+            {"up", "left", "up_left"},
+        )
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+        self.assertIn(decision.action, {candidate.action for candidate in long_laser})
+
     def test_enemy_body_is_a_hard_hazard(self):
         state = snapshot()
         state = Snapshot(**{**state.__dict__, "enemies": (enemy_body(),)})

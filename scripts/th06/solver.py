@@ -6,6 +6,7 @@ import os
 
 from .hazards.lasers import future_hazards as future_laser_hazards
 from .kernels.safety import NativeSafetyKernel
+from .laser_effort import LASER_EFFORT_HORIZON, isolate_lasers
 from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
@@ -174,6 +175,17 @@ class Solver:
             candidate.action
             for candidate in effort_certified
         )
+        if durable and snapshot.lasers and effort_horizon < LASER_EFFORT_HORIZON:
+            laser_survivors = frozenset(
+                candidate.action
+                for candidate in self._certify(
+                    isolate_lasers(snapshot),
+                    LASER_EFFORT_HORIZON,
+                )
+            )
+            refined_durable = durable & laser_survivors
+            if refined_durable:
+                durable = refined_durable
         repairable = frozenset()
         if not durable and effort_horizon >= 8:
             # Stage 4 entered a corner because the adaptive layer allocated 16
