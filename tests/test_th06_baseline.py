@@ -16,7 +16,7 @@ from th06.model import (
     action_from_input,
 )
 from th06.ranking import ProposalRanker
-from th06.safety import certify_actions, transition_actions
+from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance
@@ -437,6 +437,31 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in decision.safe_actions},
             {item.action for item in expected},
         )
+
+    def test_empty_stale_set_keeps_a_same_frame_authority(self):
+        state = snapshot(
+            Bullet(
+                191.4767, 364.4699, 0.3829, 2.2426,
+                2.0, 1.5, 1, ex_flags=4, speed=2.2751, angle=1.4017,
+            ),
+            Bullet(
+                202.9616, 380.8156, 1.2553, 2.9684,
+                2.0, 2.0, 1, ex_flags=4, speed=3.2230, angle=1.1707,
+            ),
+            input_mask=BUTTON_FOCUS | 0x10,
+        )
+        fixed = certify_actions(state, HARD_SAFETY_HORIZON)
+        same_frame = certify_actions(
+            state,
+            HARD_SAFETY_HORIZON,
+            DELIVERY_DELAYS[:-1],
+        )
+        decision = Solver().decide(state)
+
+        self.assertFalse(fixed)
+        self.assertTrue(same_frame)
+        self.assertEqual(decision.reason, "same-frame-delivery-only")
+        self.assertIn(decision.action, {item.action for item in same_frame})
 
     def test_input_lease_can_only_hold_a_hard_safe_action(self):
         right = ACTION_BY_VECTOR[(1, 0)]

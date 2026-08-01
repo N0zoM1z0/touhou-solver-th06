@@ -62,6 +62,7 @@ class NativeSafetyKernel:
             ctypes.POINTER(_LaserHazard),
             ctypes.c_float,
             ctypes.POINTER(_SafeResult),
+            ctypes.POINTER(_SafeResult),
         )
         self.function.restype = ctypes.c_int32
         self.replanning_function = self.library.th06_replanning_scores
@@ -130,9 +131,10 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
         prepared,
-    ) -> tuple[SafeAction, ...]:
+    ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         output = (_SafeResult * len(ACTIONS))()
+        age_zero_output = (_SafeResult * len(ACTIONS))()
         status = self.function(
             snapshot.x,
             snapshot.y,
@@ -150,16 +152,36 @@ class NativeSafetyKernel:
             lasers,
             collision_margin,
             output,
+            age_zero_output,
         )
         if status != 0:
             raise RuntimeError(f"native safety kernel rejected input with status {status}")
-        return tuple(
+        fixed = tuple(
             SafeAction(action, result.clearance, result.final_x, result.final_y)
             for action, result in zip(ACTIONS, output)
             if result.safe
         )
+        age_zero = tuple(
+            SafeAction(action, result.clearance, result.final_x, result.final_y)
+            for action, result in zip(ACTIONS, age_zero_output)
+            if result.safe
+        )
+        return fixed, age_zero
 
     def certify(self, snapshot: Snapshot, horizon: int, collision_margin: float) -> tuple[SafeAction, ...]:
+        return self._certify_prepared(
+            snapshot,
+            horizon,
+            collision_margin,
+            self._prepare(snapshot, horizon),
+        )[0]
+
+    def certify_delivery_sets(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        collision_margin: float,
+    ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         return self._certify_prepared(
             snapshot,
             horizon,
@@ -177,15 +199,39 @@ class NativeSafetyKernel:
         if effort_horizon < hard_horizon:
             raise ValueError("effort horizon cannot be shorter than hard horizon")
         prepared = self._prepare(snapshot, effort_horizon)
-        hard = self._certify_prepared(
+        hard, _age_zero = self._certify_prepared(
             snapshot, hard_horizon, collision_margin, prepared
         )
         if not hard or effort_horizon == hard_horizon:
             return hard, hard
-        effort = self._certify_prepared(
+        effort, _age_zero = self._certify_prepared(
             snapshot, effort_horizon, collision_margin, prepared
         )
         return hard, effort
+
+    def certify_pair_with_age_zero(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        effort_horizon: int,
+        collision_margin: float,
+    ) -> tuple[
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+    ]:
+        if effort_horizon < hard_horizon:
+            raise ValueError("effort horizon cannot be shorter than hard horizon")
+        prepared = self._prepare(snapshot, effort_horizon)
+        hard, age_zero = self._certify_prepared(
+            snapshot, hard_horizon, collision_margin, prepared
+        )
+        if not hard or effort_horizon == hard_horizon:
+            return hard, hard, age_zero
+        effort, _age_zero = self._certify_prepared(
+            snapshot, effort_horizon, collision_margin, prepared
+        )
+        return hard, effort, age_zero
 
     def replanning_scores(
         self,

@@ -7,7 +7,7 @@ import os
 from .kernels.safety import NativeSafetyKernel
 from .model import Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 from .ranking import ProposalRanker
-from .safety import certify_actions, nearest_current_clearance
+from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
 
 
@@ -97,12 +97,34 @@ class Solver:
                 1,
             )
         effort_horizon = adaptive_horizon(snapshot)
-        if self.kernel is not None and effort_horizon > HARD_SAFETY_HORIZON:
-            certified, effort_certified = self.kernel.certify_pair(
+        age_zero_certified = ()
+        if (
+            self.kernel is not None
+            and hasattr(self.kernel, "certify_pair_with_age_zero")
+            and effort_horizon > HARD_SAFETY_HORIZON
+        ):
+            certified, effort_certified, age_zero_certified = (
+                self.kernel.certify_pair_with_age_zero(
+                    snapshot,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                    collision_margin=0.35,
+                )
+            )
+        elif (
+            self.kernel is not None
+            and hasattr(self.kernel, "certify_delivery_sets")
+            and effort_horizon == HARD_SAFETY_HORIZON
+        ):
+            certified, age_zero_certified = self.kernel.certify_delivery_sets(
                 snapshot,
                 HARD_SAFETY_HORIZON,
-                effort_horizon,
                 collision_margin=0.35,
+            )
+            effort_certified = certified
+        elif self.kernel is not None and effort_horizon > HARD_SAFETY_HORIZON:
+            certified, effort_certified = self.kernel.certify_pair(
+                snapshot, HARD_SAFETY_HORIZON, effort_horizon, collision_margin=0.35
             )
         else:
             certified = self._certify(snapshot, HARD_SAFETY_HORIZON)
@@ -112,6 +134,22 @@ class Solver:
                 else certified
             )
         if not certified:
+            if self.kernel is None:
+                age_zero_certified = certify_actions(
+                    snapshot,
+                    HARD_SAFETY_HORIZON,
+                    DELIVERY_DELAYS[:-1],
+                )
+            if age_zero_certified:
+                chosen = self.ranker.choose(snapshot, age_zero_certified)
+                return Decision(
+                    chosen.action,
+                    age_zero_certified,
+                    chosen.clearance,
+                    HARD_SAFETY_HORIZON,
+                    "same-frame-delivery-only",
+                    HARD_SAFETY_HORIZON,
+                )
             return Decision(
                 None,
                 (),

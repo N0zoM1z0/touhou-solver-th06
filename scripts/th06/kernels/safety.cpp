@@ -219,9 +219,13 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     const std::uint32_t* laserOffsets,
     const LaserHazard* lasers,
     float collisionMargin,
-    SafeResult* output
+    SafeResult* output,
+    SafeResult* ageZeroOutput
 ) {
-    if (horizon <= 0 || horizon > 64 || bulletOffsets == nullptr || laserOffsets == nullptr || output == nullptr) {
+    if (
+        horizon <= 0 || horizon > 64 || bulletOffsets == nullptr ||
+        laserOffsets == nullptr || output == nullptr || ageZeroOutput == nullptr
+    ) {
         return -1;
     }
     const Direction current = actionFromInput(inputMask);
@@ -231,11 +235,14 @@ TH06_EXPORT std::int32_t th06_certify_actions(
 
     for (std::int32_t actionIndex = 0; actionIndex < 9; ++actionIndex) {
         SafeResult result{1, 999.0F, playerX, playerY};
+        SafeResult ageZeroResult{0, 0.0F, playerX, playerY};
         Direction transitions[4];
         const std::int32_t transitionCount = transitionDirections(
             inputMask, kActionMasks[actionIndex], transitions
         );
         for (const std::int32_t delay : kDelays) {
+            float normalFinalX = playerX;
+            float normalFinalY = playerY;
             const std::int32_t branchCount = 1 + (delay > 0 ? transitionCount : 0);
             for (std::int32_t branch = 0; branch < branchCount; ++branch) {
                 const Direction* transition = branch == 0 ? nullptr : &transitions[branch - 1];
@@ -272,14 +279,24 @@ TH06_EXPORT std::int32_t th06_certify_actions(
                     }
                 }
                 if (result.safe == 0) break;
-                if (delay == kDelays[3] && branch == 0) {
-                    result.finalX = x;
-                    result.finalY = y;
+                if (branch == 0) {
+                    normalFinalX = x;
+                    normalFinalY = y;
                 }
             }
+            if (delay == kDelays[2]) {
+                ageZeroResult = result;
+                ageZeroResult.finalX = normalFinalX;
+                ageZeroResult.finalY = normalFinalY;
+            }
             if (result.safe == 0) break;
+            if (delay == kDelays[3]) {
+                result.finalX = normalFinalX;
+                result.finalY = normalFinalY;
+            }
         }
         output[actionIndex] = result;
+        ageZeroOutput[actionIndex] = ageZeroResult;
     }
     return 0;
 }

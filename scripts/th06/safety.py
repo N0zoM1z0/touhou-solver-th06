@@ -138,7 +138,13 @@ def candidate_paths(
     return tuple(paths)
 
 
-def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
+def certify_actions(
+    snapshot: Snapshot,
+    horizon: int,
+    delivery_delays: tuple[int, ...] = DELIVERY_DELAYS,
+) -> tuple[SafeAction, ...]:
+    if not delivery_delays:
+        raise ValueError("delivery delays cannot be empty")
     bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
     enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
@@ -148,9 +154,9 @@ def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
         valid = True
         final_x = snapshot.x
         final_y = snapshot.y
-        for delay in DELIVERY_DELAYS:
+        for delay in delivery_delays:
             for path_index, path in enumerate(candidate_paths(snapshot, action, delay, horizon)):
-                if delay == DELIVERY_DELAYS[-1] and path_index == 0:
+                if delay == delivery_delays[-1] and path_index == 0:
                     final_x, final_y = path[-1]
                 for frame_index, (x, y) in enumerate(path):
                     for hazard in bullet_frames[frame_index]:
