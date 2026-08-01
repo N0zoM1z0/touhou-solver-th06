@@ -9,6 +9,7 @@ from th06.model import (
     BUTTON_LEFT,
     Bullet,
     Laser,
+    SafeAction,
     Snapshot,
     action_from_input,
 )
@@ -288,6 +289,13 @@ class BaselineTests(unittest.TestCase):
         chosen = ProposalRanker().choose(state, allowed, frozenset((up,)))
         self.assertEqual(chosen.action, up)
         self.assertIn(chosen, allowed)
+
+    def test_ranker_egresses_corner_when_durable_rollout_is_empty(self):
+        state = snapshot(x=8.0, y=426.0, input_mask=BUTTON_FOCUS | 0x20 | 0x40)
+        trapped = SafeAction(ACTION_BY_VECTOR[(-1, 1)], 22.0, 8.0, 432.0)
+        egress = SafeAction(ACTION_BY_VECTOR[(1, -1)], 10.0, 10.8, 426.0)
+        chosen = ProposalRanker().choose(state, (trapped, egress))
+        self.assertEqual(chosen, egress)
 
     def test_adaptive_effort_cannot_remove_hard_allowed_actions(self):
         bullets = tuple(

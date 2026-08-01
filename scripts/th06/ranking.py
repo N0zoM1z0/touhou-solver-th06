@@ -5,6 +5,16 @@ from __future__ import annotations
 import math
 
 from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
+from .safety import MOVEMENT_BOTTOM, MOVEMENT_LEFT, MOVEMENT_RIGHT, MOVEMENT_TOP
+
+
+def _boundary_room(x: float, y: float) -> float:
+    return min(
+        x - MOVEMENT_LEFT,
+        MOVEMENT_RIGHT - x,
+        y - MOVEMENT_TOP,
+        MOVEMENT_BOTTOM - y,
+    )
 
 
 class ProposalRanker:
@@ -30,9 +40,15 @@ class ProposalRanker:
     ) -> SafeAction:
         current = action_from_input(snapshot.input_mask)
 
-        def score(candidate: SafeAction) -> tuple[bool, float, float, float, str]:
+        current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
+
+        def score(candidate: SafeAction) -> tuple[bool, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
+            boundary_egress = (
+                _boundary_room(candidate.final_x, candidate.final_y)
+                > current_boundary_room + 0.25
+            )
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
@@ -43,6 +59,7 @@ class ProposalRanker:
             # proposal signal, but it never adds to or removes from candidates.
             return (
                 candidate.action in durable_actions,
+                boundary_egress,
                 total,
                 candidate.clearance,
                 continuity,
