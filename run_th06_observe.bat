@@ -20,5 +20,5 @@ if not exist "%PYTHON%" (
 )
 
 start "" /D "%GAME_DIR%" "%GAME_EXE%"
-"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --seconds "%RUN_SECONDS%"
+"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --seconds "%RUN_SECONDS%" --stop-game
 exit /b %errorlevel%

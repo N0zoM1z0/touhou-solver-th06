@@ -15,7 +15,11 @@ if not exist "%PYTHON%" (
   echo Missing Windows Python: "%PYTHON%"
   exit /b 1
 )
+if "%~1"=="" (
+  echo Usage: run_th06_practice.bat --practice-stage 1..6 [--seconds N]
+  exit /b 2
+)
 
 start "" /D "%GAME_DIR%" "%GAME_EXE%"
-"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --patch-lives --start-hard --armed --stop-game %*
+"%PYTHON%" "%~dp0scripts\run_th06_agent.py" --game-dir "%GAME_DIR%" --patch-lives --armed --stop-game %*
 exit /b %errorlevel%

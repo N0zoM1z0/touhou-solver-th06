@@ -44,8 +44,14 @@ be next; choose from evidence rather than this document.
 
 ```bat
 run_th06_baseline.bat --seconds 120
+run_th06_practice.bat --practice-stage 1 --seconds 120
 run_th06_observe.bat 30
 ```
+
+The exact game does not offer replay saving after Practice: its source sends a
+Practice result directly back to the main menu. Validate replay saving only on
+a non-Practice result screen. Every launcher stops the exact verified trial
+process after releasing input.
 
 ```bash
 ./check_th06_baseline.sh

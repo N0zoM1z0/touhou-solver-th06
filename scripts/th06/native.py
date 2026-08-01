@@ -68,6 +68,10 @@ def _kernel32():
     api.OpenProcess.restype = wintypes.HANDLE
     api.CloseHandle.argtypes = [wintypes.HANDLE]
     api.CloseHandle.restype = wintypes.BOOL
+    api.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    api.TerminateProcess.restype = wintypes.BOOL
+    api.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    api.WaitForSingleObject.restype = wintypes.DWORD
     api.ReadProcessMemory.argtypes = [
         wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)
     ]
@@ -94,7 +98,7 @@ def _kernel32():
 class NativeProcess:
     def __init__(self, pid: int):
         self.kernel32 = _kernel32()
-        access = 0x0400 | 0x1000 | 0x0010 | 0x0020 | 0x0008
+        access = 0x0001 | 0x0400 | 0x1000 | 0x0010 | 0x0020 | 0x0008
         self.handle = self.kernel32.OpenProcess(access, False, pid)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -104,6 +108,15 @@ class NativeProcess:
         if self.handle:
             self.kernel32.CloseHandle(self.handle)
             self.handle = None
+
+    def terminate(self) -> None:
+        """Stop only the exact, identity-verified trial process we attached."""
+        if not self.handle:
+            return
+        if not self.kernel32.TerminateProcess(self.handle, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if self.kernel32.WaitForSingleObject(self.handle, 5000) != 0:
+            raise RuntimeError(f"TH06 pid {self.pid} did not terminate within 5 seconds")
 
     def read(self, address: int, size: int) -> bytes:
         buffer = ctypes.create_string_buffer(size)

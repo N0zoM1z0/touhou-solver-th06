@@ -15,6 +15,8 @@ from th06.safety import certify_actions
 from th06.solver import Solver, adaptive_horizon
 from th06.actuator import Keyboard
 from th06.agent import authority_unavailable
+from th06.menu import _select_unlocked_practice_stage
+from th06 import menu
 from th06.model import Decision
 
 
@@ -74,6 +76,42 @@ class BaselineTests(unittest.TestCase):
             authority_unavailable(Decision(None, (), 0.0, 0, "unsupported-active-laser"))
         )
         self.assertFalse(authority_unavailable(Decision(None, (), 0.0, 0, "menu")))
+
+    def test_practice_stage_selection_fails_if_locked(self):
+        process = type("Process", (), {"cursor": 0})()
+
+        class KeyboardStub:
+            def tap(self, key):
+                self.assertEqual(key, "down")
+                process.cursor = (process.cursor + 1) % 3
+
+            assertEqual = self.assertEqual
+
+        original = menu.read_menu_state
+        menu.read_menu_state = lambda _process: (17, process.cursor, 30)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "not unlocked"):
+                _select_unlocked_practice_stage(process, KeyboardStub(), stage=4)
+        finally:
+            menu.read_menu_state = original
+
+    def test_practice_stage_uses_zero_based_menu_cursor(self):
+        process = type("Process", (), {"cursor": 0})()
+
+        class KeyboardStub:
+            def tap(self, key):
+                self.assertEqual(key, "down")
+                process.cursor = (process.cursor + 1) % 6
+
+            assertEqual = self.assertEqual
+
+        original = menu.read_menu_state
+        menu.read_menu_state = lambda _process: (17, process.cursor, 30)
+        try:
+            _select_unlocked_practice_stage(process, KeyboardStub(), stage=6)
+            self.assertEqual(process.cursor, 5)
+        finally:
+            menu.read_menu_state = original
 
     def test_head_on_bullet_rejects_stay(self):
         bullet = Bullet(192.0, 360.0, 0.0, 3.0, 2.0, 2.0, 1)

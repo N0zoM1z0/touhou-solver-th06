@@ -151,8 +151,10 @@ class Keyboard:
         if not self.foreground():
             raise RuntimeError("TH06 is not foreground for menu input")
         self._event(key, True)
-        time.sleep(hold_seconds)
-        self._event(key, False)
+        try:
+            time.sleep(hold_seconds)
+        finally:
+            self._event(key, False)
         time.sleep(0.12)
 
     def pulse(self, key: str, release_seconds: float = 0.05) -> None:

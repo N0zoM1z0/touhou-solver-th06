@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
-from .menu import start_hard_reimu_a
+from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD
 from .native import ADDR_LIFE_PATCH, TARGET_SHA256, attach_exact, read_snapshot
 from .solver import Solver
@@ -30,10 +30,17 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("run this entry point with Windows Python")
     if args.start_hard and not args.armed:
         raise RuntimeError("--start-hard requires --armed")
+    if args.practice_stage is not None and not args.armed:
+        raise RuntimeError("--practice-stage requires --armed")
+    if args.start_hard and args.practice_stage is not None:
+        raise RuntimeError("choose either --start-hard or --practice-stage")
     process = attach_exact(Path(args.game_dir).resolve())
     keyboard = Keyboard(process.pid) if args.armed else None
     dialogue_skipper = DialogueSkipper(process, keyboard) if keyboard is not None else None
-    trace_name = "th06_baseline_latest.csv" if args.armed else "th06_observe_latest.csv"
+    if args.practice_stage is not None:
+        trace_name = f"th06_practice_stage{args.practice_stage}_latest.csv"
+    else:
+        trace_name = "th06_baseline_latest.csv" if args.armed else "th06_observe_latest.csv"
     trace_path = Path(__file__).resolve().parents[2] / "artifacts" / trace_name
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     solver = Solver()
@@ -42,6 +49,22 @@ def run(args: argparse.Namespace) -> int:
     last_reason: str | None = None
     exit_code = 0
     started = time.monotonic()
+
+    def cleanup() -> None:
+        try:
+            if keyboard is not None:
+                keyboard.release_all()
+        finally:
+            try:
+                if args.stop_game:
+                    process.terminate()
+            finally:
+                process.close()
+        cleanup_message = "released all keys" if keyboard is not None else "no input was created"
+        if args.stop_game:
+            cleanup_message += f"; stopped exact pid {process.pid}"
+        print(f"{cleanup_message}; trace={trace_path}", flush=True)
+
     try:
         print(f"verified pid={process.pid} sha256={TARGET_SHA256}", flush=True)
         if args.patch_lives:
@@ -50,11 +73,13 @@ def run(args: argparse.Namespace) -> int:
             assert keyboard is not None
             start_hard_reimu_a(process, keyboard)
             print("menu: Hard / Reimu-A selected", flush=True)
+        elif args.practice_stage is not None:
+            assert keyboard is not None
+            start_hard_reimu_a_practice(process, keyboard, args.practice_stage)
+            print(f"menu: Hard / Reimu-A Practice Stage {args.practice_stage} selected", flush=True)
         print("armed" if args.armed else "observe-only", flush=True)
     except Exception:
-        if keyboard is not None:
-            keyboard.release_all()
-        process.close()
+        cleanup()
         raise
     try:
         with trace_path.open("w", newline="", encoding="utf-8") as output:
@@ -134,11 +159,7 @@ def run(args: argparse.Namespace) -> int:
                     )
                     break
     finally:
-        if keyboard is not None:
-            keyboard.release_all()
-        process.close()
-        cleanup = "released all keys" if keyboard is not None else "no input was created"
-        print(f"{cleanup}; trace={trace_path}", flush=True)
+        cleanup()
     return exit_code
 
 
@@ -148,6 +169,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--armed", action="store_true")
     parser.add_argument("--patch-lives", action="store_true")
     parser.add_argument("--start-hard", action="store_true", help="source-grounded Hard / Reimu-A menu start")
+    parser.add_argument("--practice-stage", type=int, choices=range(1, 7), metavar="1..6")
+    parser.add_argument("--stop-game", action="store_true", help="stop the exact attached trial process on exit")
     parser.add_argument("--seconds", type=float, default=0.0, help="zero runs until Ctrl+C")
     return parser.parse_args(argv)
 

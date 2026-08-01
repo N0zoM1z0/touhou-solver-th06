@@ -29,7 +29,8 @@ The implementation is intentionally small, with one module per responsibility:
 - `solver.py`: adaptive horizon and layer composition.
 - `ranking.py`: proposals and online preferences inside the certified set.
 - `actuator.py`: foreground-guarded physical keyboard output.
-- `menu.py`: source-grounded Hard/Reimu-A startup using only Up/Down/Z.
+- `menu.py`: source-grounded full-run and Practice Hard/Reimu-A startup using
+  only Up/Down/Z.
 - `dialogue.py`: native dialogue sensing and isolated Ctrl/Skip ownership.
 - `agent.py`: the thin runtime loop.
 
@@ -76,8 +77,20 @@ run_th06_baseline.bat --seconds 120
 
 The launcher starts the exact game, verifies its path and hash, applies the
 process-memory-only life patch, selects Hard/Reimu-A from native menu state,
-and releases every held key on exit.  The latest compact trace overwrites
+releases every held key, and stops only that identity-verified process on exit.
+The latest compact trace overwrites
 `artifacts/th06_baseline_latest.csv`.
+
+Start any unlocked Hard/Reimu-A Practice stage with:
+
+```bat
+run_th06_practice.bat --practice-stage 1 --seconds 120
+```
+
+Its trace is isolated as `artifacts/th06_practice_stageN_latest.csv`. The exact
+1.02h source deliberately makes a completed Practice result exit directly to
+the main menu, so Practice cannot save a replay; replay automation is validated
+on a non-Practice result screen instead.
 
 Observe without sending input:
 
