@@ -6,7 +6,15 @@ import ctypes
 import time
 from ctypes import wintypes
 
-from .model import Action
+from .model import (
+    BUTTON_DOWN,
+    BUTTON_FOCUS,
+    BUTTON_LEFT,
+    BUTTON_RIGHT,
+    BUTTON_SHOOT,
+    BUTTON_UP,
+    Action,
+)
 
 
 ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
@@ -78,22 +86,44 @@ class Keyboard:
         self.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         return pid.value == self.pid
 
-    def _event(self, key: str, down: bool) -> None:
+    def _input(self, key: str, down: bool) -> Input:
         scan, extended = self.SCANCODES[key]
         flags = 0x0008 | (0x0001 if extended else 0) | (0 if down else 0x0002)
-        event = Input(type=1, union=InputUnion(ki=KeybdInput(0, scan, flags, 0, 0)))
-        if self.user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(Input)) != 1:
+        return Input(type=1, union=InputUnion(ki=KeybdInput(0, scan, flags, 0, 0)))
+
+    def _events(self, events: tuple[tuple[str, bool], ...]) -> None:
+        if not events:
+            return
+        inputs = (Input * len(events))(*(self._input(key, down) for key, down in events))
+        if self.user32.SendInput(len(inputs), inputs, ctypes.sizeof(Input)) != len(inputs):
             raise ctypes.WinError(ctypes.get_last_error())
 
-    def _sync(self) -> None:
-        desired = self.base_desired | self.auxiliary_desired
-        for key in sorted(self.held - desired):
-            self._event(key, False)
-        for key in sorted(desired - self.held):
-            self._event(key, True)
-        self.held = desired
+    def _event(self, key: str, down: bool) -> None:
+        self._events(((key, down),))
 
-    def apply(self, action: Action) -> None:
+    def _sync(self) -> tuple[tuple[str, bool], ...]:
+        desired = self.base_desired | self.auxiliary_desired
+        events = tuple((key, False) for key in sorted(self.held - desired)) + tuple(
+            (key, True) for key in sorted(desired - self.held)
+        )
+        # Send the complete release-then-press transition as one Win32 input
+        # transaction so the game cannot sample an avoidable inter-call mask.
+        self._events(events)
+        self.held = desired
+        return events
+
+    @property
+    def base_input_mask(self) -> int:
+        mask = 0
+        mask |= BUTTON_SHOOT if "shoot" in self.base_desired else 0
+        mask |= BUTTON_FOCUS if "focus" in self.base_desired else 0
+        mask |= BUTTON_UP if "up" in self.base_desired else 0
+        mask |= BUTTON_DOWN if "down" in self.base_desired else 0
+        mask |= BUTTON_LEFT if "left" in self.base_desired else 0
+        mask |= BUTTON_RIGHT if "right" in self.base_desired else 0
+        return mask
+
+    def apply(self, action: Action) -> tuple[tuple[str, bool], ...]:
         desired = {"shoot", "focus"}
         if action.dx < 0:
             desired.add("left")
@@ -104,7 +134,7 @@ class Keyboard:
         elif action.dy > 0:
             desired.add("down")
         self.base_desired = desired
-        self._sync()
+        return self._sync()
 
     def set_auxiliary(self, key: str, enabled: bool) -> None:
         if key not in self.SCANCODES:
@@ -141,9 +171,10 @@ class Keyboard:
             time.sleep(release_seconds)
             self._event(key, False)
 
-    def release_all(self) -> None:
-        for key in sorted(self.held):
-            self._event(key, False)
+    def release_all(self) -> tuple[tuple[str, bool], ...]:
+        events = tuple((key, False) for key in sorted(self.held))
+        self._events(events)
         self.held.clear()
         self.base_desired.clear()
         self.auxiliary_desired.clear()
+        return events

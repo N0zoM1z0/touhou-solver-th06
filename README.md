@@ -5,6 +5,8 @@ and the reconstructed source instead of carrying the TH08 planner forward.
 
 New Codex sessions should begin with [`START_HERE.md`](START_HERE.md); the
 compact working rules are in [`AGENTS.md`](AGENTS.md).
+The distilled, non-architectural lessons from the older TH08 workspace are in
+[`notes/TH08_CE_GUIDE.md`](notes/TH08_CE_GUIDE.md).
 
 ## Exact target and reference
 
@@ -52,10 +54,11 @@ every 250 ms because the shipped code requires `WAS_PRESSED(SHOOT)`; an already
 held Z cannot advance it. Neither operation changes a movement proposal.
 
 This is not yet a route-level safety proof.  **Known unsupported authority:**
-future ECL births and active lasers.  An active laser returns no action instead
-of silently passing through the hard filter.  The first physical runs exist to
-validate native layouts, timing, actuation, and this narrow authority before we
-add either missing model.
+future ECL births and active lasers.  In armed control, an active laser or an
+empty/unknown hard authority releases input and ends the trial instead of
+silently continuing a previously held direction.  The first physical runs
+exist to validate native layouts, timing, actuation, and this narrow authority
+before we add either missing model.
 
 The native gameplay gate also excludes pause/retry menus, replay playback, and
 the built-in demo.

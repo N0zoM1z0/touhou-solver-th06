@@ -14,6 +14,8 @@ from th06.ranking import ProposalRanker
 from th06.safety import certify_actions
 from th06.solver import Solver, adaptive_horizon
 from th06.actuator import Keyboard
+from th06.agent import authority_unavailable
+from th06.model import Decision
 
 
 def snapshot(*bullets, x=192.0, y=380.0, input_mask=BUTTON_FOCUS, lasers=0):
@@ -48,6 +50,30 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn("bomb", {action.name for action in ACTIONS})
         self.assertNotIn("bomb", Keyboard.SCANCODES)
         self.assertEqual(Keyboard.SCANCODES["skip"], (0x1D, False))
+
+    def test_complete_mask_transition_is_one_batch(self):
+        keyboard = object.__new__(Keyboard)
+        keyboard.held = {"shoot", "focus", "left"}
+        keyboard.base_desired = {"shoot", "focus", "left"}
+        keyboard.auxiliary_desired = set()
+        batches = []
+        keyboard._events = lambda events: batches.append(events)
+
+        events = keyboard.apply(ACTION_BY_VECTOR[(1, 0)])
+
+        self.assertEqual(events, (("left", False), ("right", True)))
+        self.assertEqual(batches, [events])
+        self.assertEqual(keyboard.base_input_mask, 0x85)
+        self.assertFalse(keyboard.base_input_mask & BUTTON_BOMB)
+
+    def test_missing_authority_is_not_no_write(self):
+        self.assertTrue(
+            authority_unavailable(Decision(None, (), 0.0, 16, "hard-safe-set-empty"))
+        )
+        self.assertTrue(
+            authority_unavailable(Decision(None, (), 0.0, 0, "unsupported-active-laser"))
+        )
+        self.assertFalse(authority_unavailable(Decision(None, (), 0.0, 0, "menu")))
 
     def test_head_on_bullet_rejects_stay(self):
         bullet = Bullet(192.0, 360.0, 0.0, 3.0, 2.0, 2.0, 1)

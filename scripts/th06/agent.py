@@ -17,6 +17,14 @@ from .native import ADDR_LIFE_PATCH, TARGET_SHA256, attach_exact, read_snapshot
 from .solver import Solver
 
 
+PASSIVE_NO_ACTION_REASONS = frozenset(("menu", "player-not-active", "time-stopped"))
+
+
+def authority_unavailable(decision: Decision) -> bool:
+    """Distinguish missing hard authority from a passive gameplay phase."""
+    return decision.action is None and decision.reason not in PASSIVE_NO_ACTION_REASONS
+
+
 def run(args: argparse.Namespace) -> int:
     if os.name != "nt":
         raise RuntimeError("run this entry point with Windows Python")
@@ -32,6 +40,7 @@ def run(args: argparse.Namespace) -> int:
     previous_state: int | None = None
     last_frame: int | None = None
     last_reason: str | None = None
+    exit_code = 0
     started = time.monotonic()
     try:
         print(f"verified pid={process.pid} sha256={TARGET_SHA256}", flush=True)
@@ -52,8 +61,9 @@ def run(args: argparse.Namespace) -> int:
             writer = csv.writer(output)
             writer.writerow((
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
-                "replay", "native_input", "frame_multiplier", "action", "safe", "horizon",
-                "clearance", "solve_ms", "dialogue", "skip", "advance_pulse", "reason",
+                "replay", "native_input", "held_desired_input", "input_transitions",
+                "frame_multiplier", "action", "safe", "horizon", "clearance", "solve_ms",
+                "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
             while not args.seconds or time.monotonic() - started < args.seconds:
                 snapshot = read_snapshot(process)
@@ -68,6 +78,8 @@ def run(args: argparse.Namespace) -> int:
                 decision = solver.decide(snapshot)
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
                 dialogue = DialogueState(False, False, False)
+                transition_count = 0
+                authority_stop = False
 
                 if args.armed:
                     assert keyboard is not None
@@ -80,22 +92,30 @@ def run(args: argparse.Namespace) -> int:
                             not snapshot.in_menu and not snapshot.replay_or_demo
                         )
                         if decision.action is not None:
-                            keyboard.apply(decision.action)
-                        elif decision.reason in ("menu", "player-not-active", "time-stopped"):
-                            keyboard.release_all()
-                        # Empty or unsupported authority is no-write. It does
-                        # not replace the last complete mask with a guess.
+                            transition_count += len(keyboard.apply(decision.action))
+                        else:
+                            transition_count += len(keyboard.release_all())
+                            authority_stop = authority_unavailable(decision)
+                            if authority_stop:
+                                exit_code = 2
 
-                action_name = decision.action.name if decision.action else "no-write"
+                if decision.action is not None:
+                    action_name = decision.action.name
+                elif authority_stop:
+                    action_name = "authority-stop"
+                else:
+                    action_name = "no-action"
                 writer.writerow((
                     f"{time.monotonic() - started:.3f}", snapshot.frame, snapshot.stage,
                     snapshot.player_state, f"{snapshot.x:.3f}", f"{snapshot.y:.3f}",
                     len(snapshot.bullets), snapshot.laser_count, int(snapshot.replay_or_demo),
-                    f"0x{snapshot.input_mask:04X}", f"{snapshot.frame_multiplier:.3f}", action_name,
+                    f"0x{snapshot.input_mask:04X}",
+                    f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
+                    transition_count, f"{snapshot.frame_multiplier:.3f}", action_name,
                     len(decision.safe_actions), decision.horizon, f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}", int(dialogue.active),
                     int(dialogue.active and dialogue.skippable), int(dialogue.pulsed_shoot),
-                    decision.reason,
+                    int(authority_stop), decision.reason,
                 ))
                 if snapshot.frame % 60 == 0 or decision.reason != last_reason:
                     output.flush()
@@ -106,13 +126,20 @@ def run(args: argparse.Namespace) -> int:
                         flush=True,
                     )
                 last_reason = decision.reason
+                if authority_stop:
+                    output.flush()
+                    print(
+                        f"authority unavailable at f={snapshot.frame}: {decision.reason}; stopping trial",
+                        flush=True,
+                    )
+                    break
     finally:
         if keyboard is not None:
             keyboard.release_all()
         process.close()
         cleanup = "released all keys" if keyboard is not None else "no input was created"
         print(f"{cleanup}; trace={trace_path}", flush=True)
-    return 0
+    return exit_code
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

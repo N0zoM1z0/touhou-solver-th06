@@ -31,6 +31,8 @@ This separation is the idea; the algorithms are intentionally not fixed.
 Known gaps are current-bullet-only safety, unsupported lasers/future emissions,
 and missed decisions on slow dense frames. The zero-death run is a baseline,
 not proof of a clear. See `README.md` for the compact details and module map.
+Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
+counterexample appears; do not recreate the TH08 architecture from it.
 
 ## How to continue
 
