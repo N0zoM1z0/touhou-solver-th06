@@ -101,6 +101,7 @@ class ProposalRanker:
             self.repair_until_frame = None
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
+        best_clearance = max(candidate.clearance for candidate in candidates)
         horizontal_room = min(
             snapshot.x - MOVEMENT_LEFT,
             MOVEMENT_RIGHT - snapshot.x,
@@ -114,7 +115,7 @@ class ProposalRanker:
             and vertical_room <= snapshot.focus_speed + 0.25
         )
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -136,6 +137,10 @@ class ProposalRanker:
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
+                (
+                    len(candidate_actions) < len(ACTIONS)
+                    or candidate.clearance >= best_clearance - 1.0
+                ),
                 (
                     near_single_wall(snapshot)
                     and len(candidate_actions) <= 2

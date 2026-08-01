@@ -987,6 +987,32 @@ class BaselineTests(unittest.TestCase):
         self.assertNotEqual(chosen.action, current)
         self.assertEqual(chosen.action.dy, -1)
 
+    def test_open_hard_set_keeps_margin_before_wall_relief(self):
+        state = snapshot(
+            x=192.686,
+            y=402.588,
+            input_mask=BUTTON_FOCUS | 0x10 | 0x40,
+        )
+        clearances = (6.986, 5.096, 8.923, 7.292, 7.722, 5.878, 5.369, 8.706, 8.792)
+        allowed = tuple(
+            SafeAction(
+                action,
+                clearance,
+                state.x + action.dx * 2.0,
+                state.y + action.dy * 2.0,
+            )
+            for action, clearance in zip(ACTIONS, clearances)
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset(ACTIONS),
+        )
+
+        self.assertGreaterEqual(chosen.clearance, max(clearances) - 1.0)
+        self.assertEqual(chosen.action.dy, 1)
+
     def test_solver_keeps_a_replanning_corridor_off_one_wall(self):
         state = snapshot(
             x=164.5,
