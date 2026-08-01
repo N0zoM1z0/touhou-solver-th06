@@ -532,7 +532,7 @@ class BaselineTests(unittest.TestCase):
         self.assertIn(chosen, allowed)
 
     def test_longer_rollout_ranks_but_does_not_authorize(self):
-        state = snapshot(x=376.0, y=416.0)
+        state = snapshot(x=374.0, y=416.0)
         allowed = certify_actions(state, HARD_SAFETY_HORIZON)
         up = ACTION_BY_VECTOR[(0, -1)]
         chosen = ProposalRanker().choose(state, allowed, frozenset((up,)))
@@ -544,6 +544,19 @@ class BaselineTests(unittest.TestCase):
         trapped = SafeAction(ACTION_BY_VECTOR[(-1, 1)], 22.0, 8.0, 432.0)
         egress = SafeAction(ACTION_BY_VECTOR[(1, -1)], 10.0, 10.8, 426.0)
         chosen = ProposalRanker().choose(state, (trapped, egress))
+        self.assertEqual(chosen, egress)
+
+    def test_ranker_egresses_a_wall_before_following_trapped_durability(self):
+        state = snapshot(x=374.0, y=432.0, input_mask=BUTTON_FOCUS | 0x20)
+        trapped = SafeAction(ACTION_BY_VECTOR[(1, 1)], 20.0, 376.0, 432.0)
+        egress = SafeAction(ACTION_BY_VECTOR[(0, -1)], 2.0, 374.0, 430.0)
+
+        chosen = ProposalRanker().choose(
+            state,
+            (trapped, egress),
+            durable_actions=frozenset((trapped.action,)),
+        )
+
         self.assertEqual(chosen, egress)
 
     def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):

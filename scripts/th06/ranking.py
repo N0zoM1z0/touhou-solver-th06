@@ -59,13 +59,14 @@ class ProposalRanker:
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, float, float, float, str]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
                 _boundary_room(candidate.final_x, candidate.final_y)
                 > current_boundary_room + 0.25
             )
+            urgent_egress = current_boundary_room <= 0.25 and boundary_egress
             total = (
                 min(80.0, candidate.clearance)
                 + useful_position
@@ -75,6 +76,7 @@ class ProposalRanker:
             # A longer source-grounded survival rollout is the primary soft
             # proposal signal, but it never adds to or removes from candidates.
             return (
+                urgent_egress,
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,
