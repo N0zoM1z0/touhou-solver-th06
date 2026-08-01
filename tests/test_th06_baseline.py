@@ -8,6 +8,7 @@ from th06.model import (
     BUTTON_FOCUS,
     BUTTON_LEFT,
     Bullet,
+    EnemyBody,
     Laser,
     SafeAction,
     Snapshot,
@@ -16,6 +17,7 @@ from th06.model import (
 from th06.ranking import ProposalRanker
 from th06.safety import certify_actions
 from th06.hazards.bullets import hazard_box
+from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance
 from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
 from th06.actuator import Keyboard
@@ -24,6 +26,9 @@ from th06.menu import _select_unlocked_practice_stage
 from th06 import menu
 from th06.native import (
     ADDR_CHAIN,
+    ADDR_ENEMY_CALC_CHAIN,
+    ADDR_ENEMY_MANAGER,
+    ENEMY_MANAGER_SIZE,
     PROCESS_ACCESS,
     RESULT_SCREEN_ON_UPDATE,
     read_result_screen,
@@ -60,6 +65,33 @@ def snapshot(*bullets, x=192.0, y=380.0, input_mask=BUTTON_FOCUS, lasers=0):
         time_stopped=False,
         replay_or_demo=False,
     )
+
+
+def enemy_body(**changes):
+    values = dict(
+        x=192.0,
+        y=380.0,
+        half_width=4.0,
+        half_height=4.0,
+        velocity_x=0.0,
+        velocity_y=0.0,
+        angle=0.0,
+        angular_velocity=0.0,
+        speed=0.0,
+        acceleration=0.0,
+        movement_mode=0,
+        movement_ease=0,
+        invert_x=False,
+        move_interp_x=0.0,
+        move_interp_y=0.0,
+        move_start_x=0.0,
+        move_start_y=0.0,
+        move_timer=0,
+        move_timer_float=0.0,
+        move_start_time=0,
+    )
+    values.update(changes)
+    return EnemyBody(**values)
 
 
 class BaselineTests(unittest.TestCase):
@@ -131,6 +163,9 @@ class BaselineTests(unittest.TestCase):
     def test_trial_process_handle_can_verify_termination(self):
         self.assertTrue(PROCESS_ACCESS & 0x00100000)  # SYNCHRONIZE
         self.assertTrue(PROCESS_ACCESS & 0x0001)  # PROCESS_TERMINATE
+
+    def test_enemy_manager_layout_ends_at_mapped_calc_chain(self):
+        self.assertEqual(ADDR_ENEMY_MANAGER + ENEMY_MANAGER_SIZE, ADDR_ENEMY_CALC_CHAIN)
 
     def test_result_screen_is_found_through_calc_chain(self):
         chain_elem = bytearray(0x20)
@@ -251,6 +286,19 @@ class BaselineTests(unittest.TestCase):
         decision = Solver().decide(state)
         self.assertIsNone(decision.action)
         self.assertEqual(decision.reason, "hard-safe-set-empty")
+
+    def test_enemy_body_is_a_hard_hazard(self):
+        state = snapshot()
+        state = Snapshot(**{**state.__dict__, "enemies": (enemy_body(),)})
+        decision = Solver().decide(state)
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "hard-safe-set-empty")
+
+    def test_enemy_body_follows_source_axis_move(self):
+        body = enemy_body(x=100.0, y=200.0, velocity_x=2.0, velocity_y=3.0)
+        boxes = future_enemy_boxes(body, 2)
+        self.assertEqual(boxes[0], (98.0, 199.0, 106.0, 207.0))
+        self.assertEqual(boxes[1], (100.0, 202.0, 108.0, 210.0))
 
     def test_laser_warmup_fallthrough_keeps_midpoint_hitbox(self):
         laser = Laser(

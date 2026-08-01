@@ -25,8 +25,8 @@ The distilled, non-architectural lessons from the older TH08 workspace are in
 The implementation is intentionally small, with one module per responsibility:
 
 - `native.py`: exact process identity, process-only patch, and state decoding.
-- `hazards/bullets.py` and `hazards/lasers.py`: separate source-grounded hazard
-  motion and collision semantics.
+- `hazards/bullets.py`, `hazards/lasers.py`, and `hazards/enemies.py`: separate
+  source-grounded hazard motion and collision semantics.
 - `safety.py`: the only composition layer allowed to certify actions.
 - `kernels/safety.cpp`: the general dense collision scan only; hazard semantics
   remain in the separate Python modules and have a Python reference path.
@@ -42,7 +42,8 @@ The implementation is intentionally small, with one module per responsibility:
 The three solver layers are:
 
 1. **Hard current-hazard authority:** enumerate nine focused directions and
-   reject any that collide with an observed native bullet or laser over the
+   reject any that collide with an observed native bullet, laser, or lethal
+   enemy body over the
    fixed four-frame issue window, across input pickup delays 0, 1, and 2
    frames. Four is the current physical bound: at most two hazardous-state
    frames between decisions plus at most two input-pickup frames.
@@ -63,9 +64,9 @@ that exact phase. For an active but unskippable WAIT, it creates a fresh Z edge
 every 250 ms because the shipped code requires `WAS_PRESSED(SHOOT)`; an already
 held Z cannot advance it. Neither operation changes a movement proposal.
 
-This is not yet a route-level safety proof. Future ECL births and hostile
-bodies are not yet modeled, and the four-frame issue window is physically
-measured rather than protected by a command lease. In armed control, an
+This is not yet a route-level safety proof. Future ECL births/instructions are
+not yet modeled, and the four-frame issue window is physically measured rather
+than protected by a command lease. In armed control, an
 empty/unknown hard authority or the first physical HIT releases input and ends
 the trial instead of silently continuing a previously held direction.
 
@@ -186,3 +187,28 @@ decision gap remained two frames. Native solve timing was 2.21 ms median,
 10.71 ms p95, 17.50 ms p99, and 33.83 ms maximum. This validates integrated
 Stage 1 behavior and clean Practice-result termination, not later-stage or
 full-route safety.
+
+## First Stage 2 HIT and body coverage (2026-08-01)
+
+A full route first entered Stage 2, then the first physical HIT occurred at
+f2248 while all nine remaining fired bullets were at least about 70 pixels from
+the player. Source inspection showed two post-update explanations: a colliding
+bullet immediately becomes despawning state 5, which the lethal snapshot had
+omitted, or `EnemyManager::OnUpdate` can collide a lethal enemy body through
+the same `Player::CalcKillBoxCollision` path.
+
+The sensor now retains despawning bullets as diagnostics, keeps the complete
+previous snapshot in first-failure JSON, and decodes current lethal bodies from
+the authoritative `Enemy` layout. The layout has an independent address check:
+`0x4B79C8 + 0xEE5EC == 0x5A5FB4`, exactly the separately mapped enemy calc-chain
+global. Source collision dimensions reduce to `hitboxDimensions / 3` per side;
+current axis, accelerated-angle, and interpolation movement are isolated in
+`hazards/enemies.py` and merged into the existing AABB kernel.
+
+The first integrated Hard Practice Stage 2 run then completed at frame 15494:
+15,320 sampled states, zero dead rows, zero authority stops, and no Bomb bit.
+It covered up to 334 bullets, 20 simultaneous lethal enemy bodies, and 226
+simultaneous despawning-bullet witnesses. Native solve timing remained 3.52 ms
+median, 11.20 ms p95, 15.27 ms p99, and 25.18 ms maximum. This physically
+validates the layout and integrated current-body model; a same-route full run
+is still needed to make the f2248 causal A/B strong.

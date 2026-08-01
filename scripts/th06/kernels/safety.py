@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
+from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from ..model import ACTIONS, SafeAction, Snapshot
 
@@ -76,8 +77,14 @@ class NativeSafetyKernel:
         return offset_array, value_array
 
     def certify(self, snapshot: Snapshot, horizon: int, collision_margin: float) -> tuple[SafeAction, ...]:
+        bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
+        enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
+        aabb_frames = tuple(
+            bullet_frame + enemy_frame
+            for bullet_frame, enemy_frame in zip(bullet_frames, enemy_frames)
+        )
         bullet_offsets, bullets = self._flatten(
-            bullet_hazards_by_frame(snapshot, horizon),
+            aabb_frames,
             _Aabb,
             lambda value: _Aabb(*value),
         )

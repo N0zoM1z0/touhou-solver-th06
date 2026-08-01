@@ -14,7 +14,7 @@ from pathlib import Path
 from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
-from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD
+from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot
 from .native import (
     ADDR_LIFE_PATCH,
     TARGET_SHA256,
@@ -64,6 +64,7 @@ def run(args: argparse.Namespace) -> int:
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     solver = Solver()
     previous_state: int | None = None
+    previous_snapshot: Snapshot | None = None
     practice_trial = PracticeTrial() if args.practice_stage is not None else None
     last_frame: int | None = None
     last_reason: str | None = None
@@ -112,6 +113,7 @@ def run(args: argparse.Namespace) -> int:
             writer = csv.writer(output)
             writer.writerow((
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
+                "enemies", "despawning",
                 "replay", "native_input", "held_desired_input", "input_transitions",
                 "frame_multiplier", "action", "safe", "horizon", "effort_horizon",
                 "effort_safe",
@@ -141,6 +143,7 @@ def run(args: argparse.Namespace) -> int:
                     time.sleep(0.001)
                     continue
                 last_frame = snapshot.frame
+                prior_snapshot = previous_snapshot
                 hit = physical_hit(previous_state, snapshot.player_state)
                 if previous_state is not None:
                     solver.observe(not hit)
@@ -161,6 +164,7 @@ def run(args: argparse.Namespace) -> int:
                 dialogue = DialogueState(False, False, False)
                 transition_count = 0
                 authority_stop = False
+                held_before_authority = keyboard.base_input_mask if keyboard is not None else 0
 
                 if args.armed:
                     assert keyboard is not None
@@ -189,7 +193,8 @@ def run(args: argparse.Namespace) -> int:
                 writer.writerow((
                     f"{time.monotonic() - started:.3f}", snapshot.frame, snapshot.stage,
                     snapshot.player_state, f"{snapshot.x:.3f}", f"{snapshot.y:.3f}",
-                    len(snapshot.bullets), snapshot.laser_count, int(snapshot.replay_or_demo),
+                    len(snapshot.bullets), snapshot.laser_count, len(snapshot.enemies),
+                    len(snapshot.despawning_bullets), int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
                     transition_count, f"{snapshot.frame_multiplier:.3f}", action_name,
@@ -204,7 +209,8 @@ def run(args: argparse.Namespace) -> int:
                     output.flush()
                     print(
                         f"f={snapshot.frame} stage={snapshot.stage} state={snapshot.player_state} "
-                        f"bullets={len(snapshot.bullets)} action={action_name} "
+                        f"bullets={len(snapshot.bullets)} enemies={len(snapshot.enemies)} "
+                        f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
                         f"h={decision.horizon} reason={decision.reason}",
                         flush=True,
@@ -218,7 +224,11 @@ def run(args: argparse.Namespace) -> int:
                             {
                                 "wall_s": time.monotonic() - started,
                                 "snapshot": asdict(snapshot),
+                                "previous_snapshot": (
+                                    asdict(prior_snapshot) if prior_snapshot is not None else None
+                                ),
                                 "decision": asdict(decision),
+                                "held_before_stop": held_before_authority,
                                 "held_desired_input": keyboard.base_input_mask if keyboard else 0,
                             },
                             indent=2,
@@ -232,6 +242,7 @@ def run(args: argparse.Namespace) -> int:
                         flush=True,
                     )
                     break
+                previous_snapshot = snapshot
     finally:
         cleanup()
     return exit_code

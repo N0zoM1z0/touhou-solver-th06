@@ -18,7 +18,7 @@ HARD_SAFETY_HORIZON = 4
 
 
 def adaptive_horizon(snapshot: Snapshot) -> int:
-    if snapshot.lasers:
+    if snapshot.lasers or snapshot.enemies:
         return 16
     nearest = nearest_current_clearance(snapshot)
     if nearest < 48.0 or len(snapshot.bullets) >= 220:

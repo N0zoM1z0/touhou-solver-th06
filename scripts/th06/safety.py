@@ -5,6 +5,7 @@ from __future__ import annotations
 from .hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from .hazards.bullets import nearest_current_clearance
 from .hazards.geometry import signed_clearance
+from .hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
 from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
@@ -54,6 +55,7 @@ def candidate_path(snapshot: Snapshot, action: Action, delay: int, horizon: int)
 
 def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
     bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
+    enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
     certified: list[SafeAction] = []
     for action in ACTIONS:
@@ -74,6 +76,15 @@ def certify_actions(snapshot: Snapshot, horizon: int) -> tuple[SafeAction, ...]:
                     if clearance <= COLLISION_MARGIN:
                         valid = False
                         break
+                if valid:
+                    for hazard in enemy_frames[frame_index]:
+                        clearance = signed_clearance(
+                            x, y, snapshot.half_width, snapshot.half_height, hazard
+                        )
+                        action_clearance = min(action_clearance, clearance)
+                        if clearance <= COLLISION_MARGIN:
+                            valid = False
+                            break
                 if valid:
                     for laser in laser_frames[frame_index]:
                         clearance = signed_laser_clearance(

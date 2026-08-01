@@ -12,7 +12,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import Bullet, Laser, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import Bullet, EnemyBody, Laser, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
 
 
 TARGET_EXE = "th06.exe"
@@ -27,6 +27,8 @@ ADDR_CHAIN = 0x69D918
 ADDR_SUPERVISOR = 0x6C6D18
 ADDR_PLAYER = 0x6CA628
 ADDR_FRAME_MULTIPLIER = 0x6C6EC0
+ADDR_ENEMY_MANAGER = 0x4B79C8
+ADDR_ENEMY_CALC_CHAIN = 0x5A5FB4
 ADDR_BULLET_ARRAY = 0x5AB5F8
 ADDR_LASER_ARRAY = 0x691FF8
 ADDR_MAIN_MENU = 0x6D46C0
@@ -81,6 +83,23 @@ LASER_TIMER_SUBFRAME_OFFSET = 0x260
 LASER_TIMER_OFFSET = 0x264
 LASER_FLAGS_OFFSET = 0x268
 LASER_STATE_OFFSET = 0x26C
+ENEMY_MANAGER_SIZE = 0xEE5EC
+ENEMY_ARRAY_OFFSET = 0xED0
+ENEMY_COUNT = 256
+ENEMY_STRIDE = 0xEC8
+ENEMY_POSITION_OFFSET = 0xC6C
+ENEMY_HITBOX_OFFSET = 0xC78
+ENEMY_AXIS_SPEED_OFFSET = 0xC84
+ENEMY_ANGLE_OFFSET = 0xC90
+ENEMY_ANGULAR_VELOCITY_OFFSET = 0xC94
+ENEMY_SPEED_OFFSET = 0xC98
+ENEMY_ACCELERATION_OFFSET = 0xC9C
+ENEMY_MOVE_INTERP_OFFSET = 0xCAC
+ENEMY_MOVE_START_OFFSET = 0xCB8
+ENEMY_MOVE_TIMER_SUBFRAME_OFFSET = 0xCC8
+ENEMY_MOVE_TIMER_OFFSET = 0xCCC
+ENEMY_MOVE_START_TIME_OFFSET = 0xCD0
+ENEMY_FLAGS_OFFSET = 0xE50
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -324,12 +343,13 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         ADDR_LASER_ARRAY + LASER_COUNT * LASER_STRIDE - ADDR_BULLET_ARRAY,
     )
     bullets: list[Bullet] = []
+    despawning_bullets: list[Bullet] = []
     for index in range(BULLET_COUNT):
         base = index * BULLET_STRIDE
         state = struct.unpack_from("<H", pool, base + BULLET_STATE_OFFSET)[0]
-        if state == 0 or state == 5:
+        if state == 0:
             continue
-        if state not in (1, 2, 3, 4):
+        if state not in (1, 2, 3, 4, 5):
             raise RuntimeError(f"invalid bullet state {state} at slot {index}")
         size_x, size_y = struct.unpack_from("<ff", pool, base + BULLET_SIZE_OFFSET)
         bx, by = struct.unpack_from("<ff", pool, base + BULLET_POSITION_OFFSET)
@@ -342,23 +362,25 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
             0.0 < size_x <= 256.0 and 0.0 < size_y <= 256.0
         ):
             raise RuntimeError(f"invalid bullet geometry at slot {index}")
-        bullets.append(
-            Bullet(
-                bx,
-                by,
-                vx,
-                vy,
-                size_x / 2.0,
-                size_y / 2.0,
-                state,
-                ex_flags=ex_flags,
-                acceleration=math.hypot(ax, ay) + abs(accel_speed),
-                speed=speed,
-                turn_speed=turn_speed,
-                acceleration_x=ax,
-                acceleration_y=ay,
-            )
+        bullet = Bullet(
+            bx,
+            by,
+            vx,
+            vy,
+            size_x / 2.0,
+            size_y / 2.0,
+            state,
+            ex_flags=ex_flags,
+            acceleration=math.hypot(ax, ay) + abs(accel_speed),
+            speed=speed,
+            turn_speed=turn_speed,
+            acceleration_x=ax,
+            acceleration_y=ay,
         )
+        if state == 5:
+            despawning_bullets.append(bullet)
+        else:
+            bullets.append(bullet)
 
     laser_base = ADDR_LASER_ARRAY - ADDR_BULLET_ARRAY
     lasers: list[Laser] = []
@@ -425,11 +447,111 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
                 state,
             )
         )
+
+    # EnemyManager ends exactly at its separately mapped calc-chain global:
+    # 0x4B79C8 + 0xEE5EC == 0x5A5FB4. The source layout puts the 256 runtime
+    # slots after two archive pointers and one 0xEC8-byte template.
+    enemy_pool = process.read(
+        ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET,
+        ENEMY_COUNT * ENEMY_STRIDE,
+    )
+    enemies: list[EnemyBody] = []
+    for index in range(ENEMY_COUNT):
+        base = index * ENEMY_STRIDE
+        flags0, flags1, flags2 = struct.unpack_from(
+            "<BBB", enemy_pool, base + ENEMY_FLAGS_OFFSET
+        )
+        if not flags0 & 0x80:
+            continue
+        lethal = (
+            flags1 & 0x01
+            and flags1 & 0x02
+            and flags1 & 0x04
+            and not flags2 & 0x08
+        )
+        if not lethal:
+            continue
+        ex, ey = struct.unpack_from("<ff", enemy_pool, base + ENEMY_POSITION_OFFSET)
+        hitbox_x, hitbox_y = struct.unpack_from("<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET)
+        velocity_x, velocity_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_AXIS_SPEED_OFFSET
+        )
+        angle, angular_velocity, enemy_speed, enemy_acceleration = struct.unpack_from(
+            "<ffff", enemy_pool, base + ENEMY_ANGLE_OFFSET
+        )
+        move_interp_x, move_interp_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_MOVE_INTERP_OFFSET
+        )
+        move_start_x, move_start_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_MOVE_START_OFFSET
+        )
+        move_subframe = struct.unpack_from(
+            "<f", enemy_pool, base + ENEMY_MOVE_TIMER_SUBFRAME_OFFSET
+        )[0]
+        move_timer = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_MOVE_TIMER_OFFSET
+        )[0]
+        move_start_time = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_MOVE_START_TIME_OFFSET
+        )[0]
+        movement_mode = flags0 & 0x03
+        movement_ease = (flags0 >> 2) & 0x07
+        enemy_numbers = (
+            ex,
+            ey,
+            hitbox_x,
+            hitbox_y,
+            velocity_x,
+            velocity_y,
+            angle,
+            angular_velocity,
+            enemy_speed,
+            enemy_acceleration,
+            move_interp_x,
+            move_interp_y,
+            move_start_x,
+            move_start_y,
+            move_subframe,
+        )
+        if (
+            not all(math.isfinite(value) for value in enemy_numbers)
+            or not 0.0 <= hitbox_x <= 1024.0
+            or not 0.0 <= hitbox_y <= 1024.0
+            or movement_mode == 2 and (
+                movement_ease > 4 or move_start_time <= 0 or move_timer < 0
+            )
+        ):
+            raise RuntimeError(f"invalid lethal enemy state at slot {index}")
+        enemies.append(
+            EnemyBody(
+                ex,
+                ey,
+                hitbox_x / 3.0,
+                hitbox_y / 3.0,
+                velocity_x,
+                velocity_y,
+                angle,
+                angular_velocity,
+                enemy_speed,
+                enemy_acceleration,
+                movement_mode,
+                movement_ease,
+                bool(flags0 & 0x40),
+                move_interp_x,
+                move_interp_y,
+                move_start_x,
+                move_start_y,
+                move_timer,
+                move_timer + move_subframe,
+                move_start_time,
+            )
+        )
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
         normal_speed, focus_speed, normal_diagonal, focus_diagonal,
         frame_multiplier, input_mask, tuple(bullets), len(lasers), in_menu, time_stopped,
-        bool(is_replay or demo_mode), tuple(lasers),
+        bool(is_replay or demo_mode), tuple(lasers), tuple(enemies),
+        tuple(despawning_bullets),
     )
 
 

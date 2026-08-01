@@ -77,6 +77,30 @@ class Laser:
 
 
 @dataclass(frozen=True)
+class EnemyBody:
+    x: float
+    y: float
+    half_width: float
+    half_height: float
+    velocity_x: float
+    velocity_y: float
+    angle: float
+    angular_velocity: float
+    speed: float
+    acceleration: float
+    movement_mode: int
+    movement_ease: int
+    invert_x: bool
+    move_interp_x: float
+    move_interp_y: float
+    move_start_x: float
+    move_start_y: float
+    move_timer: int
+    move_timer_float: float
+    move_start_time: int
+
+
+@dataclass(frozen=True)
 class Snapshot:
     frame: int
     stage: int
@@ -97,6 +121,8 @@ class Snapshot:
     time_stopped: bool
     replay_or_demo: bool
     lasers: tuple[Laser, ...] = ()
+    enemies: tuple[EnemyBody, ...] = ()
+    despawning_bullets: tuple[Bullet, ...] = ()
 
 
 @dataclass(frozen=True)

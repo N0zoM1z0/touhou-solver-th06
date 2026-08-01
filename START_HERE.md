@@ -30,9 +30,12 @@ This separation is the idea; the algorithms are intentionally not fixed.
   up to 422 bullets and 6 simultaneous lasers, and used the native C++ safety
   kernel. Input pickup and hazardous-state decision intervals remain bounded
   to two observed frames each.
+- Hard Practice Stage 2 also completes without a death or Bomb after adding
+  source-layout enemy-body sensing. It covered up to 20 simultaneously lethal
+  enemy bodies and 334 bullets; current bodies now participate in hard safety.
 
-Known gaps include future ECL births, hostile bodies, a guaranteed command
-lease beyond the observed timing bound, and physical coverage of later stages.
+Known gaps include future ECL births/instructions, a guaranteed command lease
+beyond the observed timing bound, and physical coverage of later stages.
 Actual replay file creation also still needs a non-Practice result. This is a
 Stage 1 checkpoint, not proof of a route clear. See `README.md` for compact
 details and the module map.
