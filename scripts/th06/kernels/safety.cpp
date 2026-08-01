@@ -333,6 +333,7 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     float focusDiagonalSpeed,
     std::uint16_t inputMask,
     std::int32_t horizon,
+    std::uint16_t candidateMask,
     const std::uint32_t* bulletOffsets,
     const Aabb* bullets,
     const std::uint32_t* laserOffsets,
@@ -353,6 +354,11 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     const float currentDiagonal = currentFocus ? focusDiagonalSpeed : normalDiagonalSpeed;
 
     for (std::int32_t actionIndex = 0; actionIndex < 9; ++actionIndex) {
+        if ((candidateMask & (1U << actionIndex)) == 0U) {
+            output[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
+            ageZeroOutput[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
+            continue;
+        }
         SafeResult result{1, 999.0F, playerX, playerY};
         SafeResult ageZeroResult{0, 0.0F, playerX, playerY};
         Direction transitions[4];

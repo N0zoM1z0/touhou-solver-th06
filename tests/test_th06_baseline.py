@@ -716,6 +716,41 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
 
+    def test_extreme_density_demotes_an_expiring_held_action(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        close = (
+            SafeAction(
+                hard[0].action,
+                2.0,
+                hard[0].final_x,
+                hard[0].final_y,
+            ),
+        ) + hard[1:-1]
+        held = action_from_input(state.input_mask)
+        self.assertEqual(close[0].action, held)
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (close, close)
+        kernel.certify_selected.return_value = ()
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.safe_actions, close)
+        self.assertNotEqual(decision.action, held)
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        kernel.certify_selected.assert_called_once_with(
+            state,
+            6,
+            (held,),
+            collision_margin=0.35,
+        )
+        kernel.certify.assert_not_called()
+
     def test_extreme_density_retains_effort_when_hard_set_is_constrained(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
@@ -970,6 +1005,32 @@ class BaselineTests(unittest.TestCase):
         allowed = tuple(candidate for candidate in certify_actions(state, 8) if candidate.action.name in ("stay", "right"))
         chosen = ProposalRanker().choose(state, allowed)
         self.assertIn(chosen, allowed)
+
+    def test_ranker_demotes_but_does_not_remove_a_discouraged_action(self):
+        state = snapshot()
+        allowed = tuple(
+            candidate for candidate in certify_actions(state, 8)
+            if candidate.action.name in ("stay", "right")
+        )
+        stay = ACTION_BY_VECTOR[(0, 0)]
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset(candidate.action for candidate in allowed),
+            discouraged_actions=frozenset((stay,)),
+        )
+        only_stay = tuple(
+            candidate for candidate in allowed if candidate.action == stay
+        )
+        fallback = ProposalRanker().choose(
+            state,
+            only_stay,
+            discouraged_actions=frozenset((stay,)),
+        )
+
+        self.assertNotEqual(chosen.action, stay)
+        self.assertEqual(fallback.action, stay)
 
     def test_longer_rollout_ranks_but_does_not_authorize(self):
         state = snapshot(x=374.0, y=416.0)

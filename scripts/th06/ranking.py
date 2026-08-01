@@ -89,6 +89,7 @@ class ProposalRanker:
         durable_actions: frozenset[Action] = frozenset(),
         repairable_actions: frozenset[Action] = frozenset(),
         repair_span: int = 4,
+        discouraged_actions: frozenset[Action] = frozenset(),
     ) -> SafeAction:
         current = action_from_input(snapshot.input_mask)
         continued_repair: Action | None = self.repair_action
@@ -119,7 +120,10 @@ class ProposalRanker:
             and vertical_room <= snapshot.focus_speed + 0.25
         )
 
-        def score(candidate: SafeAction) -> tuple[bool, bool, bool, bool, bool, bool, int, bool, float, float, float, str]:
+        def score(candidate: SafeAction) -> tuple[
+            bool, bool, bool, bool, bool, bool, bool,
+            int, bool, float, float, float, str,
+        ]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
             boundary_egress = (
@@ -138,6 +142,7 @@ class ProposalRanker:
             # proposal signal, but it never adds to or removes from candidates.
             return (
                 urgent_egress,
+                candidate.action not in discouraged_actions,
                 candidate.action in durable_actions,
                 candidate.action == continued_repair,
                 candidate.action in repairable_actions,

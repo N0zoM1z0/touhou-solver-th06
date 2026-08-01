@@ -11,7 +11,15 @@ from .laser_effort import (
     isolate_lasers,
     retained_current_corridor,
 )
-from .model import ACTIONS, Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import (
+    ACTIONS,
+    Action,
+    Decision,
+    PLAYER_ALIVE,
+    PLAYER_INVULNERABLE,
+    Snapshot,
+    action_from_input,
+)
 from .ranking import (
     ProposalRanker,
     boundary_relief,
@@ -139,6 +147,7 @@ class Solver:
             )
         effort_horizon = adaptive_horizon(snapshot)
         age_zero_certified = ()
+        discouraged = frozenset()
         if (
             len(snapshot.bullets) >= 350
             and effort_horizon > HARD_SAFETY_HORIZON
@@ -182,6 +191,29 @@ class Solver:
             comfortable_authority = bool(certified) and min(
                 candidate.clearance for candidate in certified
             ) > snapshot.focus_speed * HARD_SAFETY_HORIZON + 0.35
+            if (
+                self.kernel is not None
+                and len(snapshot.bullets) >= 400
+                and broad_authority
+                and not comfortable_authority
+            ):
+                # Stage 4 f10151 still had eight Hard-4 actions, so the dense
+                # fast path correctly avoided a second full pass. Its held
+                # up-left action was the sole candidate already absent at h6,
+                # however, and continuity carried it into the f10155 empty
+                # set. Probe only that held action. This stays a soft ranking
+                # signal: the unchanged Hard-4 set remains authoritative, and
+                # a discouraged action remains selectable when it is alone.
+                current = action_from_input(snapshot.input_mask)
+                if any(candidate.action == current for candidate in certified):
+                    current_effort = self.kernel.certify_selected(
+                        snapshot,
+                        effort_horizon,
+                        (current,),
+                        collision_margin=0.35,
+                    )
+                    if not current_effort:
+                        discouraged = frozenset((current,))
             if (
                 len(certified) <= 3
                 or (
@@ -432,6 +464,7 @@ class Solver:
             durable,
             repairable,
             repair_span=HARD_SAFETY_HORIZON,
+            discouraged_actions=discouraged,
         )
         return Decision(
             chosen.action,

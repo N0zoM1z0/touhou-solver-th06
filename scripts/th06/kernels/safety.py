@@ -56,6 +56,7 @@ class NativeSafetyKernel:
             ctypes.c_float,
             ctypes.c_uint16,
             ctypes.c_int32,
+            ctypes.c_uint16,
             ctypes.POINTER(ctypes.c_uint32),
             ctypes.POINTER(_Aabb),
             ctypes.POINTER(ctypes.c_uint32),
@@ -146,6 +147,7 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
         prepared,
+        candidate_mask: int = (1 << len(ACTIONS)) - 1,
     ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         output = (_SafeResult * len(ACTIONS))()
@@ -161,6 +163,7 @@ class NativeSafetyKernel:
             snapshot.focus_diagonal_speed,
             snapshot.input_mask,
             horizon,
+            candidate_mask,
             bullet_offsets,
             bullets,
             laser_offsets,
@@ -189,6 +192,29 @@ class NativeSafetyKernel:
             horizon,
             collision_margin,
             self._prepare(snapshot, horizon),
+        )[0]
+
+    def certify_selected(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions,
+        collision_margin: float,
+    ) -> tuple[SafeAction, ...]:
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(ACTIONS)
+            if action in selected
+        )
+        if not candidate_mask:
+            return ()
+        return self._certify_prepared(
+            snapshot,
+            horizon,
+            collision_margin,
+            self._prepare(snapshot, horizon),
+            candidate_mask,
         )[0]
 
     def certify_delivery_sets(
