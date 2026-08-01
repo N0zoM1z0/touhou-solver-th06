@@ -1261,6 +1261,52 @@ class BaselineTests(unittest.TestCase):
             {candidate.action for candidate in hard},
         )
 
+    def test_solver_starts_corner_search_one_hard_segment_early(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(100)
+            ),
+            x=47.35,
+            y=392.46,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": (enemy_body(x=192.0, y=128.0),),
+        })
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        left = ACTION_BY_VECTOR[(-1, 0)]
+        up_left = ACTION_BY_VECTOR[(-1, -1)]
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        descending = tuple(
+            candidate for candidate in hard
+            if candidate.action in (down, left)
+        )
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            descending,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            down: 1,
+            left: 1,
+            up_left: 1,
+            down_left: 2,
+            down_right: 1,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, down_right)
+        self.assertEqual(len(decision.safe_actions), len(ACTIONS))
+        kernel.replanning_scores.assert_called_once()
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,

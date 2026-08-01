@@ -12,7 +12,12 @@ from .laser_effort import (
     retained_current_corridor,
 )
 from .model import ACTIONS, Action, Decision, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
-from .ranking import ProposalRanker, boundary_relief, heads_toward_single_wall
+from .ranking import (
+    ProposalRanker,
+    boundary_relief,
+    heads_toward_single_wall,
+    near_corner_within,
+)
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
 
@@ -271,6 +276,15 @@ class Solver:
             if refined_durable:
                 durable = refined_durable
         repairable = frozenset()
+        early_corner_trap = (
+            not snapshot.lasers
+            and near_corner_within(snapshot, 20)
+            and durable
+            and all(
+                boundary_relief(snapshot, action, 20) < 0
+                for action in durable
+            )
+        )
         if (
             durable
             and len(certified) == len(ACTIONS)
@@ -281,13 +295,7 @@ class Solver:
                     heads_toward_single_wall(snapshot, action)
                     for action in durable
                 )
-                or (
-                    not snapshot.lasers
-                    and all(
-                        boundary_relief(snapshot, action) < 0
-                        for action in durable
-                    )
-                )
+                or early_corner_trap
             )
         ):
             # Stage 4 f12461's sole constant h12 proposal descended into the
@@ -319,23 +327,39 @@ class Solver:
                     effort_horizon,
                 )
             )
-            wall_continuations = frozenset(
-                action
-                for action, score in wall_scores.items()
-                if score > 0
-                and not heads_toward_single_wall(snapshot, action)
-            )
-            best_wall_score = max(
-                (wall_scores.get(action, 0) for action in durable),
-                default=0,
-            )
-            if best_wall_score:
-                durable = frozenset(
-                    action
-                    for action in durable
-                    if wall_scores.get(action, 0) == best_wall_score
+            if early_corner_trap:
+                viable = frozenset(
+                    action for action, score in wall_scores.items() if score > 0
                 )
-            durable |= wall_continuations
+                best_relief = max(
+                    (
+                        boundary_relief(snapshot, action, 20)
+                        for action in viable
+                    ),
+                    default=0,
+                )
+                durable = frozenset(
+                    action for action in viable
+                    if boundary_relief(snapshot, action, 20) == best_relief
+                )
+            else:
+                wall_continuations = frozenset(
+                    action
+                    for action, score in wall_scores.items()
+                    if score > 0
+                    and not heads_toward_single_wall(snapshot, action)
+                )
+                best_wall_score = max(
+                    (wall_scores.get(action, 0) for action in durable),
+                    default=0,
+                )
+                if best_wall_score:
+                    durable = frozenset(
+                        action
+                        for action in durable
+                        if wall_scores.get(action, 0) == best_wall_score
+                    )
+                durable |= wall_continuations
         if not durable and effort_horizon >= 8:
             # Stage 4 entered a corner because the adaptive layer allocated 16
             # frames but the fallback repair proposal discarded everything

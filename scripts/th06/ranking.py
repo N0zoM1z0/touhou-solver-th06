@@ -45,9 +45,27 @@ def heads_toward_single_wall(snapshot: Snapshot, action: Action) -> bool:
     return action.dy < 0 if top_room <= bottom_room else action.dy > 0
 
 
-def boundary_relief(snapshot: Snapshot, action: Action) -> int:
+def near_corner_within(snapshot: Snapshot, lookahead_frames: int) -> bool:
+    """Whether both boundary axes enter a requested focused lookahead."""
+    lookahead = snapshot.focus_speed * lookahead_frames
+    horizontal_room = min(
+        snapshot.x - MOVEMENT_LEFT,
+        MOVEMENT_RIGHT - snapshot.x,
+    )
+    vertical_room = min(
+        snapshot.y - MOVEMENT_TOP,
+        MOVEMENT_BOTTOM - snapshot.y,
+    )
+    return horizontal_room <= lookahead and vertical_room <= lookahead
+
+
+def boundary_relief(
+    snapshot: Snapshot,
+    action: Action,
+    lookahead_frames: int = 16,
+) -> int:
     """Positive movement room across every boundary in soft lookahead."""
-    lookahead = snapshot.focus_speed * 16.0
+    lookahead = snapshot.focus_speed * lookahead_frames
     relief = 0
     if snapshot.x - MOVEMENT_LEFT <= lookahead:
         relief += action.dx
