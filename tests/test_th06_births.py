@@ -407,6 +407,60 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual([len(items) for items in hard.births], [0, 1])
         self.assertEqual(hard.births[1][0].half_width, 4.0)
 
+    def test_hard_world_propagates_rng_interval_into_bullet_speed(self):
+        random_speed = self.instruction(
+            0x1000,
+            0,
+            8,
+            struct.pack("<if", -10005, 1.0),
+            0x14,
+        )
+        add_minimum = self.instruction(
+            0x1014,
+            0,
+            20,
+            struct.pack("<iff", -10005, -10005.0, 1.0),
+            0x18,
+        )
+        bullet = self.instruction(
+            0x102C,
+            0,
+            67,
+            struct.pack(
+                "<hhii ffff I",
+                0,
+                0,
+                1,
+                1,
+                -10005.0,
+                0.0,
+                0.0,
+                0.0,
+                4,
+            ),
+            0x30,
+        )
+        sentinel = EclInstruction(
+            0x105C, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=random_speed,
+            ecl_program=(random_speed, add_minimum, bullet, sentinel),
+        )
+        hard = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+        self.assertEqual(hard.covered_frames, 1)
+        self.assertEqual(len(hard.births[0]), 1)
+        self.assertEqual(hard.births[0][0].speed, 1.5)
+
     def test_world_retains_accelerating_emitter_motion_between_frames(self):
         sentinel = EclInstruction(
             0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex()

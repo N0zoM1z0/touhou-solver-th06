@@ -68,6 +68,26 @@ class EclForecast:
     next_spawner: EnemySpawner | None = None
 
 
+@dataclass(frozen=True)
+class FloatInterval:
+    low: float
+    high: float
+
+
+def _float_add(left: float | FloatInterval, right: float | FloatInterval) -> float | FloatInterval:
+    if isinstance(left, FloatInterval) or isinstance(right, FloatInterval):
+        left_low, left_high = (left.low, left.high) if isinstance(left, FloatInterval) else (left, left)
+        right_low, right_high = (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
+        return FloatInterval(left_low + right_low, left_high + right_high)
+    return left + right
+
+
+def _maximum_magnitude(value: float | FloatInterval) -> float:
+    if isinstance(value, FloatInterval):
+        return max(abs(value.low), abs(value.high))
+    return abs(value)
+
+
 def _trunc_div(numerator: int, denominator: int) -> int:
     return int(numerator / denominator)
 
@@ -97,13 +117,13 @@ def _int_var(value: int, integers: list[int], difficulty: int, rank: int, life: 
 def _float_var(
     raw: bytes,
     integers: list[int],
-    floats: list[float],
+    floats: list[float | FloatInterval],
     difficulty: int,
     rank: int,
     life: int,
     enemy: tuple[float, float],
     player: tuple[float, float] | None,
-) -> float:
+) -> float | FloatInterval:
     literal = struct.unpack("<f", raw)[0]
     value = int(literal) if math.isfinite(literal) else 0
     if -10008 <= value <= -10005:
@@ -122,9 +142,7 @@ def _float_var(
         return player[1]
     if value == -10021:
         if player is None:
-            # Hard radial birth envelopes deliberately erase angle. NaN is a
-            # taint value: only a bullet-angle consumer may absorb it.
-            return math.nan
+            return FloatInterval(-math.pi, math.pi)
         return math.atan2(player[1] - enemy[1], player[0] - enemy[0])
     if value == -10023:
         if player is None:
@@ -146,7 +164,11 @@ def _set_int_var(identifier: int, value: int, integers: list[int]) -> bool:
     return False
 
 
-def _set_float_var(identifier: int, value: float, floats: list[float]) -> bool:
+def _set_float_var(
+    identifier: int,
+    value: float | FloatInterval,
+    floats: list[float | FloatInterval],
+) -> bool:
     if -10008 <= identifier <= -10005:
         floats[-10005 - identifier] = value
         return True
@@ -158,7 +180,7 @@ def _resolved_pattern(
     spawner: EnemySpawner,
     current: BulletPattern | None,
     integers: list[int],
-    floats: list[float],
+    floats: list[float | FloatInterval],
     difficulty: int,
     rank: int,
     life: int,
@@ -198,21 +220,32 @@ def _resolved_pattern(
     speed2_value = _float_var(
         raw[0x1C:0x20], integers, floats, difficulty, rank, life, enemy, player
     )
-    if not math.isfinite(speed1) or not math.isfinite(speed2_value):
-        raise UnsupportedBirthModel("future player dependency reaches bullet speed")
-    if speed1 != 0.0:
-        speed1 = max(0.3, speed1 + speed_rank)
-    speed2 = max(0.3, speed2_value + speed_rank / 2.0)
+    if isinstance(speed1, FloatInterval) or isinstance(speed2_value, FloatInterval):
+        if not radial_births:
+            raise UnsupportedBirthModel("uncertain bullet speed needs a hard envelope")
+        speed1 = max(0.3, _maximum_magnitude(_float_add(speed1, speed_rank)))
+        speed2 = max(
+            0.3,
+            _maximum_magnitude(_float_add(speed2_value, speed_rank / 2.0)),
+        )
+    else:
+        if not math.isfinite(speed1) or not math.isfinite(speed2_value):
+            raise UnsupportedBirthModel("non-finite bullet speed")
+        if speed1 != 0.0:
+            speed1 = max(0.3, speed1 + speed_rank)
+        speed2 = max(0.3, speed2_value + speed_rank / 2.0)
     angle1 = _float_var(
         raw[0x20:0x24], integers, floats, difficulty, rank, life, enemy, player
     )
     angle2 = _float_var(
         raw[0x24:0x28], integers, floats, difficulty, rank, life, enemy, player
     )
-    if not math.isfinite(angle1) or not math.isfinite(angle2):
+    if isinstance(angle1, FloatInterval) or isinstance(angle2, FloatInterval):
         if not radial_births:
-            raise UnsupportedBirthModel("future player dependency reaches bullet angle")
+            raise UnsupportedBirthModel("uncertain bullet angle needs a hard envelope")
         angle1 = angle2 = 0.0
+    elif not math.isfinite(angle1) or not math.isfinite(angle2):
+        raise UnsupportedBirthModel("non-finite bullet angle")
     angle1 = math.remainder(angle1, math.tau)
     flags = struct.unpack_from("<I", raw, 0x28)[0]
     return BulletPattern(
@@ -406,7 +439,20 @@ def forecast_ecl_births(
                                 frame_index,
                                 "ECL random variable requires RNG state",
                             )
-                        value = math.nan
+                        if isinstance(extent, FloatInterval):
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "nested random-float interval is unsupported",
+                            )
+                        value: float | FloatInterval = FloatInterval(
+                            min(0.0, extent), max(0.0, extent)
+                        )
+                        if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
+                            value = _float_add(value, _float_var(
+                                raw[0x14:0x18], integers, floats, difficulty, rank,
+                                spawner.life, enemy, variable_player,
+                            ))
                     else:
                         value = rng.f32_in_range(extent)
                         if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
@@ -469,7 +515,7 @@ def forecast_ecl_births(
                     raw[0x14:0x18], integers, floats, difficulty, rank,
                     spawner.life, enemy, variable_player,
                 )
-                if not _set_float_var(target, lhs + rhs, floats):
+                if not _set_float_var(target, _float_add(lhs, rhs), floats):
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported float-add target"
                     )
@@ -487,11 +533,15 @@ def forecast_ecl_births(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         spawner.life, enemy, variable_player,
                     )
-                    if not math.isfinite(lhs) or not math.isfinite(rhs):
+                    if isinstance(lhs, FloatInterval) or isinstance(rhs, FloatInterval):
                         return EclForecast(
                             tuple(map(tuple, births)),
                             frame_index,
-                            "future player dependency reaches ECL comparison",
+                            "float interval reaches ECL comparison",
+                        )
+                    if not math.isfinite(lhs) or not math.isfinite(rhs):
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "non-finite ECL comparison"
                         )
                 compare_register = 0 if lhs == rhs else -1 if lhs < rhs else 1
             elif OPCODE_JUMP_LESS <= instruction.opcode <= OPCODE_JUMP_NOT_EQUAL:
@@ -542,7 +592,7 @@ def forecast_ecl_births(
                         spawner.life, enemy, variable_player,
                     )
                     movement_mode = 1
-                    if not math.isfinite(angle) and radial_births:
+                    if isinstance(angle, FloatInterval) and radial_births:
                         angle = 0.0
                         uncertain_heading = True
                     else:
@@ -597,6 +647,49 @@ def forecast_ecl_births(
                         spawner.life, enemy, variable_player,
                     )
                     movement_mode = 1
+                if isinstance(enemy_x, FloatInterval) or isinstance(enemy_y, FloatInterval):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "position interval needs clamp bounds"
+                    )
+                if isinstance(velocity_x, FloatInterval) or isinstance(velocity_y, FloatInterval):
+                    if not radial_births:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "uncertain axis velocity"
+                        )
+                    velocity_uncertainty = math.hypot(
+                        _maximum_magnitude(velocity_x),
+                        _maximum_magnitude(velocity_y),
+                    )
+                    velocity_x = velocity_y = 0.0
+                    uncertain_heading = True
+                if isinstance(angle, FloatInterval):
+                    if not radial_births:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "uncertain movement angle"
+                        )
+                    angle = 0.0
+                    uncertain_heading = True
+                if isinstance(speed, FloatInterval):
+                    if not radial_births:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "uncertain movement speed"
+                        )
+                    speed = _maximum_magnitude(speed)
+                    uncertain_heading = True
+                if isinstance(angular_velocity, FloatInterval):
+                    if not radial_births:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "uncertain angular velocity"
+                        )
+                    angular_velocity = _maximum_magnitude(angular_velocity)
+                    uncertain_heading = True
+                if isinstance(acceleration, FloatInterval):
+                    if not radial_births:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "uncertain acceleration"
+                        )
+                    acceleration = _maximum_magnitude(acceleration)
+                    uncertain_heading = True
                 if not all(math.isfinite(value) for value in (
                     enemy_x,
                     enemy_y,
