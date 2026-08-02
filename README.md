@@ -319,3 +319,31 @@ maximum was 25.53 ms. Overall solve time was 1.92 ms median, 14.30 ms p99, and
 27.20 ms maximum; hazardous decision gaps and command issue ages were at most
 three and two frames respectively. Per the one-time iteration order, Practice
 Stage 4 is next, followed by a full route from Stage 1.
+
+## Complete Practice Stage 4 checkpoint (2026-08-02)
+
+Stage 4 was developed by stopping on each first physical authority loss. The
+counterexamples separated dense-scan publication latency, source-normal-speed
+laser corridors, pickup slack across a fast/focused transition, and several
+bottom-boundary proposal errors. Each change remained in the soft effort or
+ranking layer: the four-frame hard-safe set and the Bomb prohibition did not
+change.
+
+The final two failures exposed the same general timing mismatch at different
+distances. At f16163 a 12-frame proposal still considered a tangent path
+durable after the 20-frame boundary warning had begun; the bounded moderate-
+density boundary effort now uses the same 20-frame view. At f16924 the player
+had not entered that warning yet, but a narrowed h12 corridor would enter it
+within the proposal window. Reusing the already prepared hazards for a
+two-segment score preferred down-right with five continuations over down with
+four. This extra native ranking pass cost 1.48 ms median on the saved witness
+and never adds an action to Hard-4.
+
+The integrated Hard/Reimu-A Practice Stage 4 run reached its source-defined
+result path at frame 24520 after 23,674 sampled states, with no HIT, authority
+stop, or Bomb input. It covered up to 637 bullets, 8 simultaneous lasers, 8
+lethal enemy bodies, and 316 despawning bullets. Solve time was 3.78 ms median,
+17.33 ms p99, and 71.36 ms maximum. The stale-publication guard retried 130
+decisions; observed command issue age stayed at most two frames, although one
+hazardous decision age reached five frames. That timing tail remains an
+explicit gap. The next required check is a fresh full Hard route from Stage 1.

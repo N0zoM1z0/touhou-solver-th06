@@ -45,25 +45,29 @@ This separation is the idea; the algorithms are intentionally not fixed.
   615 bullets and 19 lethal enemy bodies. Source-exact timed direction-change
   bullets, delivery-aware soft effort, and a hard-set-only two-segment proposal
   were each added only after separate physical counterexamples.
+- Hard Practice Stage 4 now reaches its source-defined result path too. The
+  successful run sampled 23,674 states through frame 24520 with no HIT,
+  authority stop, or Bomb, covering up to 637 bullets, 8 lasers, and 8 lethal
+  enemy bodies. Its physically found fixes remain narrow soft-ranking and
+  delivery changes; Hard-4 eligibility is unchanged.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
-beyond the observed two-frame pickup bound, and physical coverage of later stages.
+beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.
 Stage 3 also observed rare three-frame hazardous decision and snapshot-to-issue
 ages, so the four-frame authority is not yet a complete delivery guarantee.
 Actual replay file creation also still needs a non-Practice result. This is a
-Stage 3 checkpoint, not proof of a route clear. See `README.md` for compact
+Stage 4 checkpoint, not proof of a route clear. See `README.md` for compact
 details and the module map.
 Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
 counterexample appears; do not recreate the TH08 architecture from it.
 
 ## How to continue
 
-Per the current one-time ordering decision, use Practice Stage 4 next and treat
-its first hit or successful result as the main evidence. After Stage 4 passes,
-run a fresh full Hard route from Stage 1. Explain one concrete failure from
-native state and source, make one small change, run the focused check, then test
-it physically. Timing, future emissions, lasers, ranking, or another mechanism
-may be next; choose from evidence rather than this document.
+Practice Stage 4 has passed. Per the one-time ordering decision, run a fresh
+full Hard route from Stage 1 now and stop on its first HIT/authority CE or its
+source-defined result path. Explain one concrete failure from native state and
+source, make one small change, run the focused check, then test it physically.
+Use Practice for the newly unresolved stage after the full route identifies it.
 
 ```bat
 run_th06_baseline.bat --seconds 120
