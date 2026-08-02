@@ -33,6 +33,9 @@ OPCODE_SET_INT_RANDOM = 6
 OPCODE_SET_INT_RANDOM_MIN = 7
 OPCODE_SET_FLOAT_RANDOM = 8
 OPCODE_SET_FLOAT_RANDOM_MIN = 9
+OPCODE_SET_SELF_X = 10
+OPCODE_SET_SELF_Y = 11
+OPCODE_SET_SELF_Z = 12
 OPCODE_MATH_INT_ADD = 13
 OPCODE_MATH_INT_SUBTRACT = 14
 OPCODE_MATH_INT_MULTIPLY = 15
@@ -42,6 +45,11 @@ OPCODE_MATH_INCREMENT = 18
 OPCODE_MATH_DECREMENT = 19
 OPCODE_MATH_FLOAT_ADD = 20
 OPCODE_MATH_FLOAT_SUBTRACT = 21
+OPCODE_MATH_FLOAT_MULTIPLY = 22
+OPCODE_MATH_FLOAT_DIVIDE = 23
+OPCODE_MATH_FLOAT_MODULO = 24
+OPCODE_MATH_ATAN2 = 25
+OPCODE_MATH_NORMALIZE_ANGLE = 26
 OPCODE_COMPARE_INT = 27
 OPCODE_COMPARE_FLOAT = 28
 OPCODE_JUMP_LESS = 29
@@ -62,7 +70,12 @@ OPCODE_MOVE_POSITION = 43
 OPCODE_MOVE_AT_PLAYER = 51
 OPCODE_MOVE_RANDOM = 49
 OPCODE_MOVE_RANDOM_IN_BOUNDS = 50
-OPCODE_MOVE_BOUNDS_DISABLE = 65
+OPCODE_MOVE_DIR_TIME_FIRST = 52
+OPCODE_MOVE_POSITION_TIME_FIRST = 56
+OPCODE_MOVE_TIME_FIRST = 61
+OPCODE_MOVE_TIME_LAST = 64
+OPCODE_MOVE_BOUNDS_SET = 65
+OPCODE_MOVE_BOUNDS_DISABLE = 66
 OPCODE_BULLET_FIRST = 67
 OPCODE_BULLET_LAST = 75
 OPCODE_SHOOT_INTERVAL = 76
@@ -72,16 +85,130 @@ OPCODE_SHOOT_ENABLED = 79
 OPCODE_SHOOT_NOW = 80
 OPCODE_SHOOT_OFFSET = 81
 OPCODE_BULLET_EFFECTS = 82
+OPCODE_BULLET_CANCEL = 83
 OPCODE_BULLET_SOUND = 84
+OPCODE_LASER_CREATE = 85
+OPCODE_LASER_CREATE_AIMED = 86
+OPCODE_LASER_INDEX = 87
+OPCODE_LASER_ROTATE = 88
+OPCODE_LASER_ROTATE_FROM_PLAYER = 89
+OPCODE_LASER_OFFSET = 90
+OPCODE_LASER_TEST = 91
+OPCODE_LASER_CANCEL = 92
+OPCODE_SPELL_START = 93
+OPCODE_SPELL_END = 94
+OPCODE_ENEMY_CREATE = 95
+OPCODE_ENEMY_KILL_ALL = 96
 OPCODE_ANIMATION_MAIN = 97
+OPCODE_ANIMATION_POSES = 98
 OPCODE_ANIMATION_SLOT = 99
+OPCODE_ANIMATION_DEATH = 100
+OPCODE_BOSS_SET = 101
 OPCODE_SPELL_EFFECT = 102
+OPCODE_HITBOX_SET = 103
 OPCODE_COLLIDABLE_FLAG = 104
 OPCODE_DAMAGEABLE_FLAG = 105
 OPCODE_EFFECT_SOUND = 106
+OPCODE_DEATH_FLAG = 107
+OPCODE_DEATH_CALLBACK = 108
+OPCODE_INTERRUPT_SET = 109
+OPCODE_INTERRUPT = 110
+OPCODE_LIFE_SET = 111
+OPCODE_BOSS_TIMER_SET = 112
+OPCODE_LIFE_CALLBACK_THRESHOLD = 113
+OPCODE_LIFE_CALLBACK_SUB = 114
+OPCODE_TIMER_CALLBACK_THRESHOLD = 115
+OPCODE_TIMER_CALLBACK_SUB = 116
 OPCODE_EFFECT_PARTICLE = 118
 OPCODE_INTERACTABLE_FLAG = 117
+OPCODE_DROP_ITEMS = 119
 OPCODE_ANIMATION_ROTATION = 120
+OPCODE_EX_CALL = 121
+OPCODE_EX_REPEAT = 122
+OPCODE_TIME_SET = 123
+OPCODE_DROP_ITEM_ID = 124
+OPCODE_STAGE_UNPAUSE = 125
+OPCODE_BOSS_LIFE_COUNT = 126
+OPCODE_DEBUG_WATCH = 127
+OPCODE_ANIMATION_INTERRUPT_MAIN = 128
+OPCODE_ANIMATION_INTERRUPT_SLOT = 129
+OPCODE_CALL_STACK_DISABLED = 130
+OPCODE_BULLET_RANK_INFLUENCE = 131
+OPCODE_INVISIBLE_FLAG = 132
+OPCODE_BOSS_TIMER_CLEAR = 133
+OPCODE_LASER_CLEAR_ALL = 134
+OPCODE_SPELL_TIMEOUT_FLAG = 135
+ECL_OPCODE_COUNT = 136
+
+# Every source opcode has one deliberate authority classification.  The
+# interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
+# instructions may be ignored because they only change presentation, scoring,
+# drops, or remove an already modelled hazard.  The remaining instructions
+# stop coverage with a source-specific reason; none silently become safe.
+HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
+    OPCODE_BULLET_CANCEL,
+    OPCODE_BULLET_SOUND,
+    OPCODE_SPELL_END,
+    OPCODE_ANIMATION_MAIN,
+    OPCODE_ANIMATION_POSES,
+    OPCODE_ANIMATION_SLOT,
+    OPCODE_ANIMATION_DEATH,
+    OPCODE_BOSS_SET,
+    OPCODE_SPELL_EFFECT,
+    OPCODE_DAMAGEABLE_FLAG,
+    OPCODE_EFFECT_SOUND,
+    OPCODE_DEATH_FLAG,
+    OPCODE_DEATH_CALLBACK,
+    OPCODE_INTERRUPT_SET,
+    OPCODE_EFFECT_PARTICLE,
+    OPCODE_ANIMATION_ROTATION,
+    OPCODE_DROP_ITEM_ID,
+    OPCODE_STAGE_UNPAUSE,
+    OPCODE_BOSS_LIFE_COUNT,
+    OPCODE_DEBUG_WATCH,
+    OPCODE_ANIMATION_INTERRUPT_MAIN,
+    OPCODE_ANIMATION_INTERRUPT_SLOT,
+    OPCODE_LASER_CLEAR_ALL,
+    OPCODE_SPELL_TIMEOUT_FLAG,
+})
+
+FAIL_CLOSED_ECL_OPCODES = {
+    OPCODE_SET_SELF_Z: "SETVARSELFZ needs the uncaptured source z coordinate",
+    OPCODE_LASER_CREATE: "future ECL laser creation is not yet represented",
+    OPCODE_LASER_CREATE_AIMED: "future aimed ECL laser creation is not yet represented",
+    OPCODE_LASER_INDEX: "future ECL laser store state is not captured",
+    OPCODE_LASER_ROTATE: "future ECL laser mutation is not represented",
+    OPCODE_LASER_ROTATE_FROM_PLAYER: "future aimed ECL laser mutation is not represented",
+    OPCODE_LASER_OFFSET: "future ECL laser mutation is not represented",
+    OPCODE_LASER_TEST: "future ECL laser liveness is not captured",
+    OPCODE_LASER_CANCEL: "future ECL laser state mutation is not represented",
+    OPCODE_ENEMY_CREATE: "future ECL enemy creation needs a world-emitter insertion",
+    OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
+    OPCODE_INTERRUPT: "ECL interrupt table is not captured",
+    OPCODE_BOSS_TIMER_SET: "boss timer callback state is not captured",
+    OPCODE_LIFE_CALLBACK_THRESHOLD: "life callback state is not captured",
+    OPCODE_LIFE_CALLBACK_SUB: "life callback state is not captured",
+    OPCODE_TIMER_CALLBACK_THRESHOLD: "timer callback state is not captured",
+    OPCODE_TIMER_CALLBACK_SUB: "timer callback state is not captured",
+    OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
+    OPCODE_BOSS_TIMER_CLEAR: "boss timer callback state is not captured",
+}
+
+MODELLED_ECL_OPCODES = frozenset(
+    {OPCODE_NOP, 1, *range(OPCODE_JUMP, OPCODE_SET_SELF_Z),
+     *range(OPCODE_MATH_INT_ADD, OPCODE_MOVE_BOUNDS_DISABLE + 1),
+     *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
+     OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
+     OPCODE_LIFE_SET, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
+     OPCODE_EX_REPEAT, OPCODE_TIME_SET, OPCODE_CALL_STACK_DISABLED,
+     OPCODE_BULLET_RANK_INFLUENCE, OPCODE_INVISIBLE_FLAG}
+)
+
+assert (
+    MODELLED_ECL_OPCODES
+    | HAZARD_NEUTRAL_ECL_OPCODES
+    | FAIL_CLOSED_ECL_OPCODES.keys()
+) == frozenset(range(ECL_OPCODE_COUNT))
 
 
 @dataclass(frozen=True)
@@ -91,6 +218,7 @@ class EclForecast:
     reason: str = ""
     next_spawner: EnemySpawner | None = None
     body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
+    finished: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,6 +244,44 @@ def _float_subtract(
         right_low, right_high = (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
         return FloatInterval(left_low - right_high, left_high - right_low)
     return left - right
+
+
+def _float_multiply(
+    left: float | FloatInterval,
+    right: float | FloatInterval,
+) -> float | FloatInterval:
+    if isinstance(left, FloatInterval) or isinstance(right, FloatInterval):
+        left_low, left_high = (
+            (left.low, left.high) if isinstance(left, FloatInterval) else (left, left)
+        )
+        right_low, right_high = (
+            (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
+        )
+        products = (
+            left_low * right_low,
+            left_low * right_high,
+            left_high * right_low,
+            left_high * right_high,
+        )
+        return FloatInterval(min(products), max(products))
+    return left * right
+
+
+def _float_divide(
+    left: float | FloatInterval,
+    right: float | FloatInterval,
+) -> float | FloatInterval:
+    if not isinstance(left, FloatInterval) and not isinstance(right, FloatInterval):
+        if right == 0.0:
+            raise UnsupportedBirthModel("ECL float division by zero")
+        return left / right
+    right_low, right_high = (
+        (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
+    )
+    if right_low <= 0.0 <= right_high:
+        raise UnsupportedBirthModel("ECL float division interval contains zero")
+    reciprocal = FloatInterval(1.0 / right_high, 1.0 / right_low)
+    return _float_multiply(left, reciprocal)
 
 
 def _maximum_magnitude(value: float | FloatInterval) -> float:
@@ -334,6 +500,16 @@ def forecast_ecl_births(
     interactable = spawner.interactable
     collidable = spawner.collidable
     invisible = spawner.invisible
+    hitbox_half_width = spawner.hitbox_half_width
+    hitbox_half_height = spawner.hitbox_half_height
+    call_stack_disabled = spawner.call_stack_disabled
+    life = spawner.life
+    rank_speed_low = spawner.bullet_rank_speed_low
+    rank_speed_high = spawner.bullet_rank_speed_high
+    rank_amount1_low = spawner.bullet_rank_amount1_low
+    rank_amount1_high = spawner.bullet_rank_amount1_high
+    rank_amount2_low = spawner.bullet_rank_amount2_low
+    rank_amount2_high = spawner.bullet_rank_amount2_high
     pattern = spawner.pattern
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
@@ -350,8 +526,19 @@ def forecast_ecl_births(
     speed = spawner.speed
     acceleration = spawner.acceleration
     movement_mode = spawner.movement_mode
+    movement_ease = spawner.movement_ease
+    move_interp_x = spawner.move_interp_x
+    move_interp_y = spawner.move_interp_y
+    move_start_x = spawner.move_start_x
+    move_start_y = spawner.move_start_y
     move_timer = spawner.move_timer
     move_timer_float = spawner.move_timer_float
+    move_start_time = spawner.move_start_time
+    lower_move_x = spawner.lower_move_x
+    lower_move_y = spawner.lower_move_y
+    upper_move_x = spawner.upper_move_x
+    upper_move_y = spawner.upper_move_y
+    should_clamp_position = spawner.should_clamp_position
     position_uncertainty = 0.0
     velocity_uncertainty = 0.0
     uncertain_heading = False
@@ -398,6 +585,14 @@ def forecast_ecl_births(
             )
         return spawn_pattern(resolved, (origin_x, origin_y), player, rng)
 
+    def clamp_position(x: float, y: float) -> tuple[float, float]:
+        if not should_clamp_position:
+            return x, y
+        return (
+            min(max(x, lower_move_x), upper_move_x),
+            min(max(y, lower_move_y), upper_move_y),
+        )
+
     for frame_index, player in enumerate(player_positions):
         variable_player = player if allow_player_variables else None
         if velocity_uncertainty > 0.0:
@@ -417,7 +612,7 @@ def forecast_ecl_births(
                 move_timer=move_timer,
                 move_timer_float=move_timer_float,
             ))
-            enemy_x, enemy_y = positioned.x, positioned.y
+            enemy_x, enemy_y = clamp_position(positioned.x, positioned.y)
         enemy = (enemy_x, enemy_y)
         stop_after_frame = ""
         for _instruction_count in range(256):
@@ -434,11 +629,21 @@ def forecast_ecl_births(
             if not execute or instruction.opcode == OPCODE_NOP:
                 instruction_address = next_address
                 continue
+            if instruction.opcode == 1:
+                # RunEcl returns ZUN_ERROR; EnemyManager immediately despawns
+                # this emitter before body collision or its periodic shot.
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    horizon,
+                    "source UNIMP despawns emitter",
+                    body_hazards=tuple(tuple(frame) for frame in body_hazards),
+                    finished=True,
+                )
             if instruction.opcode in (OPCODE_JUMP, OPCODE_JUMPDEC):
                 jump_time, jump_offset, variable = struct.unpack_from("<iii", raw, 0x0C)
                 take_jump = True
                 if instruction.opcode == OPCODE_JUMPDEC:
-                    value = _int_var(variable, integers, difficulty, rank, spawner.life) - 1
+                    value = _int_var(variable, integers, difficulty, rank, life) - 1
                     if not _set_int_var(variable, value, integers):
                         return EclForecast(
                             tuple(map(tuple, births)), frame_index, "unsupported JUMPDEC variable"
@@ -452,7 +657,7 @@ def forecast_ecl_births(
                 continue
             if instruction.opcode == OPCODE_SET_INT:
                 result, argument = struct.unpack_from("<ii", raw, 0x0C)
-                value = _int_var(argument, integers, difficulty, rank, spawner.life)
+                value = _int_var(argument, integers, difficulty, rank, life)
                 if not _set_int_var(result, value, integers):
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported SETINT target"
@@ -461,12 +666,25 @@ def forecast_ecl_births(
                 result = struct.unpack_from("<i", raw, 0x0C)[0]
                 value = _float_var(
                     raw[0x10:0x14], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
                 if not _set_float_var(result, value, floats):
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported SETFLOAT target"
                     )
+            elif instruction.opcode in (OPCODE_SET_SELF_X, OPCODE_SET_SELF_Y):
+                target = struct.unpack_from("<i", raw, 0x0C)[0]
+                value = enemy_x if instruction.opcode == OPCODE_SET_SELF_X else enemy_y
+                if not _set_float_var(target, value, floats):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "unsupported SETVARSELF target"
+                    )
+            elif instruction.opcode == OPCODE_SET_SELF_Z:
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    frame_index,
+                    "SETVARSELFZ needs the uncaptured source z coordinate",
+                )
             elif instruction.opcode in (
                 OPCODE_SET_INT_RANDOM,
                 OPCODE_SET_INT_RANDOM_MIN,
@@ -486,13 +704,13 @@ def forecast_ecl_births(
                         )
                     extent_raw = struct.unpack_from("<i", raw, 0x10)[0]
                     extent = _int_var(
-                        extent_raw, integers, difficulty, rank, spawner.life
+                        extent_raw, integers, difficulty, rank, life
                     )
                     value = rng.u32_in_range(extent)
                     if instruction.opcode == OPCODE_SET_INT_RANDOM_MIN:
                         minimum_raw = struct.unpack_from("<i", raw, 0x14)[0]
                         value += _int_var(
-                            minimum_raw, integers, difficulty, rank, spawner.life
+                            minimum_raw, integers, difficulty, rank, life
                         )
                     if not _set_int_var(result, value, integers):
                         return EclForecast(
@@ -501,7 +719,7 @@ def forecast_ecl_births(
                 else:
                     extent = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     if rng is None:
                         if not abstract_rng:
@@ -522,14 +740,14 @@ def forecast_ecl_births(
                         if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
                             value = _float_add(value, _float_var(
                                 raw[0x14:0x18], integers, floats, difficulty, rank,
-                                spawner.life, enemy, variable_player,
+                                life, enemy, variable_player,
                             ))
                     else:
                         value = rng.f32_in_range(extent)
                         if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
                             value += _float_var(
                                 raw[0x14:0x18], integers, floats, difficulty, rank,
-                                spawner.life, enemy, variable_player,
+                                life, enemy, variable_player,
                             )
                     if not _set_float_var(result, value, floats):
                         return EclForecast(
@@ -543,8 +761,8 @@ def forecast_ecl_births(
                 OPCODE_MATH_INT_MODULO,
             ):
                 target, lhs_raw, rhs_raw = struct.unpack_from("<iii", raw, 0x0C)
-                lhs = _int_var(lhs_raw, integers, difficulty, rank, spawner.life)
-                rhs = _int_var(rhs_raw, integers, difficulty, rank, spawner.life)
+                lhs = _int_var(lhs_raw, integers, difficulty, rank, life)
+                rhs = _int_var(rhs_raw, integers, difficulty, rank, life)
                 if instruction.opcode == OPCODE_MATH_INT_ADD:
                     value = lhs + rhs
                 elif instruction.opcode == OPCODE_MATH_INT_SUBTRACT:
@@ -569,48 +787,99 @@ def forecast_ecl_births(
             ):
                 target = struct.unpack_from("<i", raw, 0x0C)[0]
                 value = _int_var(
-                    target, integers, difficulty, rank, spawner.life
+                    target, integers, difficulty, rank, life
                 )
                 value += 1 if instruction.opcode == OPCODE_MATH_INCREMENT else -1
                 if not _set_int_var(target, value, integers):
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported increment target"
                     )
-            elif instruction.opcode in (
-                OPCODE_MATH_FLOAT_ADD,
-                OPCODE_MATH_FLOAT_SUBTRACT,
-            ):
+            elif OPCODE_MATH_FLOAT_ADD <= instruction.opcode <= OPCODE_MATH_ATAN2:
                 target = struct.unpack_from("<i", raw, 0x0C)[0]
                 lhs = _float_var(
                     raw[0x10:0x14], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
                 rhs = _float_var(
                     raw[0x14:0x18], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
-                value = (
-                    _float_add(lhs, rhs)
-                    if instruction.opcode == OPCODE_MATH_FLOAT_ADD
-                    else _float_subtract(lhs, rhs)
-                )
+                if instruction.opcode == OPCODE_MATH_FLOAT_ADD:
+                    value = _float_add(lhs, rhs)
+                elif instruction.opcode == OPCODE_MATH_FLOAT_SUBTRACT:
+                    value = _float_subtract(lhs, rhs)
+                elif instruction.opcode == OPCODE_MATH_FLOAT_MULTIPLY:
+                    value = _float_multiply(lhs, rhs)
+                elif instruction.opcode == OPCODE_MATH_FLOAT_DIVIDE:
+                    try:
+                        value = _float_divide(lhs, rhs)
+                    except UnsupportedBirthModel as error:
+                        return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
+                elif instruction.opcode == OPCODE_MATH_FLOAT_MODULO:
+                    if isinstance(lhs, FloatInterval) or isinstance(rhs, FloatInterval):
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "float interval reaches ECL modulo",
+                        )
+                    if rhs == 0.0:
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index, "ECL float modulo by zero"
+                        )
+                    value = math.fmod(lhs, rhs)
+                else:
+                    third = _float_var(
+                        raw[0x18:0x1C], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    fourth = _float_var(
+                        raw[0x1C:0x20], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    if any(isinstance(item, FloatInterval) for item in (
+                        lhs, rhs, third, fourth
+                    )):
+                        if not radial_births:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "float interval reaches ECL atan2",
+                            )
+                        value = FloatInterval(-math.pi, math.pi)
+                    else:
+                        value = math.atan2(fourth - rhs, third - lhs)
                 if not _set_float_var(target, value, floats):
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported float-math target"
                     )
+            elif instruction.opcode == OPCODE_MATH_NORMALIZE_ANGLE:
+                target = struct.unpack_from("<i", raw, 0x0C)[0]
+                value = _float_var(
+                    raw[0x0C:0x10], integers, floats, difficulty, rank,
+                    life, enemy, variable_player,
+                )
+                value = (
+                    FloatInterval(-math.pi, math.pi)
+                    if isinstance(value, FloatInterval)
+                    else math.remainder(value, math.tau)
+                )
+                if not _set_float_var(target, value, floats):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "unsupported angle target"
+                    )
             elif instruction.opcode in (OPCODE_COMPARE_INT, OPCODE_COMPARE_FLOAT):
                 if instruction.opcode == OPCODE_COMPARE_INT:
                     lhs_raw, rhs_raw = struct.unpack_from("<ii", raw, 0x0C)
-                    lhs = _int_var(lhs_raw, integers, difficulty, rank, spawner.life)
-                    rhs = _int_var(rhs_raw, integers, difficulty, rank, spawner.life)
+                    lhs = _int_var(lhs_raw, integers, difficulty, rank, life)
+                    rhs = _int_var(rhs_raw, integers, difficulty, rank, life)
                 else:
                     lhs = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     rhs = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     if isinstance(lhs, FloatInterval) or isinstance(rhs, FloatInterval):
                         return EclForecast(
@@ -663,7 +932,7 @@ def forecast_ecl_births(
                 if instruction.opcode >= OPCODE_CALL_LESS:
                     lhs_raw, rhs = struct.unpack_from("<ii", raw, 0x18)
                     lhs = _int_var(
-                        lhs_raw, integers, difficulty, rank, spawner.life
+                        lhs_raw, integers, difficulty, rank, life
                     )
                     take_call = (
                         lhs < rhs
@@ -679,7 +948,7 @@ def forecast_ecl_births(
                         else lhs != rhs
                     )
                 if take_call:
-                    if spawner.call_stack_disabled:
+                    if call_stack_disabled:
                         return EclForecast(
                             tuple(map(tuple, births)),
                             frame_index,
@@ -717,26 +986,41 @@ def forecast_ecl_births(
                 collidable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_INTERACTABLE_FLAG:
                 interactable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_INVISIBLE_FLAG:
+                invisible = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_HITBOX_SET:
+                hitbox_x, hitbox_y = struct.unpack_from("<ff", raw, 0x0C)
+                if not all(
+                    math.isfinite(value) and 0.0 <= value <= 1024.0
+                    for value in (hitbox_x, hitbox_y)
+                ):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "invalid ECL hitbox"
+                    )
+                # EnemyManager uses hitboxDimensions / 1.5 as a full player
+                # collision size, so the half-extent is source value / 3.
+                hitbox_half_width = hitbox_x / 3.0
+                hitbox_half_height = hitbox_y / 3.0
             elif OPCODE_MOVE_POSITION <= instruction.opcode <= OPCODE_MOVE_AT_PLAYER:
                 if instruction.opcode == OPCODE_MOVE_POSITION:
                     enemy_x = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                            spawner.life, enemy, variable_player,
+                            life, enemy, variable_player,
                     )
                     enemy_y = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
+                    enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
                     enemy = (enemy_x, enemy_y)
-                    stop_after_frame = "MOVEPOSITION needs uncaptured clamp bounds"
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 1:
                     velocity_x = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     velocity_y = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                            spawner.life, enemy, variable_player,
+                            life, enemy, variable_player,
                     )
                     movement_mode = 0
                     uncertain_heading = False
@@ -744,11 +1028,11 @@ def forecast_ecl_births(
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 2:
                     angle = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     speed = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     movement_mode = 1
                     if isinstance(angle, FloatInterval) and radial_births:
@@ -760,19 +1044,19 @@ def forecast_ecl_births(
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 3:
                     angular_velocity = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     movement_mode = 1
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 4:
                     speed = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     movement_mode = 1
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 5:
                     acceleration = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     movement_mode = 1
                 elif instruction.opcode in (OPCODE_MOVE_RANDOM, OPCODE_MOVE_RANDOM_IN_BOUNDS):
@@ -789,7 +1073,32 @@ def forecast_ecl_births(
                         uncertain_heading = False
                         velocity_uncertainty = 0.0
                     if instruction.opcode == OPCODE_MOVE_RANDOM_IN_BOUNDS:
-                        stop_after_frame = "MOVERANDINBOUND needs uncaptured clamp bounds"
+                        if not should_clamp_position:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "MOVERANDINBOUND has no active source bounds",
+                            )
+                        if not uncertain_heading:
+                            if enemy_x < lower_move_x + 96.0 and (
+                                angle > math.pi / 2.0 or angle < -math.pi / 2.0
+                            ):
+                                angle = (
+                                    math.pi - angle
+                                    if angle > math.pi / 2.0
+                                    else -math.pi - angle
+                                )
+                            if enemy_x > upper_move_x - 96.0 and (
+                                0.0 <= angle < math.pi / 2.0
+                                or -math.pi / 2.0 < angle <= 0.0
+                            ):
+                                angle = (
+                                    math.pi - angle if angle >= 0.0 else -math.pi - angle
+                                )
+                            if enemy_y < lower_move_y + 48.0 and angle < 0.0:
+                                angle = -angle
+                            if enemy_y > upper_move_y - 48.0 and angle > 0.0:
+                                angle = -angle
                 else:
                     if not allow_player_variables:
                         angle = 0.0
@@ -803,7 +1112,7 @@ def forecast_ecl_births(
                         velocity_uncertainty = 0.0
                     speed = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
-                        spawner.life, enemy, variable_player,
+                        life, enemy, variable_player,
                     )
                     movement_mode = 1
                 if isinstance(enemy_x, FloatInterval) or isinstance(enemy_y, FloatInterval):
@@ -864,17 +1173,117 @@ def forecast_ecl_births(
                         frame_index,
                         "future player dependency reaches emitter motion",
                     )
+            elif OPCODE_MOVE_DIR_TIME_FIRST <= instruction.opcode <= OPCODE_MOVE_TIME_LAST:
+                duration = struct.unpack_from("<i", raw, 0x0C)[0]
+                if duration <= 0:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "timed ECL movement has a non-positive duration",
+                    )
+                if instruction.opcode < OPCODE_MOVE_POSITION_TIME_FIRST:
+                    timed_angle = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    timed_speed = struct.unpack_from("<f", raw, 0x14)[0]
+                    if isinstance(timed_angle, FloatInterval):
+                        if not radial_births:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "uncertain timed-movement angle",
+                            )
+                        position_uncertainty += abs(timed_speed) * duration / 2.0
+                        move_interp_x = move_interp_y = 0.0
+                    else:
+                        move_interp_x = math.cos(timed_angle) * timed_speed * duration / 2.0
+                        move_interp_y = math.sin(timed_angle) * timed_speed * duration / 2.0
+                    movement_ease = instruction.opcode - OPCODE_MOVE_DIR_TIME_FIRST + 1
+                elif instruction.opcode < OPCODE_MOVE_TIME_FIRST:
+                    target_x = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    target_y = _float_var(
+                        raw[0x14:0x18], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    if isinstance(target_x, FloatInterval) or isinstance(
+                        target_y, FloatInterval
+                    ):
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "uncertain timed-movement target",
+                        )
+                    move_interp_x = target_x - enemy_x
+                    move_interp_y = target_y - enemy_y
+                    movement_ease = instruction.opcode - OPCODE_MOVE_POSITION_TIME_FIRST
+                    velocity_x = velocity_y = 0.0
+                else:
+                    if uncertain_heading:
+                        if not radial_births:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "uncertain heading reaches timed movement",
+                            )
+                        position_uncertainty += abs(speed) * duration / 2.0
+                        move_interp_x = move_interp_y = 0.0
+                    else:
+                        move_interp_x = math.cos(angle) * speed * duration / 2.0
+                        move_interp_y = math.sin(angle) * speed * duration / 2.0
+                    movement_ease = instruction.opcode - OPCODE_MOVE_TIME_FIRST + 1
+                move_start_x = enemy_x
+                move_start_y = enemy_y
+                move_start_time = duration
+                move_timer = duration
+                move_timer_float = float(duration)
+                movement_mode = 2
+                uncertain_heading = False
+                velocity_uncertainty = 0.0
+            elif instruction.opcode == OPCODE_MOVE_BOUNDS_SET:
+                (
+                    lower_move_x,
+                    lower_move_y,
+                    upper_move_x,
+                    upper_move_y,
+                ) = struct.unpack_from("<ffff", raw, 0x0C)
+                if (
+                    not all(math.isfinite(value) for value in (
+                        lower_move_x, lower_move_y, upper_move_x, upper_move_y
+                    ))
+                    or lower_move_x > upper_move_x
+                    or lower_move_y > upper_move_y
+                ):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "invalid ECL move bounds"
+                    )
+                should_clamp_position = True
+                enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
+                enemy = (enemy_x, enemy_y)
+            elif instruction.opcode == OPCODE_MOVE_BOUNDS_DISABLE:
+                should_clamp_position = False
             elif OPCODE_BULLET_FIRST <= instruction.opcode <= OPCODE_BULLET_LAST:
                 try:
                     pattern = _resolved_pattern(
                         instruction,
-                        spawner,
+                        replace(
+                            spawner,
+                            bullet_rank_speed_low=rank_speed_low,
+                            bullet_rank_speed_high=rank_speed_high,
+                            bullet_rank_amount1_low=rank_amount1_low,
+                            bullet_rank_amount1_high=rank_amount1_high,
+                            bullet_rank_amount2_low=rank_amount2_low,
+                            bullet_rank_amount2_high=rank_amount2_high,
+                        ),
                         pattern,
                         integers,
                         floats,
                         difficulty,
                         rank,
-                        spawner.life,
+                        life,
                         enemy,
                         variable_player,
                         bullet_sizes,
@@ -947,36 +1356,72 @@ def forecast_ecl_births(
             elif instruction.opcode == OPCODE_SHOOT_OFFSET:
                 shoot_offset_x = _float_var(
                     raw[0x0C:0x10], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
                 shoot_offset_y = _float_var(
                     raw[0x10:0x14], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
                 # The source also stores z. It does not affect TH06's 2D
                 # collision geometry, but resolve it so unknown variables
                 # still fail closed consistently.
                 _float_var(
                     raw[0x14:0x18], integers, floats, difficulty, rank,
-                    spawner.life, enemy, variable_player,
+                    life, enemy, variable_player,
                 )
-            elif instruction.opcode in (
-                OPCODE_BULLET_SOUND,
-                OPCODE_MOVE_BOUNDS_DISABLE,
-                OPCODE_ANIMATION_MAIN,
-                OPCODE_ANIMATION_SLOT,
-                OPCODE_SPELL_EFFECT,
-                OPCODE_DAMAGEABLE_FLAG,
-                OPCODE_EFFECT_SOUND,
-                OPCODE_EFFECT_PARTICLE,
-                OPCODE_ANIMATION_ROTATION,
-            ):
+            elif instruction.opcode == OPCODE_SPELL_START:
+                # SpellcardStart source defaults. Bullet cancellation is a
+                # hazard removal, so retaining existing bullets is conservative.
+                rank_speed_low = -0.5
+                rank_speed_high = 0.5
+                rank_amount1_low = rank_amount1_high = 0
+                rank_amount2_low = rank_amount2_high = 0
+            elif instruction.opcode == OPCODE_LIFE_SET:
+                life = struct.unpack_from("<i", raw, 0x0C)[0]
+            elif instruction.opcode == OPCODE_DROP_ITEMS:
+                count = struct.unpack_from("<i", raw, 0x0C)[0]
+                if count < 0:
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "negative DROPITEMS count"
+                    )
+                if rng is not None:
+                    for _ in range(count):
+                        rng.f32_in_range(144.0)
+                        rng.f32_in_range(144.0)
+            elif instruction.opcode == OPCODE_EX_REPEAT:
+                index = struct.unpack_from("<i", raw, 0x0C)[0]
+                if index >= 0:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"repeating ECL external instruction {index} can mutate hazards",
+                    )
+            elif instruction.opcode == OPCODE_TIME_SET:
+                variable = struct.unpack_from("<i", raw, 0x0C)[0]
+                current_time += _int_var(variable, integers, difficulty, rank, life)
+            elif instruction.opcode == OPCODE_CALL_STACK_DISABLED:
+                call_stack_disabled = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_BULLET_RANK_INFLUENCE:
+                rank_speed_low, rank_speed_high = struct.unpack_from("<ff", raw, 0x0C)
+                (
+                    rank_amount1_low,
+                    rank_amount1_high,
+                    rank_amount2_low,
+                    rank_amount2_high,
+                ) = struct.unpack_from("<iiii", raw, 0x14)
+            elif instruction.opcode in HAZARD_NEUTRAL_ECL_OPCODES:
                 pass
+            elif instruction.opcode in FAIL_CLOSED_ECL_OPCODES:
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    frame_index,
+                    FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
+                )
             else:
                 return EclForecast(
                     tuple(map(tuple, births)),
                     frame_index,
-                    f"unsupported ECL opcode {instruction.opcode}",
+                    f"unclassified ECL opcode {instruction.opcode}",
                 )
             instruction_address = next_address
         else:
@@ -995,10 +1440,17 @@ def forecast_ecl_births(
             speed=speed,
             acceleration=acceleration,
             movement_mode=movement_mode,
+            movement_ease=movement_ease,
+            move_interp_x=move_interp_x,
+            move_interp_y=move_interp_y,
+            move_start_x=move_start_x,
+            move_start_y=move_start_y,
             move_timer=move_timer,
             move_timer_float=move_timer_float,
+            move_start_time=move_start_time,
         ))
         enemy_x, enemy_y = motion.x, motion.y
+        enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
         velocity_x, velocity_y = motion.velocity_x, motion.velocity_y
         angle, speed = motion.angle, motion.speed
         movement_mode = motion.movement_mode
@@ -1015,17 +1467,17 @@ def forecast_ecl_births(
             interactable
             and collidable
             and not invisible
-            and spawner.hitbox_half_width > 0.0
-            and spawner.hitbox_half_height > 0.0
+            and hitbox_half_width > 0.0
+            and hitbox_half_height > 0.0
         ):
             body_hazards[frame_index].append((
-                enemy_x - spawner.hitbox_half_width,
-                enemy_y - spawner.hitbox_half_height,
-                enemy_x + spawner.hitbox_half_width,
-                enemy_y + spawner.hitbox_half_height,
+                enemy_x - hitbox_half_width - position_uncertainty,
+                enemy_y - hitbox_half_height - position_uncertainty,
+                enemy_x + hitbox_half_width + position_uncertainty,
+                enemy_y + hitbox_half_height + position_uncertainty,
             ))
 
-        if spawner.life > 0 and interval > 0:
+        if life > 0 and interval > 0:
             interval_subframe += frame_multiplier
             while interval_subframe >= 1.0:
                 interval_timer += 1
@@ -1081,8 +1533,14 @@ def forecast_ecl_births(
             speed=speed,
             acceleration=acceleration,
             movement_mode=movement_mode,
+            movement_ease=movement_ease,
+            move_interp_x=move_interp_x,
+            move_interp_y=move_interp_y,
+            move_start_x=move_start_x,
+            move_start_y=move_start_y,
             move_timer=move_timer,
             move_timer_float=move_timer_float,
+            move_start_time=move_start_time,
             shooting_disabled=shooting_disabled,
             shoot_offset_x=shoot_offset_x,
             shoot_offset_y=shoot_offset_y,
@@ -1100,6 +1558,21 @@ def forecast_ecl_births(
             interactable=interactable,
             collidable=collidable,
             invisible=invisible,
+            hitbox_half_width=hitbox_half_width,
+            hitbox_half_height=hitbox_half_height,
+            call_stack_disabled=call_stack_disabled,
+            life=life,
+            bullet_rank_speed_low=rank_speed_low,
+            bullet_rank_speed_high=rank_speed_high,
+            bullet_rank_amount1_low=rank_amount1_low,
+            bullet_rank_amount1_high=rank_amount1_high,
+            bullet_rank_amount2_low=rank_amount2_low,
+            bullet_rank_amount2_high=rank_amount2_high,
+            lower_move_x=lower_move_x,
+            lower_move_y=lower_move_y,
+            upper_move_x=upper_move_x,
+            upper_move_y=upper_move_y,
+            should_clamp_position=should_clamp_position,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
     )

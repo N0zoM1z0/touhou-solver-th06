@@ -486,7 +486,7 @@ class EclBirthTests(unittest.TestCase):
         bounds_disable = self.instruction(
             0x1064,
             0,
-            65,
+            66,
             b"",
             0x0C,
         )

@@ -145,6 +145,8 @@ ENEMY_SHOOT_INTERVAL_OFFSET = 0xD54
 ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET = 0xD5C
 ENEMY_SHOOT_TIMER_OFFSET = 0xD60
 ENEMY_FLAGS_OFFSET = 0xE50
+ENEMY_LOWER_MOVE_LIMIT_OFFSET = 0xE60
+ENEMY_UPPER_MOVE_LIMIT_OFFSET = 0xE68
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 96
 ECL_SUBROUTINE_LIMIT = 512
@@ -816,6 +818,12 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
         hitbox_x, hitbox_y = struct.unpack_from(
             "<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET
         )
+        lower_move_x, lower_move_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_LOWER_MOVE_LIMIT_OFFSET
+        )
+        upper_move_x, upper_move_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_UPPER_MOVE_LIMIT_OFFSET
+        )
         if (
             not math.isfinite(hitbox_x)
             or not math.isfinite(hitbox_y)
@@ -824,6 +832,16 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
         ):
             raise RuntimeError(
                 f"invalid occupied enemy geometry at slot {index}"
+            )
+        if flags2 & 0x01 and (
+            not all(math.isfinite(value) for value in (
+                lower_move_x, lower_move_y, upper_move_x, upper_move_y
+            ))
+            or lower_move_x > upper_move_x
+            or lower_move_y > upper_move_y
+        ):
+            raise RuntimeError(
+                f"invalid occupied enemy move bounds at slot {index}"
             )
         if lethal:
             enemies.append(EnemyBody(
@@ -1041,6 +1059,11 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             bool(flags2 & 0x08),
             bool(flags2 & 0x04),
             process.ecl_subroutines,
+            lower_move_x,
+            lower_move_y,
+            upper_move_x,
+            upper_move_y,
+            bool(flags2 & 0x01),
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

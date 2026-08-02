@@ -134,11 +134,11 @@ def forecast_world_births(
             births[frame_index].extend(forecast.births[0])
             if forecast.body_hazards:
                 bodies[frame_index].extend(forecast.body_hazards[0])
-            if forecast.next_spawner is None:
+            if forecast.next_spawner is None and not forecast.finished:
                 stop_reason = stop_reason or (
                     f"emitter {emitter.slot}: {forecast.reason}"
                 )
-            else:
+            elif forecast.next_spawner is not None:
                 next_emitters.append(forecast.next_spawner)
         if stop_reason:
             return WorldBirthForecast(

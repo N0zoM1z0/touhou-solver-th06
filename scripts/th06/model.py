@@ -216,6 +216,11 @@ class EnemySpawner:
     invisible: bool = False
     call_stack_disabled: bool = False
     ecl_subroutines: tuple[int, ...] = ()
+    lower_move_x: float = 0.0
+    lower_move_y: float = 0.0
+    upper_move_x: float = 0.0
+    upper_move_y: float = 0.0
+    should_clamp_position: bool = False
 
 
 @dataclass(frozen=True)
