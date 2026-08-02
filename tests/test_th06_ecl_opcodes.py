@@ -323,6 +323,65 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertIn("laser creation", forecast.reason)
         self.assertNotIn("unsupported ECL opcode", forecast.reason)
 
+    def test_laser_creation_advances_only_while_source_timing_is_dormant(self):
+        laser_args = struct.pack(
+            "<hhffffffiiiiii",
+            0,
+            6,
+            0.0,
+            0.0,
+            0.0,
+            500.0,
+            500.0,
+            16.0,
+            120,
+            60,
+            16,
+            120,
+            14,
+            0,
+        )
+        dormant = replace(
+            instruction(0x1000, 86, laser_args, 0x40),
+            time=3,
+        )
+        sentinel = EclInstruction(
+            0x1040, -1, 0, 0, 0, bytes(12).hex()
+        )
+        source = replace(
+            emitter(dormant, sentinel),
+            ecl_program=(dormant, sentinel),
+        )
+
+        covered = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+        self.assertEqual(covered.covered_frames, 4, covered.reason)
+
+        immediate_args = bytearray(laser_args)
+        struct.pack_into("<i", immediate_args, 28, 0)
+        immediate = replace(
+            instruction(0x1000, 86, bytes(immediate_args), 0x40),
+            time=3,
+        )
+        blocked = forecast_ecl_births(
+            replace(
+                source,
+                next_instruction=immediate,
+                ecl_program=(immediate, sentinel),
+            ),
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+        self.assertEqual(blocked.covered_frames, 3)
+        self.assertIn("aimed ECL laser creation", blocked.reason)
+
     def test_boss_timer_setup_remains_covered_before_its_callback(self):
         timer = instruction(0x1000, 112, struct.pack("<i", 0), 0x10)
         threshold = instruction(0x1010, 115, struct.pack("<i", 1200), 0x10)

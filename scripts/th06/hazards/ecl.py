@@ -1637,6 +1637,36 @@ def _forecast_ecl_births_single(
                 timer_callback_sub = death_callback_sub
                 boss_timer = 0
                 boss_timer_subframe = 0.0
+            elif instruction.opcode in (
+                OPCODE_LASER_CREATE,
+                OPCODE_LASER_CREATE_AIMED,
+            ):
+                (
+                    start_time,
+                    _duration,
+                    _despawn_duration,
+                    hitbox_start_time,
+                    _hitbox_end_delay,
+                    _flags,
+                ) = struct.unpack_from("<iiiiii", raw, 0x28)
+                # SpawnLaserPattern starts directly in state 1 when
+                # startTime is zero. Otherwise BulletManager tests the warmup
+                # hitbox at hitboxStartTime, or enters always-collidable state
+                # 1 at startTime, whichever happens first. A newly created
+                # laser that cannot reach either transition inside this
+                # forecast is physically dormant; a later native snapshot
+                # captures it in the global laser pool before it can collide.
+                earliest_hitbox = (
+                    0
+                    if start_time <= 0
+                    else min(start_time, max(0, hitbox_start_time))
+                )
+                if frame_index + earliest_hitbox < horizon:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
+                    )
             elif (
                 instruction.opcode == OPCODE_ENEMY_KILL_ALL
                 and enemy_kill_all_is_noop
