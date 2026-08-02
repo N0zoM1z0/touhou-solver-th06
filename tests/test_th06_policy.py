@@ -261,6 +261,50 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(promoted, HARD_SAFETY_HORIZON)
         self.assertEqual(retained, 6)
 
+    def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h12_work = controller.rollout_work(state, 3, 12)
+        controller.policy_rate_by_horizon[8] = 1.0 / (
+            controller.rollout_work(state, 3, 8)
+        )
+        controller.policy_frame_by_horizon[8] = state.frame
+        controller.policy_rate_by_horizon[12] = 20.0 / h12_work
+        controller.policy_frame_by_horizon[12] = 0
+
+        self.assertTrue(controller.policy_affordable(state, 3, 12, 2.0))
+
+    def test_fresh_deep_policy_cost_remains_authoritative(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h12_work = controller.rollout_work(state, 3, 12)
+        controller.policy_rate_by_horizon[8] = 1.0 / (
+            controller.rollout_work(state, 3, 8)
+        )
+        controller.policy_frame_by_horizon[8] = state.frame
+        controller.policy_rate_by_horizon[12] = 20.0 / h12_work
+        controller.policy_frame_by_horizon[12] = state.frame
+
+        self.assertFalse(controller.policy_affordable(state, 3, 12, 2.0))
+
+    def test_stale_cost_does_not_pollute_fresh_deep_measurement(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h8_work = controller.rollout_work(state, 3, 8)
+        h12_work = controller.rollout_work(state, 3, 12)
+        controller.policy_rate_by_horizon[8] = 1.0 / h8_work
+        controller.policy_frame_by_horizon[8] = state.frame
+        controller.policy_rate_by_horizon[12] = 20.0 / h12_work
+        controller.policy_frame_by_horizon[12] = 0
+
+        controller.observe_policy(state, 3, 12, 4.0)
+
+        self.assertLess(
+            controller.policy_rate_by_horizon[12] * h12_work,
+            8.0,
+        )
+        self.assertEqual(controller.policy_frame_by_horizon[12], state.frame)
+
     def test_stale_publication_reduces_next_soft_budget(self):
         controller = EffortController(12.5)
         before = controller.budget_ms()

@@ -30,6 +30,7 @@ FIXED_WORK_EQUIVALENT = 32
 MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
 INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
+POLICY_RATE_HALF_LIFE_FRAMES = 60.0
 
 
 class EffortController:
@@ -43,6 +44,7 @@ class EffortController:
         self.rollout_ms_per_work: float | None = None
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
+        self.policy_frame_by_horizon: dict[int, int] = {}
         self.policy_rate_growth = INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT
         self.last_limit = HARD_SAFETY_HORIZON
 
@@ -159,6 +161,50 @@ class EffortController:
             self.rollout_work(snapshot, candidate_count, horizon),
         )
 
+    def _effective_policy_rate(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+    ) -> float | None:
+        measured_rate = self.policy_rate_by_horizon.get(horizon)
+        lower = tuple(
+            measured_horizon
+            for measured_horizon in self.policy_rate_by_horizon
+            if measured_horizon < horizon
+        )
+        predicted_rate = None
+        if lower:
+            nearest = max(lower)
+            added_segments = max(
+                1,
+                (horizon - nearest) // HARD_SAFETY_HORIZON,
+            )
+            predicted_rate = (
+                self.policy_rate_by_horizon[nearest]
+                * self.policy_rate_growth ** added_segments
+            )
+
+        if measured_rate is None:
+            return predicted_rate
+        if predicted_rate is None:
+            return measured_rate
+
+        measured_frame = self.policy_frame_by_horizon.get(horizon)
+        age = (
+            snapshot.frame - measured_frame
+            if measured_frame is not None
+            else -1
+        )
+        freshness = (
+            0.5 ** (age / POLICY_RATE_HALF_LIFE_FRAMES)
+            if age >= 0
+            else 0.0
+        )
+        return (
+            measured_rate * freshness
+            + predicted_rate * (1.0 - freshness)
+        )
+
     def policy_affordable(
         self,
         snapshot: Snapshot,
@@ -168,25 +214,8 @@ class EffortController:
     ) -> bool:
         remaining_ms = self.budget_ms() - elapsed_ms
         work = self.rollout_work(snapshot, candidate_count, horizon)
-        rate = self.policy_rate_by_horizon.get(horizon)
+        rate = self._effective_policy_rate(snapshot, horizon)
         estimate = rate * work if rate is not None else None
-        if rate is None:
-            lower = tuple(
-                measured_horizon
-                for measured_horizon in self.policy_rate_by_horizon
-                if measured_horizon < horizon
-            )
-            if lower:
-                nearest = max(lower)
-                added_segments = max(
-                    1,
-                    (horizon - nearest) // HARD_SAFETY_HORIZON,
-                )
-                estimate = (
-                    self.policy_rate_by_horizon[nearest]
-                    * work
-                    * self.policy_rate_growth ** added_segments
-                )
         fallback_rate = self.policy_ms_per_work or self.rollout_ms_per_work
         if estimate is None and fallback_rate is not None:
             estimate = fallback_rate * work
@@ -210,7 +239,7 @@ class EffortController:
         )
         work = self.rollout_work(snapshot, candidate_count, horizon)
         measured_rate = self._update_rate(
-            self.policy_rate_by_horizon.get(horizon),
+            self._effective_policy_rate(snapshot, horizon),
             elapsed_ms,
             work,
         )
@@ -228,6 +257,7 @@ class EffortController:
                     + observed_growth * MEASUREMENT_WEIGHT
                 )
         self.policy_rate_by_horizon[horizon] = measured_rate
+        self.policy_frame_by_horizon[horizon] = snapshot.frame
 
     def observe_publication(self, stale: bool) -> None:
         if stale:

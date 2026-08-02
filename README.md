@@ -62,10 +62,12 @@ The three solver layers are:
    that constant actions can alias to one clamped state before their count
    contracts. When the constant frontier does start shrinking, the same
    recursive search may deepen to h12 and h16 while its per-horizon measured
-   cost fits the remaining deadline. A one-segment commitment prevents
-   frame-to-frame chatter while every fresh Hard check and preferred proposal
-   still permits it. Clearance and current-input continuity are only
-   deterministic soft tie-breaks.
+   cost fits the remaining deadline. Cost samples have continuous frame-age
+   decay toward a prediction from the freshly measured lower rung; the same
+   effective rate is used both to admit a probe and to update its EMA. A
+   one-segment commitment prevents frame-to-frame chatter while every fresh
+   Hard check and preferred proposal still permits it. Clearance and
+   current-input continuity are only deterministic soft tie-breaks.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.
@@ -373,3 +375,22 @@ closed, and an unreachable one is tracked normally from its second sample.
 The focused Hard/Reimu-A Practice Stage 2 rerun observed all three beams and
 reached the source-defined result path after frame 16680 with no HIT, authority
 stop, or Bomb. The next action remains a fresh full route from Stage 1.
+
+## Progressive policy-cost checkpoint (2026-08-02)
+
+The restarted Practice Stage 1 run crossed the earlier f2455 and f9484
+counterexamples, then stopped without a HIT at f10258 because no Hard-4 action
+survived six converging source-shaped lasers. At f10250 the regular h8 proposal
+preferred down-right, while the already implemented and currently affordable
+h12 policy uniquely preferred up. The physical trace followed the h8 result.
+
+The cause was compute adaptation rather than laser geometry or action ranking:
+an h12 cost EMA from much earlier in the run remained authoritative forever.
+A saved-history A/B with the same deliberately stale cost reproduced
+`down_right` under the old estimator and `up` under the corrected estimator.
+Deep-rung samples now lose trust continuously with frame age and converge on a
+prediction from the current lower rung; a new measurement also updates from
+that effective recent rate instead of relabeling the stale EMA as fresh. The
+focused physical corpus reduces the policy witness to one bullet and two
+lasers. Hard-4 eligibility is unchanged; a new Practice Stage 1 run is still
+required for physical validation.
