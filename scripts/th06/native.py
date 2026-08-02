@@ -1054,6 +1054,21 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
                     program_by_address.setdefault(
                         instruction.address, instruction
                     )
+        active_callbacks = (
+            death_callback_sub,
+            life_callback_sub if life_callback_threshold >= 0 else -1,
+            timer_callback_sub if timer_callback_threshold >= 0 else -1,
+        )
+        for callback_sub in active_callbacks:
+            if callback_sub < 0:
+                continue
+            if callback_sub >= len(process.ecl_subroutines):
+                raise RuntimeError(
+                    f"invalid active ECL callback subroutine {callback_sub}"
+                )
+            callback_address = process.ecl_subroutines[callback_sub]
+            for instruction in _read_ecl_program(process, callback_address):
+                program_by_address.setdefault(instruction.address, instruction)
         ecl_program = tuple(program_by_address.values())
 
         spawners.append(EnemySpawner(

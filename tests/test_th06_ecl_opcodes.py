@@ -178,6 +178,43 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertAlmostEqual(spawned.acceleration_x, math.cos(1.5) * 0.5)
         self.assertAlmostEqual(spawned.acceleration_y, math.sin(1.5) * 0.5)
 
+    def test_hard_forecast_unions_reachable_life_callback_timing(self):
+        waiting = replace(
+            instruction(0x1000, 1, bytes(4), 0x10),
+            time=10000,
+        )
+        callback_bullet = instruction(
+            0x2000,
+            67,
+            struct.pack(
+                "<hhIIffffI", 0, 0, 1, 1, 1.0, 0.3, 0.0, 0.0, 0
+            ),
+            0x2C,
+        )
+        sentinel = EclInstruction(0x202C, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(waiting, sentinel),
+            life=10,
+            life_callback_threshold=5,
+            life_callback_sub=0,
+            ecl_subroutines=(0x2000,),
+            ecl_program=(waiting, callback_bullet, sentinel),
+        )
+
+        forecast = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 2,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+
+        self.assertEqual(forecast.covered_frames, 2, forecast.reason)
+        self.assertEqual([len(frame) for frame in forecast.births], [0, 1])
+
     def test_move_time_accelerate_matches_source_interpolation(self):
         # Opcode 63 calls MoveTime and selects easing type 3.  The source
         # displacement is cos(angle) * speed * duration / 2.
