@@ -705,6 +705,56 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
         )
 
+    def test_dense_corner_uses_one_longer_constant_frontier(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(398)
+        ),
+            x=18.804,
+            y=421.858,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        effort = tuple(
+            candidate for candidate in hard
+            if candidate.action.name in ("down", "down_left")
+        )
+        down = ACTION_BY_VECTOR[(0, 1)]
+
+        class CornerKernel:
+            def certify_pair_with_age_zero(
+                self,
+                actual_state,
+                hard_horizon,
+                effort_horizon,
+                collision_margin,
+            ):
+                self.call = (
+                    actual_state,
+                    hard_horizon,
+                    effort_horizon,
+                    collision_margin,
+                )
+                return hard, effort, hard
+
+            def replanning_scores(self, *_args, **_kwargs):
+                raise AssertionError("non-committed wall repair must stay disabled")
+
+        kernel = CornerKernel()
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 12)
+        self.assertEqual(decision.action, down)
+        self.assertEqual(decision.effort_horizon, 12)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+        self.assertEqual(kernel.call, (state, HARD_SAFETY_HORIZON, 12, 0.35))
+
     def test_extreme_density_bounds_effort_near_the_hard_horizon(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)

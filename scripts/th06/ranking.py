@@ -38,6 +38,15 @@ def near_single_wall(snapshot: Snapshot) -> bool:
     return horizontal_near != vertical_near
 
 
+def near_two_walls(snapshot: Snapshot, lookahead_frames: int = 20) -> bool:
+    """Whether both boundary axes are inside one soft lookahead window."""
+    lookahead = snapshot.focus_speed * lookahead_frames
+    return (
+        min(snapshot.x - MOVEMENT_LEFT, MOVEMENT_RIGHT - snapshot.x) <= lookahead
+        and min(snapshot.y - MOVEMENT_TOP, MOVEMENT_BOTTOM - snapshot.y) <= lookahead
+    )
+
+
 def heads_toward_single_wall(snapshot: Snapshot, action: Action) -> bool:
     """Identify proposals that spend room along the sole nearby wall axis."""
     if not near_single_wall(snapshot):

@@ -28,6 +28,7 @@ from .ranking import (
     ProposalRanker,
     boundary_relief,
     heads_toward_single_wall,
+    near_two_walls,
 )
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
 from .viability import replanning_scores
@@ -38,6 +39,16 @@ from .viability import replanning_scores
 # allocate ranking effort; they must not turn constant-action rollout into a
 # hard eligibility requirement.
 HARD_SAFETY_HORIZON = 4
+
+
+def needs_dense_corner_planning(snapshot: Snapshot) -> bool:
+    """Spend a bounded longer soft rollout only in a dense two-wall trap."""
+    return (
+        350 <= len(snapshot.bullets) < 400
+        and not snapshot.lasers
+        and len(snapshot.enemies) <= 1
+        and near_two_walls(snapshot, 20)
+    )
 
 
 def adaptive_horizon(snapshot: Snapshot) -> int:
@@ -53,6 +64,13 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
     # decide() skips the extra effort when all hard actions remain available.
     if len(snapshot.bullets) >= 400:
         return 6
+    if needs_dense_corner_planning(snapshot):
+        # Stage 5 f3218 still had every Hard-4 action, but the ordinary h8
+        # proposal retained five paths in the lower-left corner. Two decisions
+        # later it selected down-right even though h12 had only down-left; the
+        # hard set emptied at f3229. Build one combined h4/h12 native rollout
+        # in this bounded geometry. This changes ranking effort only.
+        return 12
     if len(snapshot.bullets) >= 220:
         return 8
     if (
@@ -261,6 +279,7 @@ class Solver:
                 1,
             )
         effort_horizon = adaptive_horizon(snapshot)
+        dense_corner_planning = needs_dense_corner_planning(snapshot)
         age_zero_certified = ()
         discouraged = frozenset()
         precomputed_current_effort = None
@@ -268,6 +287,7 @@ class Solver:
         if (
             len(snapshot.bullets) >= 350
             and effort_horizon > HARD_SAFETY_HORIZON
+            and not dense_corner_planning
         ):
             # Stage 4 f10061 had all nine Hard-4 actions available, but a
             # redundant h6 pass over 535 bullets took 35.6 ms and aged the
@@ -707,6 +727,7 @@ class Solver:
         )
         early_boundary_trap = (
             not snapshot.lasers
+            and not dense_corner_planning
             and not single_wall_trap
             and durable
             and all(
@@ -714,6 +735,13 @@ class Solver:
                 for action in durable
             )
         )
+        # The generic wall repair below ranks a first segment when some later
+        # continuation exists, but it does not retain which continuation made
+        # that score viable. In Stage 5's f3218 dense corner, applying it to
+        # h12 would choose stay and allow the next decision to reverse before
+        # the modeled split. Keep the directly certified h12 constant frontier
+        # in this one bounded case; if it is empty, the ordinary repair and
+        # last-frontier fallbacks below still run.
         if (
             durable
             and len(certified) == len(ACTIONS)
