@@ -157,7 +157,6 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_SPELL_EFFECT,
     OPCODE_EFFECT_SOUND,
     OPCODE_DEATH_FLAG,
-    OPCODE_DEATH_CALLBACK,
     OPCODE_INTERRUPT_SET,
     OPCODE_EFFECT_PARTICLE,
     OPCODE_ANIMATION_ROTATION,
@@ -184,8 +183,6 @@ FAIL_CLOSED_ECL_OPCODES = {
     OPCODE_ENEMY_CREATE: "future ECL enemy creation needs a world-emitter insertion",
     OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
     OPCODE_INTERRUPT: "ECL interrupt table is not captured",
-    OPCODE_LIFE_CALLBACK_THRESHOLD: "life callback state is not captured",
-    OPCODE_LIFE_CALLBACK_SUB: "life callback state is not captured",
     OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
 }
 
@@ -195,8 +192,10 @@ MODELLED_ECL_OPCODES = frozenset(
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
      OPCODE_DAMAGEABLE_FLAG,
+     OPCODE_DEATH_CALLBACK,
      OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
-     OPCODE_TIMER_CALLBACK_SUB, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
+     OPCODE_TIMER_CALLBACK_SUB, OPCODE_LIFE_CALLBACK_THRESHOLD,
+     OPCODE_LIFE_CALLBACK_SUB, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
      OPCODE_EX_REPEAT, OPCODE_TIME_SET, OPCODE_CALL_STACK_DISABLED,
      OPCODE_BULLET_RANK_INFLUENCE, OPCODE_INVISIBLE_FLAG,
      OPCODE_BOSS_TIMER_CLEAR}
@@ -386,7 +385,8 @@ def _set_float_var(
 def _resolved_pattern(
     instruction: EclInstruction,
     spawner: EnemySpawner,
-    current: BulletPattern | None,
+    effect_floats: tuple[float, float, float, float],
+    effect_ints: tuple[int, int, int, int],
     integers: list[int],
     floats: list[float | FloatInterval],
     difficulty: int,
@@ -462,8 +462,8 @@ def _resolved_pattern(
         angle2,
         speed1,
         speed2,
-        current.ex_floats if current is not None else (0.0, 0.0, 0.0, 0.0),
-        current.ex_ints if current is not None else (0, 0, 0, 0),
+        effect_floats,
+        effect_ints,
         count1,
         count2,
         instruction.opcode - OPCODE_BULLET_FIRST,
@@ -527,6 +527,8 @@ def forecast_ecl_births(
     timer_callback_threshold = spawner.timer_callback_threshold
     timer_callback_sub = spawner.timer_callback_sub
     pattern = spawner.pattern
+    effect_floats = spawner.bullet_effect_floats
+    effect_ints = spawner.bullet_effect_ints
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
     interval_timer = spawner.timer
@@ -625,6 +627,12 @@ def forecast_ecl_births(
                 tuple(map(tuple, births)),
                 frame_index,
                 "player damage can reach an active life callback",
+            )
+        if death_callback_sub >= 0 and life_lower_bound <= 0:
+            return EclForecast(
+                tuple(map(tuple, births)),
+                frame_index,
+                "player damage can reach an active death callback",
             )
         if (
             timer_callback_threshold >= 0
@@ -1322,7 +1330,8 @@ def forecast_ecl_births(
                             bullet_rank_amount2_low=rank_amount2_low,
                             bullet_rank_amount2_high=rank_amount2_high,
                         ),
-                        pattern,
+                        effect_floats,
+                        effect_ints,
                         integers,
                         floats,
                         difficulty,
@@ -1413,6 +1422,34 @@ def forecast_ecl_births(
                     raw[0x14:0x18], integers, floats, difficulty, rank,
                     life, enemy, variable_player,
                 )
+            elif instruction.opcode == OPCODE_BULLET_EFFECTS:
+                effect_ints = tuple(
+                    _int_var(value, integers, difficulty, rank, life)
+                    for value in struct.unpack_from("<iiii", raw, 0x0C)
+                )
+                resolved_effect_floats = tuple(
+                    _float_var(
+                        raw[offset:offset + 4], integers, floats, difficulty,
+                        rank, life, enemy, variable_player,
+                    )
+                    for offset in range(0x1C, 0x2C, 4)
+                )
+                if any(
+                    isinstance(value, FloatInterval)
+                    for value in resolved_effect_floats
+                ):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "uncertain bullet effects need a hard envelope",
+                    )
+                effect_floats = resolved_effect_floats
+                if pattern is not None:
+                    pattern = replace(
+                        pattern,
+                        ex_ints=effect_ints,
+                        ex_floats=effect_floats,
+                    )
             elif instruction.opcode == OPCODE_SPELL_START:
                 # SpellcardStart source defaults. Bullet cancellation is a
                 # hazard removal, so retaining existing bullets is conservative.
@@ -1423,9 +1460,15 @@ def forecast_ecl_births(
             elif instruction.opcode == OPCODE_LIFE_SET:
                 life = struct.unpack_from("<i", raw, 0x0C)[0]
                 life_lower_bound = life
+            elif instruction.opcode == OPCODE_DEATH_CALLBACK:
+                death_callback_sub = struct.unpack_from("<i", raw, 0x0C)[0]
             elif instruction.opcode == OPCODE_BOSS_TIMER_SET:
                 boss_timer = struct.unpack_from("<i", raw, 0x0C)[0]
                 boss_timer_subframe = 0.0
+            elif instruction.opcode == OPCODE_LIFE_CALLBACK_THRESHOLD:
+                life_callback_threshold = struct.unpack_from("<i", raw, 0x0C)[0]
+            elif instruction.opcode == OPCODE_LIFE_CALLBACK_SUB:
+                life_callback_sub = struct.unpack_from("<i", raw, 0x0C)[0]
             elif instruction.opcode == OPCODE_TIMER_CALLBACK_THRESHOLD:
                 timer_callback_threshold = struct.unpack_from("<i", raw, 0x0C)[0]
                 boss_timer = 0
@@ -1650,6 +1693,8 @@ def forecast_ecl_births(
             timer_callback_threshold=timer_callback_threshold,
             timer_callback_sub=timer_callback_sub,
             damageable=damageable,
+            bullet_effect_floats=effect_floats,
+            bullet_effect_ints=effect_ints,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
     )

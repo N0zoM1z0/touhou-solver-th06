@@ -97,6 +97,87 @@ class EclOpcodeCoverageTests(unittest.TestCase):
                 )
                 self.assertEqual(forecast.covered_frames, 1, forecast.reason)
 
+    def test_every_modelled_opcode_reaches_an_interpreter_branch(self):
+        for opcode in sorted(MODELLED_ECL_OPCODES):
+            with self.subTest(opcode=opcode):
+                first = instruction(0x1000, opcode, bytes(68), 0x50)
+                sentinel = EclInstruction(
+                    0x1050, -1, 0, 0, 0, (bytes(12)).hex()
+                )
+                forecast = forecast_ecl_births(
+                    emitter(first, sentinel),
+                    ((100.0, 400.0),),
+                    difficulty=2,
+                    rank=0,
+                    bullet_sizes=(),
+                )
+                self.assertNotEqual(
+                    forecast.reason,
+                    f"unclassified ECL opcode {opcode}",
+                )
+
+    def test_every_fail_closed_opcode_reaches_its_specific_branch(self):
+        for opcode, reason in sorted(FAIL_CLOSED_ECL_OPCODES.items()):
+            with self.subTest(opcode=opcode):
+                first = instruction(0x1000, opcode, bytes(68), 0x50)
+                sentinel = EclInstruction(
+                    0x1050, -1, 0, 0, 0, (bytes(12)).hex()
+                )
+                forecast = forecast_ecl_births(
+                    emitter(first, sentinel),
+                    ((100.0, 400.0),),
+                    difficulty=2,
+                    rank=0,
+                    bullet_sizes=(),
+                )
+                self.assertEqual(forecast.reason, reason)
+
+    def test_bullet_effects_survive_a_frame_boundary_and_reach_spawn(self):
+        effects = instruction(
+            0x1000,
+            82,
+            struct.pack("<iiiiffff", 1, 2, 3, 4, 0.5, 1.5, 2.5, 3.5),
+            0x2C,
+        )
+        bullet = replace(
+            instruction(
+                0x102C,
+                67,
+                struct.pack(
+                    "<hhIIffffI", 0, 0, 1, 1, 1.0, 0.3, 0.0, 0.0, 0x10
+                ),
+                0x2C,
+            ),
+            time=1,
+        )
+        sentinel = EclInstruction(0x1058, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(effects, sentinel),
+            ecl_program=(effects, bullet, sentinel),
+        )
+
+        first_frame = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+        )
+        self.assertIsNotNone(first_frame.next_spawner)
+        second_frame = forecast_ecl_births(
+            first_frame.next_spawner,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+        )
+
+        self.assertEqual(len(second_frame.births[0]), 1)
+        spawned = second_frame.births[0][0]
+        self.assertEqual(spawned.acceleration_duration, 1)
+        self.assertAlmostEqual(spawned.acceleration_x, math.cos(1.5) * 0.5)
+        self.assertAlmostEqual(spawned.acceleration_y, math.sin(1.5) * 0.5)
+
     def test_move_time_accelerate_matches_source_interpolation(self):
         # Opcode 63 calls MoveTime and selects easing type 3.  The source
         # displacement is cos(angle) * speed * duration / 2.

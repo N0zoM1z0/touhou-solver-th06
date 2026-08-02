@@ -231,6 +231,8 @@ class EnemySpawner:
     is_boss: bool = False
     timeout_spell: bool = False
     damageable: bool = True
+    bullet_effect_floats: tuple[float, float, float, float] = (0.0,) * 4
+    bullet_effect_ints: tuple[int, int, int, int] = (0,) * 4
 
 
 @dataclass(frozen=True)

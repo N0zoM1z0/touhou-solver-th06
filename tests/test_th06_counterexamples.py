@@ -11,6 +11,7 @@ from th06.input_lease import (
     changed_action_delivery_supported,
     required_changed_action_delivery_delay,
 )
+from th06.hazards.world import forecast_world_births
 from th06.model import SafeAction, Snapshot
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
@@ -18,6 +19,31 @@ from th06.safety import certify_actions
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_ecl_forecast_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "ecl_forecast"
+        )
+        self.assertTrue(cases, "ECL forecast corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                horizon = case["input"]["horizon"]
+                positions = ((state.x, state.y),) * horizon
+                for mode in ("fail-closed", "nominal"):
+                    forecast = forecast_world_births(
+                        state, positions, rng_mode=mode
+                    )
+                    self.assertEqual(
+                        forecast.covered_frames,
+                        case["expect"]["covered_frames"][mode],
+                        forecast.reason,
+                    )
+                    self.assertEqual(
+                        [len(frame) for frame in forecast.births],
+                        case["expect"]["birth_counts"][mode],
+                    )
+
     def test_future_frontier_counterexamples(self):
         cases = tuple(
             case for case in load_cases()
