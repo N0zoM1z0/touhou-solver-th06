@@ -30,7 +30,7 @@ FIXED_WORK_EQUIVALENT = 32
 MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
 INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
-POLICY_RATE_HALF_LIFE_FRAMES = 60.0
+COST_RATE_HALF_LIFE_FRAMES = 60.0
 
 
 class EffortController:
@@ -42,6 +42,7 @@ class EffortController:
         self.decision_budget_ms = decision_budget_ms
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
+        self.rollout_frame: int | None = None
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
@@ -83,6 +84,38 @@ class EffortController:
     def budget_ms(self) -> float:
         return self.decision_budget_ms * self.publication_scale
 
+    @staticmethod
+    def _measurement_freshness(
+        snapshot_frame: int,
+        measured_frame: int | None,
+    ) -> float:
+        age = (
+            snapshot_frame - measured_frame
+            if measured_frame is not None
+            else -1
+        )
+        return (
+            0.5 ** (age / COST_RATE_HALF_LIFE_FRAMES)
+            if age >= 0
+            else 0.0
+        )
+
+    def _effective_rollout_rate(
+        self,
+        snapshot: Snapshot,
+        current_rate: float,
+    ) -> float:
+        if self.rollout_ms_per_work is None:
+            return current_rate
+        freshness = self._measurement_freshness(
+            snapshot.frame,
+            self.rollout_frame,
+        )
+        return (
+            self.rollout_ms_per_work * freshness
+            + current_rate * (1.0 - freshness)
+        )
+
     def choose_limit(
         self,
         snapshot: Snapshot,
@@ -94,15 +127,16 @@ class EffortController:
             self.last_limit = HARD_SAFETY_HORIZON
             return self.last_limit
 
+        hard_work = self.rollout_work(
+            snapshot,
+            candidate_count,
+            HARD_SAFETY_HORIZON,
+        )
+        bootstrap_rate = elapsed_ms / max(1, hard_work)
+        rate = self._effective_rollout_rate(snapshot, bootstrap_rate)
         if self.rollout_ms_per_work is None:
-            hard_work = self.rollout_work(
-                snapshot,
-                candidate_count,
-                HARD_SAFETY_HORIZON,
-            )
-            bootstrap_rate = elapsed_ms / max(1, hard_work)
             first_horizon = EFFORT_HORIZONS[0]
-            first_estimate = bootstrap_rate * self.rollout_work(
+            first_estimate = rate * self.rollout_work(
                 snapshot,
                 candidate_count,
                 first_horizon,
@@ -116,7 +150,7 @@ class EffortController:
         else:
             proposed = HARD_SAFETY_HORIZON
             for horizon in EFFORT_HORIZONS:
-                estimate = self.rollout_ms_per_work * self.rollout_work(
+                estimate = rate * self.rollout_work(
                     snapshot,
                     candidate_count,
                     horizon,
@@ -129,15 +163,10 @@ class EffortController:
         if proposed > self.last_limit:
             previous_index = ladder.index(self.last_limit)
             next_horizon = ladder[previous_index + 1]
-            rate = self.rollout_ms_per_work
-            next_estimate = (
-                rate * self.rollout_work(
-                    snapshot,
-                    candidate_count,
-                    next_horizon,
-                )
-                if rate is not None
-                else first_estimate
+            next_estimate = rate * self.rollout_work(
+                snapshot,
+                candidate_count,
+                next_horizon,
             )
             proposed = (
                 next_horizon
@@ -155,11 +184,14 @@ class EffortController:
         horizon: int,
         elapsed_ms: float,
     ) -> None:
+        work = self.rollout_work(snapshot, candidate_count, horizon)
+        sample_rate = max(0.0, elapsed_ms) / max(1, work)
         self.rollout_ms_per_work = self._update_rate(
-            self.rollout_ms_per_work,
+            self._effective_rollout_rate(snapshot, sample_rate),
             elapsed_ms,
-            self.rollout_work(snapshot, candidate_count, horizon),
+            work,
         )
+        self.rollout_frame = snapshot.frame
 
     def _effective_policy_rate(
         self,
@@ -189,16 +221,9 @@ class EffortController:
         if predicted_rate is None:
             return measured_rate
 
-        measured_frame = self.policy_frame_by_horizon.get(horizon)
-        age = (
-            snapshot.frame - measured_frame
-            if measured_frame is not None
-            else -1
-        )
-        freshness = (
-            0.5 ** (age / POLICY_RATE_HALF_LIFE_FRAMES)
-            if age >= 0
-            else 0.0
+        freshness = self._measurement_freshness(
+            snapshot.frame,
+            self.policy_frame_by_horizon.get(horizon),
         )
         return (
             measured_rate * freshness

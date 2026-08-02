@@ -276,6 +276,7 @@ class AnytimePolicyTests(unittest.TestCase):
         controller = EffortController(12.5)
         controller.rollout_ms_per_work = 0.0005
         sparse = snapshot()
+        controller.rollout_frame = sparse.frame
         dense = snapshot(
             bullets=tuple(
                 Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
@@ -295,6 +296,7 @@ class AnytimePolicyTests(unittest.TestCase):
         state = snapshot()
         h6_work = controller.rollout_work(state, 3, 6)
         controller.rollout_ms_per_work = 9.5 / h6_work
+        controller.rollout_frame = state.frame
 
         controller.last_limit = HARD_SAFETY_HORIZON
         promoted = controller.choose_limit(state, 3, 2.0)
@@ -303,6 +305,27 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(promoted, HARD_SAFETY_HORIZON)
         self.assertEqual(retained, 6)
+
+    def test_stale_rollout_cost_yields_to_current_hard_measurement(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h6_work = controller.rollout_work(state, 3, 6)
+        controller.rollout_ms_per_work = 20.0 / h6_work
+        controller.rollout_frame = 0
+
+        self.assertEqual(controller.choose_limit(state, 3, 1.0), 6)
+
+    def test_fresh_rollout_cost_remains_authoritative(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h6_work = controller.rollout_work(state, 3, 6)
+        controller.rollout_ms_per_work = 20.0 / h6_work
+        controller.rollout_frame = state.frame
+
+        self.assertEqual(
+            controller.choose_limit(state, 3, 1.0),
+            HARD_SAFETY_HORIZON,
+        )
 
     def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
         controller = EffortController(10.0)

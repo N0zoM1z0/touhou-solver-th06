@@ -54,8 +54,10 @@ The three solver layers are:
    gaps and records that limitation below.
 2. **Budgeted anytime effort:** after Hard-4, progressively extend only its
    surviving frontier through 6, 8, 12, and 16 frames. The next rung is chosen
-   from measured rollout cost and the remaining decision deadline, never from
-   stage/spell IDs, bullet-count bands, wall thresholds, or a saved CE.
+   from recent measured rollout cost and the remaining decision deadline,
+   never from stage/spell IDs, bullet-count bands, wall thresholds, or a saved
+   CE. An old rollout sample decays continuously toward the current Hard timing
+   so a costly past scene cannot permanently suppress all soft exploration.
 3. **Proposal/ranking:** an affordable eight-frame, two-Hard-segment MPC rung
    ranks reachable policy volume inside the existing Hard-4 set. It is a normal
    anytime rung rather than a scene-triggered fallback: physical Stage 1 showed
@@ -432,3 +434,23 @@ constant-action work. Saved-history replay changes f6963 from the observed
 `up_right` to p12's `down`. The physical witness was reduced from 128 bullets
 to five in the corpus. Whether this scheduling is enough, or the search
 representation itself must change, remains deliberately open pending rerun.
+
+## Rollout-cost freshness checkpoint (2026-08-02)
+
+The interleaved-rung Practice run crossed f6986, f8609, and the earlier f10258
+laser dead end, then stopped at f12530 with 405 current bullets. For about 150
+frames before the stop, every decision remained at Hard-4 even though Hard
+itself generally cost 2--6 ms. At f12420, measured native cost for Hard,
+prepare8, c6, c8, and p8 totaled about 7.2 ms; p8 uniquely preferred
+`up_right` out of the lower-left clamp, but the physical solver held
+`down_left` until the current-bullet set became empty.
+
+`rollout_ms_per_work` had the same self-locking flaw previously found in deep
+policy rates: after it rejected all soft work, it could never receive a new
+sample that lowered the estimate. Rollout samples now lose trust with frame age
+toward a rate derived from the current Hard measurement, and a resumed sample
+updates from that effective rate rather than the stale EMA. A saved-history A/B
+keeps the old estimator at h4 through f12430, while the new estimator restores
+p8 and selects `up_right` at f12420. The minimized policy corpus needs no
+bullets at all, showing that boundary-state aliasing was already solved; the
+missing piece was compute exploration. Physical rerun remains next.

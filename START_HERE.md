@@ -62,10 +62,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   reveal dynamically aliased states. Once the constant-action frontier starts
   shrinking, the same recursive policy-volume search may deepen to h12/h16;
   each rung is admitted by its recent horizon-specific measured cost and
-  remaining deadline. Old deep-rung samples decay continuously toward a
-  prediction from the freshly measured lower rung, so a past expensive scene
-  cannot disable that rung indefinitely. Earlier stage clears do not physically
-  validate this replacement, so validation restarts at Stage 1.
+  remaining deadline. Old rollout samples decay toward current Hard timing;
+  old deep-policy samples decay toward a prediction from the freshly measured
+  lower rung. A past expensive scene therefore cannot disable a rung
+  indefinitely. Earlier stage clears do not physically validate this
+  replacement, so validation restarts at Stage 1.
 - Constant and turn-capable work is interleaved by rung: c6, c8, p8, c12,
   p12, c16, p16. This prevents a complete distant constant scan from consuming
   the deadline before the ordinary p8 proposal. An unaffordable policy rung
@@ -79,6 +80,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   f6963, physical execution had only afforded p8 and chose up-right; saved-state
   p12 uniquely chose down. Interleaving the same existing rungs reproduces the
   deeper proposal within budget. This scheduling change also awaits rerun.
+- That scheduling rerun crossed f6986, f8609, and f10258, then stopped at a
+  dense current-bullet dead end at f12530. Soft rollout had remained disabled
+  for roughly 150 frames despite f12420's full h8 work being affordable and
+  uniquely preferring up-right out of the lower-left clamp. Rollout cost now
+  has the same continuous freshness semantics; physical rerun is pending.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.
