@@ -10,10 +10,10 @@ engineering project.
 The working idea has three strict layers:
 
 1. **Hard safety authority:** only actions certified safe may execute.
-2. **Adaptive solver:** vary horizon/effort with the situation without
-   weakening safety.
-3. **Learning proposal/ranking:** learn stage-dependent preferences only inside
-   the safe set.
+2. **Adaptive solver:** spend measured compute budget progressively without
+   weakening safety or mapping scene features to a strategy.
+3. **Learning proposal/ranking:** learning may rank only inside the safe set;
+   it is currently disabled until the general solver is physically stable.
 
 This separation is the idea; the algorithms are intentionally not fixed.
 
@@ -55,6 +55,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   authority stop, or Bomb, covering up to 637 bullets, 8 lasers, and 8 lethal
   enemy bodies. Its physically found fixes remain narrow soft-ranking and
   delivery changes; Hard-4 eligibility is unchanged.
+- The old density, boundary, laser, and CE-shaped adaptive gates have now been
+  removed. The replacement always computes Hard-4 first, then climbs a
+  measured-cost 6/8/12/16 frontier one rung at a time and enables generic
+  continuation only when that frontier contracts. Earlier stage clears do not
+  physically validate this replacement, so validation restarts at Stage 1.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.
@@ -70,11 +75,11 @@ unconfirmed candidates.
 
 ## How to continue
 
-Practice Stage 4 has passed. Per the one-time ordering decision, run a fresh
-full Hard route from Stage 1 now and stop on its first HIT/authority CE or its
-source-defined result path. Explain one concrete failure from native state and
-source, make one small change, run the focused check, then test it physically.
-Use Practice for the newly unresolved stage after the full route identifies it.
+Run Hard Practice Stage 1 with the new general solver and stop on its first
+HIT/authority CE or its source-defined result path. Explain one concrete
+failure from native state and source, make one small general change, run the
+focused check, then test it physically. Do not restore a feature threshold or
+CE-specific branch to regain an earlier clear.
 
 ```bat
 run_th06_baseline.bat --seconds 120

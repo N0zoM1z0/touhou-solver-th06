@@ -431,6 +431,11 @@ def run(args: argparse.Namespace) -> int:
                                 exit_code = 2
 
                 row_reason = "stale-decision-retry" if stale_retry else decision.reason
+                if (
+                    decision.horizon == HARD_SAFETY_HORIZON
+                    and decision.reason == "ok"
+                ):
+                    solver.observe_publication(stale_retry)
                 if stale_retry:
                     action_name = "stale-retry"
                 elif decision.action is not None:

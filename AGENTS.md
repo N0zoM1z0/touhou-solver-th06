@@ -23,6 +23,14 @@ when physical evidence disproves it. Survival is hard; attack, collection, and
 position are soft. Bomb bit `0x02` must never be emitted. Unknown hazards fail
 closed.
 
+The adaptive layer must be general and budget-driven. Do not select a horizon,
+planner, or ranking rule from stage/spell IDs, bullet-count bands, boundary
+thresholds, or a counterexample-specific condition. Extend the Hard-certified
+frontier progressively while measured compute budget remains; enable generic
+continuation planning when that frontier contracts. A counterexample may fix
+source semantics, authority, cost estimation, or a general algorithm, but must
+not receive its own branch in the main solver.
+
 For each iteration:
 
 - use source/IDA/runtime evidence to explain the first physical failure;

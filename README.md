@@ -30,8 +30,9 @@ The implementation is intentionally small, with one module per responsibility:
 - `safety.py`: the only composition layer allowed to certify actions.
 - `kernels/safety.cpp`: the general dense collision scan only; hazard semantics
   remain in the separate Python modules and have a Python reference path.
-- `solver.py`: adaptive horizon and layer composition.
-- `ranking.py`: proposals and online preferences inside the certified set.
+- `solver.py`: Hard authority plus deadline-driven progressive effort.
+- `ranking.py`: short proposal commitment inside the certified set. Learning
+  is deliberately disabled until a contextual proposal has physical evidence.
 - `viability.py`: the bounded two-segment proposal used only when a longer
   constant-action proposal has no survivor.
 - `actuator.py`: foreground-guarded physical keyboard output.
@@ -51,15 +52,15 @@ The three solver layers are:
    frames. This is the current authority window, not a route-level timing
    proof; the Stage 3 checkpoint observed rare three-frame snapshot/decision
    gaps and records that limitation below.
-2. **Adaptive solver:** use an 8, 12, or 16 frame horizon according to current
-   bullet proximity, density, and delivery cost. This longer constant-action
-   rollout ranks hard-allowed actions but cannot remove or add hard eligibility.
-3. **Proposal/ranking:** first prefer a hard-allowed action that survives the
-   adaptive rollout when one exists. If none does, a native two-segment scan
-   ranks only the existing hard set by its possible four-frame continuation;
-   then use clearance, a conservative
-   bottom-center position, mild continuity, and a tiny death-penalty
-   preference. Mere survival is deliberately not rewarded.
+2. **Budgeted anytime effort:** after Hard-4, progressively extend only its
+   surviving frontier through 6, 8, 12, and 16 frames. The next rung is chosen
+   from measured rollout cost and the remaining decision deadline, never from
+   stage/spell IDs, bullet-count bands, wall thresholds, or a saved CE.
+3. **Proposal/ranking:** when the constant-action frontier contracts and budget
+   remains, a general two-segment continuation ranks only the existing Hard-4
+   set. A one-segment commitment prevents frame-to-frame chatter while every
+   fresh Hard check and preferred frontier still permit it. Clearance and
+   current-input continuity are only deterministic soft tie-breaks.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.
@@ -84,6 +85,10 @@ the built-in demo.
 
 The shipped field named `isInMenu` is counterintuitive: source and runtime both
 show that it is `1` during an active gameplay calc chain.
+
+The chronological checkpoints below retain measurements from earlier solver
+versions. Their descriptions of density, boundary, laser, or fixed-horizon
+gates are historical evidence, not the current adaptive contract.
 
 ## Run
 

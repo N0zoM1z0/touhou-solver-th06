@@ -1,12 +1,18 @@
 import unittest
-from unittest import mock
+from dataclasses import replace
 
-from th06.model import ACTIONS, SafeAction, Snapshot
-from th06.solver import HARD_SAFETY_HORIZON, Solver
+from th06.model import ACTIONS, Bullet, SafeAction, Snapshot
+from th06.ranking import ProposalRanker
+from th06.solver import (
+    EFFORT_HORIZONS,
+    HARD_SAFETY_HORIZON,
+    EffortController,
+    Solver,
+)
 
 
-def snapshot() -> Snapshot:
-    return Snapshot(
+def snapshot(**changes) -> Snapshot:
+    values = dict(
         frame=100,
         stage=1,
         player_state=0,
@@ -26,68 +32,203 @@ def snapshot() -> Snapshot:
         time_stopped=False,
         replay_or_demo=False,
     )
+    values.update(changes)
+    return Snapshot(**values)
 
 
-class MultisegmentPolicyTests(unittest.TestCase):
-    def test_policy_volume_ranks_only_hard_certified_actions(self):
-        state = snapshot()
-        stay, up, down = ACTIONS[:3]
-        certified = tuple(
-            SafeAction(action, 10.0, state.x, state.y)
-            for action in (stay, up, down)
+class ManualClock:
+    def __init__(self) -> None:
+        self.seconds = 0.0
+
+    def __call__(self) -> float:
+        return self.seconds
+
+    def advance_ms(self, milliseconds: float) -> None:
+        self.seconds += milliseconds / 1000.0
+
+
+class ProgressiveKernel:
+    def __init__(
+        self,
+        clock: ManualClock,
+        hard,
+        frontiers=None,
+        scores=None,
+        hard_ms=1.0,
+    ):
+        self.clock = clock
+        self.hard = hard
+        self.frontiers = frontiers or {}
+        self.scores = scores or {}
+        self.hard_ms = hard_ms
+        self.calls = []
+
+    def certify_selected_delivery_sets(
+        self, state, horizon, actions, collision_margin
+    ):
+        self.calls.append(("hard", horizon, tuple(actions)))
+        self.clock.advance_ms(self.hard_ms)
+        return self.hard, self.hard
+
+    def prepare(self, state, horizon):
+        self.calls.append(("prepare", horizon))
+        self.clock.advance_ms(1.0)
+
+    def certify_selected(self, state, horizon, actions, collision_margin):
+        self.calls.append(("frontier", horizon, tuple(actions)))
+        self.clock.advance_ms(0.5)
+        allowed = frozenset(actions)
+        return tuple(
+            candidate
+            for candidate in self.frontiers.get(horizon, self.hard)
+            if candidate.action in allowed
         )
-        class Kernel:
-            def __init__(self):
-                self.calls = mock.Mock(return_value={
-                    stay: 4,
-                    up: 9,
-                    down: 3,
-                    ACTIONS[4]: 99,
-                })
 
-            def nominal_policy_counts(self, *args, **kwargs):
-                return self.calls(*args, **kwargs)
+    def nominal_policy_counts(
+        self, state, candidates, segment_length, horizon, collision_margin
+    ):
+        self.calls.append(("policy", horizon, tuple(candidates)))
+        self.clock.advance_ms(1.0)
+        return self.scores
 
-        kernel = Kernel()
-        solver = Solver()
+
+class AnytimePolicyTests(unittest.TestCase):
+    def setUp(self):
+        state = snapshot()
+        self.hard = tuple(
+            SafeAction(action, 10.0 - index, state.x, state.y)
+            for index, action in enumerate(ACTIONS[:3])
+        )
+
+    def solver(self, kernel, clock, budget=12.5):
+        solver = Solver(decision_budget_ms=budget, clock=clock)
         solver.kernel = kernel
+        solver.backend = "test"
+        return solver
 
-        durable = solver._multisegment_durable(
-            state,
-            certified,
-            HARD_SAFETY_HORIZON * 3,
+    def test_hard_authority_is_computed_before_soft_work(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(clock, self.hard)
+        solver = self.solver(kernel, clock)
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(kernel.calls[0][0], "hard")
+        self.assertEqual(kernel.calls[1], ("prepare", EFFORT_HORIZONS[0]))
+        self.assertEqual(decision.safe_actions, self.hard)
+
+    def test_affordable_frontier_promotes_one_rung_per_decision(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(clock, self.hard)
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+
+        horizons = []
+        for offset in range(4):
+            decision = solver.decide(replace(snapshot(), frame=100 + offset))
+            horizons.append(decision.effort_horizon)
+
+        self.assertEqual(horizons, list(EFFORT_HORIZONS))
+
+    def test_frontier_contraction_triggers_general_policy_only(self):
+        clock = ManualClock()
+        up = self.hard[1].action
+        outsider = ACTIONS[4]
+        kernel = ProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={6: self.hard[:-1]},
+            scores={
+                self.hard[0].action: 2,
+                up: 5,
+                self.hard[2].action: 1,
+                outsider: 99,
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.safe_actions, self.hard)
+        self.assertEqual(decision.action, up)
+        self.assertIn("policy", [call[0] for call in kernel.calls])
+        self.assertNotIn(outsider, {item.action for item in decision.safe_actions})
+
+    def test_spent_hard_deadline_skips_all_soft_work(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(clock, self.hard, hard_ms=20.0)
+        solver = self.solver(kernel, clock, budget=12.5)
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual([call[0] for call in kernel.calls], ["hard"])
+
+    def test_first_soft_probe_uses_measured_hard_cost(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(clock, self.hard, hard_ms=6.0)
+        solver = self.solver(kernel, clock, budget=10.0)
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual([call[0] for call in kernel.calls], ["hard"])
+
+    def test_cost_estimate_uses_continuous_work_not_scene_bands(self):
+        controller = EffortController(12.5)
+        controller.rollout_ms_per_work = 0.0005
+        sparse = snapshot()
+        dense = snapshot(
+            bullets=tuple(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(200)
+            )
         )
 
-        self.assertEqual(durable, frozenset((up,)))
-        kernel.calls.assert_called_once_with(
-            state,
-            certified,
-            HARD_SAFETY_HORIZON,
-            HARD_SAFETY_HORIZON * 3,
-            collision_margin=0.35,
-        )
+        controller.last_limit = EFFORT_HORIZONS[-1]
+        sparse_limit = controller.choose_limit(sparse, 9, 1.0)
+        controller.last_limit = EFFORT_HORIZONS[-1]
+        dense_limit = controller.choose_limit(dense, 9, 1.0)
 
-    def test_policy_volume_never_becomes_action_authority(self):
+        self.assertGreater(sparse_limit, dense_limit)
+
+    def test_compute_ladder_has_promotion_hysteresis(self):
+        controller = EffortController(12.0)
         state = snapshot()
-        certified = (
-            SafeAction(ACTIONS[0], 10.0, state.x, state.y),
-            SafeAction(ACTIONS[1], 10.0, state.x, state.y),
-        )
-        solver = Solver()
-        class Kernel:
-            def nominal_policy_counts(self, *_args, **_kwargs):
-                return {ACTIONS[0]: 0, ACTIONS[1]: 0}
+        h6_work = controller.rollout_work(state, 3, 6)
+        controller.rollout_ms_per_work = 9.5 / h6_work
 
-        solver.kernel = Kernel()
+        controller.last_limit = HARD_SAFETY_HORIZON
+        promoted = controller.choose_limit(state, 3, 2.0)
+        controller.last_limit = 6
+        retained = controller.choose_limit(state, 3, 2.0)
 
-        self.assertEqual(
-            solver._multisegment_durable(
-                state,
-                certified,
-                HARD_SAFETY_HORIZON * 3,
-            ),
-            frozenset(),
+        self.assertEqual(promoted, HARD_SAFETY_HORIZON)
+        self.assertEqual(retained, 6)
+
+    def test_stale_publication_reduces_next_soft_budget(self):
+        controller = EffortController(12.5)
+        before = controller.budget_ms()
+        controller.last_limit = EFFORT_HORIZONS[-1]
+
+        controller.observe_publication(True)
+
+        self.assertLess(controller.budget_ms(), before)
+        self.assertEqual(controller.last_limit, HARD_SAFETY_HORIZON)
+
+    def test_commitment_requires_a_fresh_preferred_certificate(self):
+        ranker = ProposalRanker()
+        preferred = frozenset((self.hard[-1].action,))
+
+        first = ranker.choose(snapshot(), self.hard, preferred)
+        second = ranker.choose(
+            replace(snapshot(), frame=101),
+            self.hard,
         )
+
+        self.assertEqual(first.action, self.hard[-1].action)
+        self.assertEqual(second.action, self.hard[0].action)
 
 
 if __name__ == "__main__":

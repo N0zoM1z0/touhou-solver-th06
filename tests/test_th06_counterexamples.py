@@ -16,9 +16,46 @@ from th06.model import SafeAction, Snapshot
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
+from th06.solver import Solver
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_anytime_solver_keeps_physical_snapshots_inside_hard_authority(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("snapshot") is not None
+            or case.get("input", {}).get("snapshot") is not None
+        )
+        self.assertTrue(cases, "physical snapshot corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                raw = case.get("snapshot") or case["input"]["snapshot"]
+                state = decode_snapshot(raw)
+                hard = certify_actions(state, 4)
+                decision = Solver(decision_budget_ms=0.001).decide(state)
+                if hard:
+                    self.assertEqual(
+                        tuple(candidate.action for candidate in decision.safe_actions),
+                        tuple(candidate.action for candidate in hard),
+                    )
+                    self.assertIn(
+                        decision.action,
+                        {candidate.action for candidate in hard},
+                    )
+                else:
+                    self.assertIn(
+                        decision.reason,
+                        ("hard-safe-set-empty", "same-frame-delivery-only"),
+                    )
+                    if decision.action is not None:
+                        self.assertIn(
+                            decision.action,
+                            {
+                                candidate.action
+                                for candidate in decision.safe_actions
+                            },
+                        )
+
     def test_ecl_forecast_counterexamples(self):
         cases = tuple(
             case for case in load_cases()
@@ -97,11 +134,11 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     chosen = ranker.choose(
                         state,
                         candidates,
-                        durable_actions=frozenset(
+                        preferred_actions=frozenset(
                             ACTION_BY_NAME[name]
                             for name in step["durable_actions"]
                         ),
-                        repair_span=case["input"]["repair_span"],
+                        commitment_frames=case["input"]["repair_span"],
                     )
                     self.assertEqual(
                         chosen.action,

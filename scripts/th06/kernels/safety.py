@@ -222,6 +222,10 @@ class NativeSafetyKernel:
         self._prepared_hazards = prepared
         return prepared
 
+    def prepare(self, snapshot: Snapshot, horizon: int) -> None:
+        """Prepare one shared soft window before progressive frontier scans."""
+        self._prepare_reusable(snapshot, horizon)
+
     def _certify_prepared(
         self,
         snapshot: Snapshot,
@@ -450,6 +454,28 @@ class NativeSafetyKernel:
             horizon,
             collision_margin,
             self._prepare(snapshot, horizon),
+        )
+        return hard, age_zero
+
+    def certify_selected_delivery_sets(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in selected
+        )
+        hard, age_zero, _extended = self._certify_prepared(
+            snapshot,
+            horizon,
+            collision_margin,
+            self._prepare_reusable(snapshot, horizon),
+            candidate_mask,
         )
         return hard, age_zero
 
