@@ -59,8 +59,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   removed. The replacement always computes Hard-4 first, then climbs a
   measured-cost 6/8/12/16 frontier one rung at a time. An affordable h8
   two-segment MPC proposal is a normal rung because action count alone cannot
-  reveal dynamically aliased states. Earlier stage clears do not physically
-  validate this replacement, so validation restarts at Stage 1.
+  reveal dynamically aliased states. Once the constant-action frontier starts
+  shrinking, the same recursive policy-volume search may deepen to h12/h16;
+  each rung is admitted by its horizon-specific measured cost and remaining
+  deadline. Earlier stage clears do not physically validate this replacement,
+  so validation restarts at Stage 1.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.

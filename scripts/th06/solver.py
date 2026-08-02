@@ -18,7 +18,7 @@ from .model import (
 )
 from .ranking import ProposalRanker
 from .safety import DELIVERY_DELAYS, certify_actions
-from .viability import replanning_scores
+from .viability import nominal_policy_scores
 
 
 HARD_SAFETY_HORIZON = 4
@@ -29,6 +29,7 @@ DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
 FIXED_WORK_EQUIVALENT = 32
 MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
+INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
 
 
 class EffortController:
@@ -41,6 +42,8 @@ class EffortController:
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
         self.policy_ms_per_work: float | None = None
+        self.policy_rate_by_horizon: dict[int, float] = {}
+        self.policy_rate_growth = INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT
         self.last_limit = HARD_SAFETY_HORIZON
 
     @staticmethod
@@ -164,15 +167,33 @@ class EffortController:
         elapsed_ms: float,
     ) -> bool:
         remaining_ms = self.budget_ms() - elapsed_ms
-        rate = self.policy_ms_per_work or self.rollout_ms_per_work
+        work = self.rollout_work(snapshot, candidate_count, horizon)
+        rate = self.policy_rate_by_horizon.get(horizon)
+        estimate = rate * work if rate is not None else None
+        if rate is None:
+            lower = tuple(
+                measured_horizon
+                for measured_horizon in self.policy_rate_by_horizon
+                if measured_horizon < horizon
+            )
+            if lower:
+                nearest = max(lower)
+                added_segments = max(
+                    1,
+                    (horizon - nearest) // HARD_SAFETY_HORIZON,
+                )
+                estimate = (
+                    self.policy_rate_by_horizon[nearest]
+                    * work
+                    * self.policy_rate_growth ** added_segments
+                )
+        fallback_rate = self.policy_ms_per_work or self.rollout_ms_per_work
+        if estimate is None and fallback_rate is not None:
+            estimate = fallback_rate * work
         return (
             remaining_ms > 0.0
-            and rate is not None
-            and rate * self.rollout_work(
-                snapshot,
-                candidate_count,
-                horizon,
-            ) <= remaining_ms
+            and estimate is not None
+            and estimate <= remaining_ms * PROMOTION_BUDGET_FRACTION
         )
 
     def observe_policy(
@@ -187,6 +208,26 @@ class EffortController:
             elapsed_ms,
             self.rollout_work(snapshot, candidate_count, horizon),
         )
+        work = self.rollout_work(snapshot, candidate_count, horizon)
+        measured_rate = self._update_rate(
+            self.policy_rate_by_horizon.get(horizon),
+            elapsed_ms,
+            work,
+        )
+        lower = tuple(
+            measured_horizon
+            for measured_horizon in self.policy_rate_by_horizon
+            if measured_horizon < horizon
+        )
+        if lower:
+            lower_rate = self.policy_rate_by_horizon[max(lower)]
+            if lower_rate > 0.0:
+                observed_growth = measured_rate / lower_rate
+                self.policy_rate_growth = (
+                    self.policy_rate_growth * (1.0 - MEASUREMENT_WEIGHT)
+                    + observed_growth * MEASUREMENT_WEIGHT
+                )
+        self.policy_rate_by_horizon[horizon] = measured_rate
 
     def observe_publication(self, stale: bool) -> None:
         if stale:
@@ -274,7 +315,7 @@ class Solver:
                 horizon,
                 collision_margin=0.35,
             )
-        return replanning_scores(
+        return nominal_policy_scores(
             snapshot,
             candidates,
             HARD_SAFETY_HORIZON,
@@ -426,8 +467,6 @@ class Solver:
                     break
                 frontier = next_frontier
                 frontier_horizon = horizon
-                if contracted:
-                    break
             rollout_ms = (self.clock() - rollout_started) * 1000.0
             self.effort.observe_rollout(
                 snapshot,
@@ -440,28 +479,36 @@ class Solver:
             candidate.action for candidate in frontier
         ) if frontier_horizon > HARD_SAFETY_HORIZON else frozenset()
 
-        elapsed_ms = (self.clock() - started) * 1000.0
-        if (
-            limit >= BASE_POLICY_HORIZON
-            and len(hard) > 1
-            and self.effort.policy_affordable(
+        policy_horizon = HARD_SAFETY_HORIZON
+        for horizon in EFFORT_HORIZONS:
+            if horizon < BASE_POLICY_HORIZON:
+                continue
+            if horizon > limit or len(hard) <= 1:
+                break
+            # H8 is the regular two-segment proposal rung. Deeper recursive
+            # MPC is useful once the constant-action volume starts shrinking;
+            # it is then extended only while the measured deadline permits.
+            if horizon > BASE_POLICY_HORIZON and not contracted:
+                break
+            elapsed_ms = (self.clock() - started) * 1000.0
+            if not self.effort.policy_affordable(
                 snapshot,
                 len(hard),
-                BASE_POLICY_HORIZON,
+                horizon,
                 elapsed_ms,
-            )
-        ):
+            ):
+                break
             policy_started = self.clock()
             scores = self._policy_scores(
                 snapshot,
                 hard,
-                BASE_POLICY_HORIZON,
+                horizon,
             )
             policy_ms = (self.clock() - policy_started) * 1000.0
             self.effort.observe_policy(
                 snapshot,
                 len(hard),
-                BASE_POLICY_HORIZON,
+                horizon,
                 policy_ms,
             )
             allowed = frozenset(candidate.action for candidate in hard)
@@ -478,6 +525,7 @@ class Solver:
                     if score == best_score
                     and action in allowed
                 )
+                policy_horizon = horizon
 
         chosen = self.ranker.choose(
             snapshot,
@@ -497,7 +545,7 @@ class Solver:
             chosen.clearance,
             HARD_SAFETY_HORIZON,
             "ok",
-            frontier_horizon,
+            max(frontier_horizon, policy_horizon),
             len(preferred),
             0,
             held_horizon,

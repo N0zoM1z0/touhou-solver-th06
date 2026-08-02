@@ -60,9 +60,12 @@ The three solver layers are:
    ranks reachable policy volume inside the existing Hard-4 set. It is a normal
    anytime rung rather than a scene-triggered fallback: physical Stage 1 showed
    that constant actions can alias to one clamped state before their count
-   contracts. A one-segment commitment prevents frame-to-frame chatter while
-   every fresh Hard check and preferred proposal still permits it. Clearance
-   and current-input continuity are only deterministic soft tie-breaks.
+   contracts. When the constant frontier does start shrinking, the same
+   recursive search may deepen to h12 and h16 while its per-horizon measured
+   cost fits the remaining deadline. A one-segment commitment prevents
+   frame-to-frame chatter while every fresh Hard check and preferred proposal
+   still permits it. Clearance and current-input continuity are only
+   deterministic soft tie-breaks.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.

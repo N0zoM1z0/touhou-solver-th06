@@ -54,12 +54,14 @@ class ProgressiveKernel:
         hard,
         frontiers=None,
         scores=None,
+        scores_by_horizon=None,
         hard_ms=1.0,
     ):
         self.clock = clock
         self.hard = hard
         self.frontiers = frontiers or {}
         self.scores = scores or {}
+        self.scores_by_horizon = scores_by_horizon or {}
         self.hard_ms = hard_ms
         self.calls = []
 
@@ -89,7 +91,7 @@ class ProgressiveKernel:
     ):
         self.calls.append(("policy", horizon, tuple(candidates)))
         self.clock.advance_ms(1.0)
-        return self.scores
+        return self.scores_by_horizon.get(horizon, self.scores)
 
 
 class AnytimePolicyTests(unittest.TestCase):
@@ -177,6 +179,35 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 8)
         self.assertEqual(decision.action, up)
         self.assertIn("policy", [call[0] for call in kernel.calls])
+
+    def test_frontier_contraction_progressively_deepens_policy(self):
+        clock = ManualClock()
+        up = self.hard[1].action
+        kernel = ProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={12: self.hard[:-1]},
+            scores_by_horizon={
+                8: {candidate.action: 3 for candidate in self.hard},
+                12: {
+                    self.hard[0].action: 2,
+                    up: 7,
+                    self.hard[2].action: 1,
+                },
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 8
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "policy"],
+            [8, 12],
+        )
+        self.assertEqual(decision.action, up)
+        self.assertEqual(decision.effort_horizon, 12)
 
     def test_spent_hard_deadline_skips_all_soft_work(self):
         clock = ManualClock()

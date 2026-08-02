@@ -18,6 +18,7 @@ from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
 from th06.solver import Solver
+from th06.viability import nominal_policy_scores
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
@@ -230,6 +231,55 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     scores[ACTION_BY_NAME[observed["action"]]],
                     observed["score"],
                 )
+
+    def test_reference_policy_volume_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "native_policy_volume"
+        )
+        self.assertTrue(cases, "policy volume corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                hard = certify_actions(state, 4)
+                scores = nominal_policy_scores(
+                    state,
+                    hard,
+                    case["input"]["segment_length"],
+                    case["input"]["horizon"],
+                )
+                best_score = max(scores.values(), default=0)
+                self.assertEqual(best_score, case["expect"]["best_score"])
+                self.assertEqual(
+                    sorted(
+                        action.name for action, score in scores.items()
+                        if score == best_score
+                    ),
+                    sorted(case["expect"]["actions"]),
+                )
+                observed = case["expect"]["observed_dead_end"]
+                self.assertEqual(
+                    scores[ACTION_BY_NAME[observed["action"]]],
+                    observed["score"],
+                )
+                solver_expect = case["expect"].get("solver")
+                if solver_expect is not None:
+                    solver = Solver(decision_budget_ms=100.0)
+                    solver.effort.rollout_ms_per_work = 0.0
+                    decision = None
+                    for offset in range(solver_expect["warmup_decisions"]):
+                        decision = solver.decide(
+                            replace(state, frame=state.frame + offset)
+                        )
+                    self.assertIsNotNone(decision)
+                    self.assertEqual(
+                        decision.action,
+                        ACTION_BY_NAME[solver_expect["action"]],
+                    )
+                    self.assertEqual(
+                        decision.effort_horizon,
+                        solver_expect["effort_horizon"],
+                    )
 
 
 if __name__ == "__main__":
