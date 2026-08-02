@@ -56,11 +56,13 @@ The three solver layers are:
    surviving frontier through 6, 8, 12, and 16 frames. The next rung is chosen
    from measured rollout cost and the remaining decision deadline, never from
    stage/spell IDs, bullet-count bands, wall thresholds, or a saved CE.
-3. **Proposal/ranking:** when the constant-action frontier contracts and budget
-   remains, a general two-segment continuation ranks only the existing Hard-4
-   set. A one-segment commitment prevents frame-to-frame chatter while every
-   fresh Hard check and preferred frontier still permit it. Clearance and
-   current-input continuity are only deterministic soft tie-breaks.
+3. **Proposal/ranking:** an affordable eight-frame, two-Hard-segment MPC rung
+   ranks reachable policy volume inside the existing Hard-4 set. It is a normal
+   anytime rung rather than a scene-triggered fallback: physical Stage 1 showed
+   that constant actions can alias to one clamped state before their count
+   contracts. A one-segment commitment prevents frame-to-frame chatter while
+   every fresh Hard check and preferred proposal still permits it. Clearance
+   and current-input continuity are only deterministic soft tie-breaks.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.

@@ -26,10 +26,11 @@ closed.
 The adaptive layer must be general and budget-driven. Do not select a horizon,
 planner, or ranking rule from stage/spell IDs, bullet-count bands, boundary
 thresholds, or a counterexample-specific condition. Extend the Hard-certified
-frontier progressively while measured compute budget remains; enable generic
-continuation planning when that frontier contracts. A counterexample may fix
-source semantics, authority, cost estimation, or a general algorithm, but must
-not receive its own branch in the main solver.
+frontier progressively while measured compute budget remains. Generic bounded
+continuation is an ordinary budgeted rung, not a scene-triggered fallback; a
+constant-action count can hide aliased reachable states. A counterexample may
+fix source semantics, authority, cost estimation, or a general algorithm, but
+must not receive its own branch in the main solver.
 
 For each iteration:
 

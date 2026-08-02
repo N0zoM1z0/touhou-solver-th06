@@ -1,5 +1,6 @@
 import os
 import unittest
+from dataclasses import replace
 
 from counterexample_corpus import (
     ACTION_BY_NAME,
@@ -20,6 +21,32 @@ from th06.solver import Solver
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_anytime_policy_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "anytime_policy"
+        )
+        self.assertTrue(cases, "anytime policy corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                solver = Solver(decision_budget_ms=100.0)
+                solver.effort.rollout_ms_per_work = 0.0
+                decision = None
+                for offset in range(case["input"]["warmup_decisions"]):
+                    decision = solver.decide(
+                        replace(state, frame=state.frame + offset)
+                    )
+                self.assertIsNotNone(decision)
+                self.assertEqual(
+                    decision.action,
+                    ACTION_BY_NAME[case["expect"]["action"]],
+                )
+                self.assertEqual(
+                    decision.effort_horizon,
+                    case["expect"]["effort_horizon"],
+                )
+
     def test_anytime_solver_keeps_physical_snapshots_inside_hard_authority(self):
         cases = tuple(
             case for case in load_cases()

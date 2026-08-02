@@ -147,6 +147,7 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         solver = self.solver(kernel, clock, budget=100.0)
         solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 6
 
         decision = solver.decide(snapshot())
 
@@ -154,6 +155,28 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, up)
         self.assertIn("policy", [call[0] for call in kernel.calls])
         self.assertNotIn(outsider, {item.action for item in decision.safe_actions})
+
+    def test_two_segment_policy_is_a_regular_affordable_rung(self):
+        clock = ManualClock()
+        up = self.hard[1].action
+        kernel = ProgressiveKernel(
+            clock,
+            self.hard,
+            scores={
+                self.hard[0].action: 2,
+                up: 5,
+                self.hard[2].action: 1,
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 6
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(decision.action, up)
+        self.assertIn("policy", [call[0] for call in kernel.calls])
 
     def test_spent_hard_deadline_skips_all_soft_work(self):
         clock = ManualClock()

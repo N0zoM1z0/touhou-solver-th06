@@ -23,6 +23,7 @@ from .viability import replanning_scores
 
 HARD_SAFETY_HORIZON = 4
 EFFORT_HORIZONS = (6, 8, 12, 16)
+BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
 FIXED_WORK_EQUIVALENT = 32
@@ -441,22 +442,26 @@ class Solver:
 
         elapsed_ms = (self.clock() - started) * 1000.0
         if (
-            contracted
-            and limit > HARD_SAFETY_HORIZON
+            limit >= BASE_POLICY_HORIZON
+            and len(hard) > 1
             and self.effort.policy_affordable(
                 snapshot,
                 len(hard),
-                limit,
+                BASE_POLICY_HORIZON,
                 elapsed_ms,
             )
         ):
             policy_started = self.clock()
-            scores = self._policy_scores(snapshot, hard, limit)
+            scores = self._policy_scores(
+                snapshot,
+                hard,
+                BASE_POLICY_HORIZON,
+            )
             policy_ms = (self.clock() - policy_started) * 1000.0
             self.effort.observe_policy(
                 snapshot,
                 len(hard),
-                limit,
+                BASE_POLICY_HORIZON,
                 policy_ms,
             )
             allowed = frozenset(candidate.action for candidate in hard)
