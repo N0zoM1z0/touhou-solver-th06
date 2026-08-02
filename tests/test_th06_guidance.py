@@ -3,7 +3,11 @@ import unittest
 from dataclasses import replace
 
 from counterexample_corpus import ACTION_BY_NAME, decode_snapshot, load_cases
-from th06.guidance import TerminalGuidance, terminal_guidance_scores
+from th06.guidance import (
+    TerminalGuidance,
+    preferred_target_actions,
+    terminal_guidance_scores,
+)
 from th06.kernels.safety import NativeSafetyKernel
 from th06.model import ACTIONS, SafeAction, Snapshot
 from th06.safety import certify_actions
@@ -88,7 +92,9 @@ class GuidanceKernel:
         self.clock.advance_ms(0.2)
         return {
             item.action: TerminalGuidance(
-                terminal_count=1,
+                terminal_count=(
+                    2 if item.action.name == "right" else 1
+                ),
                 free_clearance=12.0,
                 free_x=80.0,
                 free_y=120.0,
@@ -191,10 +197,21 @@ class TerminalGuidanceTests(unittest.TestCase):
                 target,
             )
         )
-        best_distance = min(
-            item.target_distance_squared
-            for item in tracking_guidance.values()
-            if item.terminal_count > 0
+        preferred = preferred_target_actions(
+            tracking_guidance,
+            frozenset(item.action for item in tracking_hard),
+        )
+        if "tracking_terminal_count" in expected:
+            self.assertEqual(
+                max(
+                    tracking_guidance[action].terminal_count
+                    for action in preferred
+                ),
+                expected["tracking_terminal_count"],
+            )
+        best_distance = next(
+            tracking_guidance[action].target_distance_squared
+            for action in preferred
         )
         self.assertAlmostEqual(
             best_distance,
@@ -203,10 +220,7 @@ class TerminalGuidanceTests(unittest.TestCase):
         )
         self.assertEqual(
             sorted(
-                action.name
-                for action, item in tracking_guidance.items()
-                if item.terminal_count > 0
-                and item.target_distance_squared == best_distance
+                action.name for action in preferred
             ),
             sorted(expected["tracking_actions"]),
         )
@@ -309,7 +323,7 @@ class TerminalGuidanceTests(unittest.TestCase):
         guided = solver.decide(
             replace(state, frame=102, input_mask=0x84)
         )
-        self.assertEqual(guided.action.name, "down_right")
+        self.assertEqual(guided.action.name, "right")
         self.assertIn("acquire", {call[0] for call in kernel.calls})
         self.assertIn("target", {call[0] for call in kernel.calls})
 
@@ -335,6 +349,29 @@ class TerminalGuidanceTests(unittest.TestCase):
 
         self.assertNotIn("acquire", {call[0] for call in kernel.calls})
         self.assertIsNone(solver.guidance_target)
+
+    def test_target_deadline_does_not_shorten_survival_ladder(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = GuidanceKernel(clock, hard)
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 5
+
+        solver.decide(state)
+
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "target"],
+            [8, 12, 16],
+        )
 
     def test_unique_constant_frontier_can_anchor_a_target(self):
         state = snapshot(x=192.0, y=380.0)

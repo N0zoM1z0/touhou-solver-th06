@@ -6,7 +6,7 @@ import math
 import os
 import time
 
-from .guidance import terminal_guidance_scores
+from .guidance import preferred_target_actions, terminal_guidance_scores
 from .hazards.lasers import unknown_motion_may_reach_player
 from .kernels.safety import NativeSafetyKernel
 from .model import (
@@ -652,7 +652,6 @@ class Solver:
         target_guided = False
         target_invalid = False
         acquired_pending_target = False
-        last_target_horizon = 0
 
         if limit > HARD_SAFETY_HORIZON:
             operation_started = self.clock()
@@ -759,16 +758,11 @@ class Solver:
                 ):
                     continue
                 if self.guidance_target is not None:
-                    remaining = max(
-                        HARD_SAFETY_HORIZON,
-                        (self.guidance_deadline or snapshot.frame)
-                        - snapshot.frame,
-                    )
-                    if horizon > remaining and last_target_horizon > 0:
-                        continue
-                    effective_horizon = min(horizon, remaining)
-                    if effective_horizon <= last_target_horizon:
-                        continue
+                    # A soft target must not shorten the ordinary survival
+                    # lookahead as its commitment deadline approaches.  The
+                    # deadline only expires the target; every affordable rung
+                    # still evaluates a fresh full-horizon continuation.
+                    effective_horizon = horizon
                 else:
                     effective_horizon = horizon
                 elapsed_ms = (self.clock() - started) * 1000.0
@@ -799,7 +793,6 @@ class Solver:
                         effective_horizon,
                         self.guidance_target,
                     )
-                    last_target_horizon = effective_horizon
                     scores = None
                 else:
                     guidance = None
@@ -826,24 +819,11 @@ class Solver:
                     )
                 allowed = frozenset(candidate.action for candidate in hard)
                 if guidance is not None:
-                    reachable = {
-                        action: value.target_distance_squared
-                        for action, value in guidance.items()
-                        if (
-                            action in allowed
-                            and value.terminal_count > 0
-                            and math.isfinite(
-                                value.target_distance_squared
-                            )
-                        )
-                    }
-                    if reachable:
-                        best_distance = min(reachable.values())
-                        policy_preferred = frozenset(
-                            action
-                            for action, distance in reachable.items()
-                            if distance == best_distance
-                        )
+                    target_preferred = preferred_target_actions(
+                        guidance, allowed
+                    )
+                    if target_preferred:
+                        policy_preferred = target_preferred
                         policy_horizon = effective_horizon
                         target_guided = True
                     else:

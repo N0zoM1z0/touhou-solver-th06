@@ -33,6 +33,38 @@ class TerminalGuidance:
     target_distance_squared: float
 
 
+def preferred_target_actions(
+    guidance: dict[Action, TerminalGuidance],
+    allowed: frozenset[Action],
+) -> frozenset[Action]:
+    """Keep maximum robust optionality, then approach the soft target."""
+    reachable = {
+        action: value
+        for action, value in guidance.items()
+        if (
+            action in allowed
+            and value.terminal_count > 0
+            and math.isfinite(value.target_distance_squared)
+        )
+    }
+    if not reachable:
+        return frozenset()
+    best_count = max(value.terminal_count for value in reachable.values())
+    robust = {
+        action: value
+        for action, value in reachable.items()
+        if value.terminal_count == best_count
+    }
+    best_distance = min(
+        value.target_distance_squared for value in robust.values()
+    )
+    return frozenset(
+        action
+        for action, value in robust.items()
+        if value.target_distance_squared == best_distance
+    )
+
+
 def terminal_guidance_scores(
     snapshot: Snapshot,
     candidates: tuple[SafeAction, ...],
