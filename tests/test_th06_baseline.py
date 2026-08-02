@@ -61,6 +61,7 @@ from th06.trial import (
     SUPERVISOR_MAIN_MENU,
     SUPERVISOR_RESULT_FROM_GAME,
     physical_hit,
+    stop_trial_now,
 )
 from th06.viability import replanning_scores
 
@@ -283,6 +284,17 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(
             authority_unavailable(Decision(None, (), 0.0, 6, "physical-hit", 6))
         )
+
+    def test_terminal_trial_releases_input_before_exact_process_stop(self):
+        events = []
+        keyboard = mock.Mock()
+        process = mock.Mock()
+        keyboard.release_all.side_effect = lambda: events.append("release")
+        process.terminate.side_effect = lambda: events.append("terminate")
+
+        stop_trial_now(process, keyboard, True)
+
+        self.assertEqual(events, ["release", "terminate"])
 
     def test_practice_only_completes_after_gameplay(self):
         trial = PracticeTrial()

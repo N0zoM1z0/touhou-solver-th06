@@ -35,7 +35,7 @@ from .native import (
 )
 from .replay import ReplaySaver
 from .solver import HARD_SAFETY_HORIZON, Solver
-from .trial import PracticeTrial, physical_hit
+from .trial import PracticeTrial, physical_hit, stop_trial_now
 
 
 PASSIVE_NO_ACTION_REASONS = frozenset(("menu", "player-not-active", "time-stopped"))
@@ -107,17 +107,20 @@ def run(args: argparse.Namespace) -> int:
     last_reason: str | None = None
     exit_code = 0
     started = time.monotonic()
+    trial_stopped = False
+
+    def stop_immediately() -> None:
+        nonlocal trial_stopped
+        if trial_stopped:
+            return
+        trial_stopped = True
+        stop_trial_now(process, keyboard, args.stop_game)
 
     def cleanup() -> None:
         try:
-            if keyboard is not None:
-                keyboard.release_all()
+            stop_immediately()
         finally:
-            try:
-                if args.stop_game:
-                    process.terminate()
-            finally:
-                process.close()
+            process.close()
         cleanup_message = "released all keys" if keyboard is not None else "no input was created"
         if args.stop_game:
             cleanup_message += f"; stopped exact pid {process.pid}"
@@ -194,8 +197,8 @@ def run(args: argparse.Namespace) -> int:
                         keyboard.base_input_mask if keyboard is not None else 0
                     )
                     if keyboard is not None:
-                        keyboard.release_all()
                         input_lease.cleared()
+                    stop_immediately()
                     exit_code = 2
                     failure_path = trace_path.with_name("th06_failure_latest.json")
                     failure_path.write_text(
@@ -286,7 +289,16 @@ def run(args: argparse.Namespace) -> int:
                 if args.armed:
                     assert keyboard is not None
                     assert dialogue_skipper is not None
-                    if not keyboard.foreground():
+                    if authority_unavailable(decision):
+                        transition_count += len(keyboard.release_all())
+                        input_lease.cleared()
+                        authority_stop = True
+                        exit_code = 2
+                        # A dense counterexample can take many seconds to
+                        # serialize. Stop the verified game first so it cannot
+                        # continue into a visible HIT after authority ended.
+                        stop_immediately()
+                    elif not keyboard.foreground():
                         keyboard.release_all()
                         decision = Decision(None, (), 0.0, 0, "not-foreground")
                     else:

@@ -17,6 +17,16 @@ def physical_hit(previous_player_state: int | None, player_state: int) -> bool:
     return previous_player_state == PLAYER_ALIVE and player_state == PLAYER_DEAD
 
 
+def stop_trial_now(process, keyboard, terminate_process: bool) -> None:
+    """Release input and synchronously stop the exact trial before artifact I/O."""
+    try:
+        if keyboard is not None:
+            keyboard.release_all()
+    finally:
+        if terminate_process:
+            process.terminate()
+
+
 @dataclass
 class PracticeTrial:
     gameplay_seen: bool = False
