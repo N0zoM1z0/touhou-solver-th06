@@ -347,3 +347,19 @@ lethal enemy bodies, and 316 despawning bullets. Solve time was 3.78 ms median,
 decisions; observed command issue age stayed at most two frames, although one
 hazardous decision age reached five frames. That timing tail remains an
 explicit gap. The next required check is a fresh full Hard route from Stage 1.
+
+## Post-Stage-4 full-route regression (2026-08-02)
+
+The first regression cleared Stage 1 and reached Stage 2 f10221, where three
+active lasers appeared in empty native pool slots. Their angle motion could not
+yet be inferred from a previous sample, so the unknown-laser guard correctly
+stopped. Runtime showed each source `Laser` at timer 1 with `endOffset=4`,
+`speed=4`, and its origin about 297 pixels from Reimu. Even allowing every
+future angle, the beam, player movement, and both hitboxes cannot span that
+distance within Hard-4. The laser module now evaluates that conservative radial
+envelope on a newborn slot; a possibly reachable unknown beam still fails
+closed, and an unreachable one is tracked normally from its second sample.
+
+The focused Hard/Reimu-A Practice Stage 2 rerun observed all three beams and
+reached the source-defined result path after frame 16680 with no HIT, authority
+stop, or Bomb. The next action remains a fresh full route from Stage 1.

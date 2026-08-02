@@ -40,6 +40,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   one native hazard rollout between hard and soft scans. It sampled 15,984
   states with no death or authority stop; hazardous and dialogue decision gaps
   were at most two and one frames respectively.
+- A post-Stage-4 full-route regression exposed three active lasers appearing
+  in previously empty pool slots. A source-shaped radial envelope now proves
+  a newborn short beam unreachable at every possible angle for Hard-4 or fails
+  closed; the next frame resumes slot-based motion tracking. The focused
+  Practice Stage 2 rerun then completed again without HIT, Bomb, or stop.
 - Hard Practice Stage 3 now also reaches its source-defined result path. Its
   17,962 sampled states had no death, authority stop, or Bomb and covered up to
   615 bullets and 19 lethal enemy bodies. Source-exact timed direction-change
