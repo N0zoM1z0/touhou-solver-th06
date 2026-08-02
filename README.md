@@ -68,6 +68,10 @@ The three solver layers are:
    one-segment commitment prevents frame-to-frame chatter while every fresh
    Hard check and preferred proposal still permits it. Clearance and
    current-input continuity are only deterministic soft tie-breaks.
+   Constant and policy work is interleaved at the same horizon, so p8 runs
+   before c12/c16 and a contracted c12 is followed by p12 before c16. If one
+   policy rung is unaffordable, deeper policy rungs remain disabled for that
+   decision rather than skipping over the missing evidence.
 
 Shot and Focus are held during certified control.  Bomb (`0x02`, X) is absent
 from the actuator mapping and is never emitted.
@@ -411,3 +415,20 @@ unknown callback reach still fails closed. A focused unit test also confirms
 that the envelope contains 32 exact RNG trajectories through h8. This is a
 source-semantics correction, not a stage, position, enemy, or direction rule;
 physical Stage 1 validation remains next.
+
+## Interleaved anytime-rung checkpoint (2026-08-02)
+
+The following Practice Stage 1 run reached a true current-bullet dead end at
+f6986. The useful counterexample occurred earlier: at f6963 the physical solver
+selected `up_right` from p8, while the saved-state p12 policy uniquely selected
+`down`. Timing showed p8 cost about 0.72 ms and p12 about 2.56 ms, but the old
+order spent budget on all constant-action scans through c16 before attempting
+either policy rung.
+
+The existing work is now ordered c6, c8, p8, c12, p12, c16, p16. This changes
+neither the horizon ladder nor any action's Hard-4 eligibility; it only makes
+the progressive solver honor nearer turn-capable evidence before more distant
+constant-action work. Saved-history replay changes f6963 from the observed
+`up_right` to p12's `down`. The physical witness was reduced from 128 bullets
+to five in the corpus. Whether this scheduling is enough, or the search
+representation itself must change, remains deliberately open pending rerun.

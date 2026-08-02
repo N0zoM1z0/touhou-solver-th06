@@ -209,6 +209,49 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, up)
         self.assertEqual(decision.effort_horizon, 12)
 
+    def test_policy_rung_precedes_more_distant_constant_frontier(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={12: self.hard[:-1]},
+            scores_by_horizon={
+                8: {candidate.action: 3 for candidate in self.hard},
+                12: {candidate.action: 2 for candidate in self.hard},
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 12
+
+        solver.decide(snapshot())
+
+        calls = [(call[0], call[1]) for call in kernel.calls]
+        self.assertLess(calls.index(("policy", 8)), calls.index(("frontier", 12)))
+        self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 12)))
+
+    def test_unaffordable_policy_rung_does_not_skip_to_deeper_search(self):
+        clock = ManualClock()
+        kernel = ProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={12: self.hard[:-1]},
+        )
+        solver = self.solver(kernel, clock, budget=10.0)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 12
+        state = snapshot()
+        solver.effort.policy_rate_by_horizon[8] = 100.0 / (
+            solver.effort.rollout_work(state, len(self.hard), 8)
+        )
+        solver.effort.policy_frame_by_horizon[8] = state.frame
+        solver.effort.policy_rate_by_horizon[12] = 0.0
+        solver.effort.policy_frame_by_horizon[12] = state.frame
+
+        solver.decide(state)
+
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
+
     def test_spent_hard_deadline_skips_all_soft_work(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(clock, self.hard, hard_ms=20.0)

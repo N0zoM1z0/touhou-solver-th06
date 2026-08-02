@@ -66,11 +66,19 @@ This separation is the idea; the algorithms are intentionally not fixed.
   prediction from the freshly measured lower rung, so a past expensive scene
   cannot disable that rung indefinitely. Earlier stage clears do not physically
   validate this replacement, so validation restarts at Stage 1.
+- Constant and turn-capable work is interleaved by rung: c6, c8, p8, c12,
+  p12, c16, p16. This prevents a complete distant constant scan from consuming
+  the deadline before the ordinary p8 proposal. An unaffordable policy rung
+  disables deeper policy work for that decision; it cannot be skipped over.
 - The first restarted Stage 1 trial then stopped safely at f8609 on an ECL
   `MOVERANDINBOUND` followed by a 120-frame timed move. The hard envelope had
   applied the entire unknown endpoint radius on the setup frame. It now grows
   by source easing progress and encloses sampled exact RNG paths; the focused
   corpus is fixed, but the integrated change still awaits physical rerun.
+- A later Stage 1 run stopped at a real current-bullet dead end at f6986. At
+  f6963, physical execution had only afforded p8 and chose up-right; saved-state
+  p12 uniquely chose down. Interleaving the same existing rungs reproduces the
+  deeper proposal within budget. This scheduling change also awaits rerun.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.

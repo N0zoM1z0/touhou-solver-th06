@@ -479,83 +479,99 @@ class Solver:
         frontier = hard
         frontier_horizon = HARD_SAFETY_HORIZON
         contracted = False
+        constant_exhausted = False
+        policy_exhausted = False
+        rollout_ms = 0.0
+        rollout_horizon = HARD_SAFETY_HORIZON
+        policy_preferred: frozenset[Action] = frozenset()
+        policy_horizon = HARD_SAFETY_HORIZON
 
         if limit > HARD_SAFETY_HORIZON:
-            rollout_started = self.clock()
+            operation_started = self.clock()
             self._prepare_soft(snapshot, limit)
+            rollout_ms += (self.clock() - operation_started) * 1000.0
             for horizon in EFFORT_HORIZONS:
                 if horizon > limit:
                     break
-                next_frontier = self._certify_selected(
+                if not constant_exhausted:
+                    operation_started = self.clock()
+                    next_frontier = self._certify_selected(
+                        snapshot,
+                        horizon,
+                        tuple(candidate.action for candidate in frontier),
+                    )
+                    rollout_ms += (
+                        self.clock() - operation_started
+                    ) * 1000.0
+                    rollout_horizon = horizon
+                    if len(next_frontier) < len(frontier):
+                        contracted = True
+                    if next_frontier:
+                        frontier = next_frontier
+                        frontier_horizon = horizon
+                    else:
+                        constant_exhausted = True
+
+                if (
+                    horizon < BASE_POLICY_HORIZON
+                    or len(hard) <= 1
+                    or policy_exhausted
+                    or (
+                        horizon > BASE_POLICY_HORIZON
+                        and not contracted
+                    )
+                ):
+                    continue
+                elapsed_ms = (self.clock() - started) * 1000.0
+                if not self.effort.policy_affordable(
                     snapshot,
+                    len(hard),
                     horizon,
-                    tuple(candidate.action for candidate in frontier),
+                    elapsed_ms,
+                ):
+                    policy_exhausted = True
+                    continue
+                policy_started = self.clock()
+                scores = self._policy_scores(
+                    snapshot,
+                    hard,
+                    horizon,
                 )
-                if len(next_frontier) < len(frontier):
-                    contracted = True
-                if not next_frontier:
-                    break
-                frontier = next_frontier
-                frontier_horizon = horizon
-            rollout_ms = (self.clock() - rollout_started) * 1000.0
+                policy_ms = (self.clock() - policy_started) * 1000.0
+                self.effort.observe_policy(
+                    snapshot,
+                    len(hard),
+                    horizon,
+                    policy_ms,
+                )
+                allowed = frozenset(candidate.action for candidate in hard)
+                best_score = max(
+                    (
+                        score for action, score in scores.items()
+                        if action in allowed
+                    ),
+                    default=0,
+                )
+                if best_score > 0:
+                    policy_preferred = frozenset(
+                        action for action, score in scores.items()
+                        if score == best_score
+                        and action in allowed
+                    )
+                    policy_horizon = horizon
+
             self.effort.observe_rollout(
                 snapshot,
                 len(hard),
-                limit,
+                rollout_horizon,
                 rollout_ms,
             )
 
-        preferred = frozenset(
-            candidate.action for candidate in frontier
-        ) if frontier_horizon > HARD_SAFETY_HORIZON else frozenset()
-
-        policy_horizon = HARD_SAFETY_HORIZON
-        for horizon in EFFORT_HORIZONS:
-            if horizon < BASE_POLICY_HORIZON:
-                continue
-            if horizon > limit or len(hard) <= 1:
-                break
-            # H8 is the regular two-segment proposal rung. Deeper recursive
-            # MPC is useful once the constant-action volume starts shrinking;
-            # it is then extended only while the measured deadline permits.
-            if horizon > BASE_POLICY_HORIZON and not contracted:
-                break
-            elapsed_ms = (self.clock() - started) * 1000.0
-            if not self.effort.policy_affordable(
-                snapshot,
-                len(hard),
-                horizon,
-                elapsed_ms,
-            ):
-                break
-            policy_started = self.clock()
-            scores = self._policy_scores(
-                snapshot,
-                hard,
-                horizon,
-            )
-            policy_ms = (self.clock() - policy_started) * 1000.0
-            self.effort.observe_policy(
-                snapshot,
-                len(hard),
-                horizon,
-                policy_ms,
-            )
-            allowed = frozenset(candidate.action for candidate in hard)
-            best_score = max(
-                (
-                    score for action, score in scores.items()
-                    if action in allowed
-                ),
-                default=0,
-            )
-            if best_score > 0:
-                preferred = frozenset(
-                    action for action, score in scores.items()
-                    if score == best_score
-                    and action in allowed
-                )
-                policy_horizon = horizon
+        preferred = policy_preferred or (
+            frozenset(candidate.action for candidate in frontier)
+            if frontier_horizon > HARD_SAFETY_HORIZON
+            else frozenset()
+        )
 
         chosen = self.ranker.choose(
             snapshot,
