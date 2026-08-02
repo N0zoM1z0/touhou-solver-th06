@@ -1695,6 +1695,67 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(chosen.action, ACTION_BY_VECTOR[(0, -1)])
         self.assertLess(chosen.final_y, state.y)
 
+    def test_ranker_does_not_leave_before_exact_wall_contact(self):
+        far_bullet = Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+        state = snapshot(
+            *(far_bullet for _ in range(400)),
+            x=298.392,
+            y=431.765,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        clearances = (
+            29.5, 21.5, 29.8, 29.6, 29.5,
+            23.9, 24.0, 29.8, 29.8,
+        )
+        allowed = tuple(
+            SafeAction(
+                action,
+                clearance,
+                state.x + action.dx * state.focus_speed,
+                min(432.0, state.y + action.dy * state.focus_speed),
+            )
+            for action, clearance in zip(ACTIONS, clearances)
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset(ACTIONS),
+        )
+
+        self.assertNotEqual(chosen.action.dy, -1)
+
+    def test_ranker_keeps_narrow_durability_at_exact_wall(self):
+        far_bullet = Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+        state = snapshot(
+            *(far_bullet for _ in range(400)),
+            x=294.149,
+            y=432.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        clearances = (
+            10.9, 2.9, 10.9, 11.1, 10.9,
+            5.5, 5.4, 11.0, 10.9,
+        )
+        allowed = tuple(
+            SafeAction(
+                action,
+                clearance,
+                state.x + action.dx * state.focus_speed,
+                min(432.0, state.y + action.dy * state.focus_speed),
+            )
+            for action, clearance in zip(ACTIONS, clearances)
+        )
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset((down_left,)),
+        )
+
+        self.assertEqual(chosen.action, down_left)
+
     def test_ranker_keeps_the_current_corridor_along_one_wall(self):
         state = snapshot(
             x=184.885,

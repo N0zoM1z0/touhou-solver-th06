@@ -127,7 +127,8 @@ class ProposalRanker:
             and vertical_room <= snapshot.focus_speed + 0.25
         )
         open_boundary_contact = (
-            current_boundary_room <= 0.25
+            current_boundary_room <= 0.01
+            and candidate_actions == durable_actions
             and len(candidate_actions) == len(ACTIONS)
         )
 
@@ -147,12 +148,12 @@ class ProposalRanker:
                 else current_boundary_room
             )
             # Stage 5 f6016 reached the exact bottom edge with every Hard-4
-            # action still available.  Dense clearance then preferred a
-            # tangent path and later stay/down paths until the upward corridor
-            # disappeared.  Leave an exact wall while the hard set is fully
-            # open; constrained wall corridors retain their longer-rollout
-            # evidence.  This only ranks candidates already admitted by hard
-            # safety.
+            # and longer-rollout action still available. Dense clearance then
+            # preferred a tangent path and later stay/down paths until the
+            # upward corridor disappeared. Leave only that uniformly open
+            # case: f2565 was still 0.235 px off the edge, while f2570 had just
+            # one h7 survivor. Applying this override there caused an earlier
+            # empty set at f2573. This only ranks hard-admitted candidates.
             urgent_egress = (
                 near_corner or open_boundary_contact
             ) and boundary_egress
