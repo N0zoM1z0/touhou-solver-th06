@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from ..model import Laser
+from ..model import Laser, Snapshot
 from .geometry import signed_clearance
 
 
@@ -41,6 +41,29 @@ def track_motion(
             motion_known=True,
         ))
     return tuple(tracked)
+
+
+def unknown_motion_may_reach_player(
+    snapshot: Snapshot,
+    laser: Laser,
+    horizon: int,
+) -> bool:
+    """Conservatively bound a new laser at every possible future angle."""
+    if not any(future_hazards(laser, horizon)):
+        return False
+    future_end = laser.end_offset + max(0.0, laser.speed) * horizon
+    beam_radius = max(
+        0.0,
+        abs(laser.start_offset),
+        abs(laser.end_offset),
+        abs(future_end),
+    ) + laser.width / 2.0
+    player_radius = (
+        max(snapshot.normal_speed, snapshot.focus_speed) * horizon
+        + math.hypot(snapshot.half_width, snapshot.half_height)
+    )
+    origin_distance = math.hypot(snapshot.x - laser.x, snapshot.y - laser.y)
+    return origin_distance <= beam_radius + player_radius
 
 
 def _geometry(

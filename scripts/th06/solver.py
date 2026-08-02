@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from .hazards.lasers import future_hazards as future_laser_hazards
+from .hazards.lasers import unknown_motion_may_reach_player
 from .kernels.safety import NativeSafetyKernel
 from .laser_effort import (
     LASER_EFFORT_HORIZON,
@@ -221,7 +221,11 @@ class Solver:
             return Decision(None, (), 0.0, 0, "unsupported-laser-decode")
         if any(
             not laser.motion_known
-            and any(future_laser_hazards(laser, HARD_SAFETY_HORIZON))
+            and unknown_motion_may_reach_player(
+                snapshot,
+                laser,
+                HARD_SAFETY_HORIZON,
+            )
             for laser in snapshot.lasers
         ):
             return Decision(None, (), 0.0, 0, "unsupported-laser-motion")

@@ -1214,6 +1214,32 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertTrue(all(not frame for frame in future_hazards(laser, 16)))
 
+    def test_new_short_laser_uses_an_angle_independent_hard_bound(self):
+        laser = Laser(
+            190.04, 106.99, 1.28, 0.0, 4.0, 192.0, 6.0, 4.0,
+            0, 0, 9999, 30, 30, 1, 1.0, 0, 1, slot=0,
+        )
+        state = snapshot(x=274.62, y=391.88, lasers=1)
+        state = Snapshot(**{**state.__dict__, "lasers": (laser,)})
+
+        decision = Solver().decide(state)
+
+        self.assertIsNotNone(decision.action)
+        self.assertNotEqual(decision.reason, "unsupported-laser-motion")
+
+    def test_unknown_laser_motion_fails_closed_when_its_envelope_can_reach(self):
+        laser = Laser(
+            192.0, 380.0, 0.0, 0.0, 384.0, 384.0, 16.0, 0.0,
+            0, 0, 120, 30, 10, 0, 0.0, 0, 1,
+        )
+        state = snapshot(lasers=1)
+        state = Snapshot(**{**state.__dict__, "lasers": (laser,)})
+
+        decision = Solver().decide(state)
+
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "unsupported-laser-motion")
+
     def test_active_laser_uses_rotated_source_hitbox(self):
         laser = Laser(
             0.0, 380.0, 0.0, 0.0, 384.0, 384.0, 16.0, 0.0,
