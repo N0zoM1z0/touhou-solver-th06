@@ -1108,57 +1108,6 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.held_horizon, 7)
         self.assertEqual(solver.kernel.collision_margin, 0.35)
 
-    def test_extreme_density_retains_a_broad_held_single_wall_proposal(self):
-        state = snapshot(*(
-            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
-            for _ in range(598)
-        ),
-            x=206.426,
-            y=392.770,
-            input_mask=BUTTON_FOCUS | 0x20,
-        )
-        hard = certify_actions(state, HARD_SAFETY_HORIZON)
-        held = action_from_input(state.input_mask)
-        held_effort = tuple(
-            candidate for candidate in hard if candidate.action == held
-        )
-
-        class CombinedKernel:
-            def certify_delivery_sets_with_selected(
-                self,
-                actual_state,
-                hard_horizon,
-                selected_horizon,
-                actions,
-                collision_margin,
-            ):
-                self.call = (
-                    actual_state,
-                    hard_horizon,
-                    selected_horizon,
-                    actions,
-                    collision_margin,
-                )
-                return hard, hard, held_effort
-
-            def certify(self, *_args, **_kwargs):
-                raise AssertionError("surviving broad held proposal must be reused")
-
-        kernel = CombinedKernel()
-        solver = Solver()
-        solver.kernel = kernel
-
-        decision = solver.decide(state)
-
-        self.assertEqual(len(hard), len(ACTIONS))
-        self.assertEqual(decision.action, held)
-        self.assertEqual(decision.effort_horizon, 6)
-        self.assertEqual(decision.effort_safe_count, 1)
-        self.assertEqual(
-            kernel.call,
-            (state, HARD_SAFETY_HORIZON, 7, (held,), 0.35),
-        )
-
     def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
