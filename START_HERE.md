@@ -16,6 +16,8 @@ The working idea has three strict layers:
    it is currently disabled until the general solver is physically stable.
 
 This separation is the idea; the algorithms are intentionally not fixed.
+Read `STRATEGY.md` for the compact solver/research direction and the TH08
+ideas retained without importing its architecture.
 
 ## Current baseline
 
@@ -75,19 +77,39 @@ This separation is the idea; the algorithms are intentionally not fixed.
   `MOVERANDINBOUND` followed by a 120-frame timed move. The hard envelope had
   applied the entire unknown endpoint radius on the setup frame. It now grows
   by source easing progress and encloses sampled exact RNG paths; the focused
-  corpus is fixed, but the integrated change still awaits physical rerun.
+  corpus is fixed, and later different-RNG Stage 1 runs crossed this frame.
 - A later Stage 1 run stopped at a real current-bullet dead end at f6986. At
   f6963, physical execution had only afforded p8 and chose up-right; saved-state
   p12 uniquely chose down. Interleaving the same existing rungs reproduces the
-  deeper proposal within budget. This scheduling change also awaits rerun.
+  deeper proposal within budget; the following run crossed this frame.
 - That scheduling rerun crossed f6986, f8609, and f10258, then stopped at a
   dense current-bullet dead end at f12530. Soft rollout had remained disabled
   for roughly 150 frames despite f12420's full h8 work being affordable and
   uniquely preferring up-right out of the lower-left clamp. Rollout cost now
-  has the same continuous freshness semantics; physical rerun is pending.
+  has the same continuous freshness semantics. Later iteration moved to the
+  independent terminal-target failures below.
+- Later Stage 1 target work exposed two distinct general failures. A fixed
+  terminal target stopped rolling local reversal near f2400, while f8850
+  showed that a soft target deadline had collapsed tracking to a short
+  horizon and made distance override fresh survival optionality. Target
+  tracking now keeps the full affordable ladder, maximizes robust unique
+  terminal states first, and uses target distance only afterward. The focused
+  f2400/f8850 corpus, Python/native parity, and 137-test checkpoint passed.
+- The following default fail-close physical run crossed f8850 and stopped
+  without a HIT at the new first CE f11505 with `hard-safe-set-empty`.
+  `artifacts/th06_failure_latest.json` still preserves that causal run and is
+  the next analysis root.
+- An explicit `--continue-on-failure` diagnostic then completed Practice
+  Stage 1 through its result path. It observed f2199 authority loss followed
+  by HIT at f2204, f12258 authority loss followed by HIT at f12262, and a
+  transient f12639 authority loss that recovered at f12645 without HIT. This
+  maps failure behavior but is not a Stage 1 clear. Default fail-close remains
+  the only validation mode. The current Linux and Windows suites pass 139
+  tests.
 
-Known gaps include future ECL births/instructions, a guaranteed command lease
-beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.
+Known gaps include incomplete future ECL birth/instruction coverage, a
+guaranteed command lease beyond the observed two-frame pickup bound, and
+physical coverage of Stages 5--6.
 Stage 3 also observed rare three-frame hazardous decision and snapshot-to-issue
 ages, so the four-frame authority is not yet a complete delivery guarantee.
 Actual replay file creation also still needs a non-Practice result. This is a
@@ -100,10 +122,13 @@ unconfirmed candidates.
 
 ## How to continue
 
-Run Hard Practice Stage 1 with the new general solver and stop on its first
-HIT/authority CE or its source-defined result path. Explain one concrete
-failure from native state and source, make one small general change, run the
-focused check, then test it physically. Do not restore a feature threshold or
+Start from the preserved default fail-close Stage 1 f11505 artifact. Trace
+backward to the earliest still-viable consequential decision; do not explain
+the failure from the final empty Hard set alone. Determine whether its cause
+is source/future modeling, local short-sight, target guidance, delivery, or a
+true physical dead end before selecting an algorithm. Make one small general
+change, add one minimized regression after the cause is understood, then rerun
+default fail-close Practice Stage 1. Do not restore a feature threshold or
 CE-specific branch to regain an earlier clear.
 
 ```bat

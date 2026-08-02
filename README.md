@@ -4,7 +4,8 @@ A deliberately small TH06 1.02h solver baseline.  It starts from native state
 and the reconstructed source instead of carrying the TH08 planner forward.
 
 New Codex sessions should begin with [`START_HERE.md`](START_HERE.md); the
-compact working rules are in [`AGENTS.md`](AGENTS.md).
+compact working rules are in [`AGENTS.md`](AGENTS.md), and the stable research
+direction is in [`STRATEGY.md`](STRATEGY.md).
 The distilled, non-architectural lessons from the older TH08 workspace are in
 [`notes/TH08_CE_GUIDE.md`](notes/TH08_CE_GUIDE.md).
 
