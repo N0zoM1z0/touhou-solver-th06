@@ -484,6 +484,7 @@ def _forecast_ecl_births_single(
     allow_player_variables: bool = True,
     radial_births: bool = False,
     abstract_rng: bool = False,
+    enemy_kill_all_is_noop: bool = False,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -1511,6 +1512,11 @@ def _forecast_ecl_births_single(
                 timer_callback_sub = death_callback_sub
                 boss_timer = 0
                 boss_timer_subframe = 0.0
+            elif (
+                instruction.opcode == OPCODE_ENEMY_KILL_ALL
+                and enemy_kill_all_is_noop
+            ):
+                pass
             elif instruction.opcode in HAZARD_NEUTRAL_ECL_OPCODES:
                 pass
             elif instruction.opcode in FAIL_CLOSED_ECL_OPCODES:
@@ -1712,6 +1718,7 @@ def forecast_ecl_births(
     allow_player_variables: bool = True,
     radial_births: bool = False,
     abstract_rng: bool = False,
+    enemy_kill_all_is_noop: bool = False,
 ) -> EclForecast:
     """Forecast an emitter, branching over reachable hard life callbacks."""
     horizon = len(player_positions)
@@ -1743,6 +1750,7 @@ def forecast_ecl_births(
             allow_player_variables,
             radial_births,
             abstract_rng,
+            enemy_kill_all_is_noop,
         )
 
     program = {instruction.address: instruction for instruction in spawner.ecl_program}
@@ -1770,6 +1778,7 @@ def forecast_ecl_births(
         allow_player_variables,
         radial_births,
         abstract_rng,
+        enemy_kill_all_is_noop,
     )
     births = [list(frame) for frame in no_callback.births]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -1793,6 +1802,7 @@ def forecast_ecl_births(
                 allow_player_variables,
                 radial_births,
                 abstract_rng,
+                enemy_kill_all_is_noop,
             )
             if prefix.covered_frames < callback_frame or prefix.next_spawner is None:
                 branch_coverage = prefix.covered_frames
@@ -1830,6 +1840,7 @@ def forecast_ecl_births(
             allow_player_variables,
             radial_births,
             abstract_rng,
+            enemy_kill_all_is_noop,
         )
         for index, frame_births in enumerate(callback.births, callback_frame):
             births[index].extend(frame_births)

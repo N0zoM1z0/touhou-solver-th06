@@ -118,6 +118,47 @@ def snapshot(frame: int, **changes) -> Snapshot:
 
 
 class PeriodicBirthTests(unittest.TestCase):
+    def test_enemy_kill_all_is_neutral_only_without_callback_targets(self):
+        kill_all = EclInstruction(
+            0x1000,
+            0,
+            96,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", 0, 96, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        sentinel = EclInstruction(
+            0x100C, -1, 0, 12, 0xFF, (b"\xff" * 12).hex()
+        )
+        boss = spawner(
+            pattern(),
+            is_boss=True,
+            shooting_disabled=True,
+            next_instruction=kill_all,
+            ecl_program=(kill_all, sentinel),
+        )
+        state = snapshot(10, spawners=(boss,))
+
+        safe_noop = forecast_world_births(state, ((100.0, 400.0),))
+
+        self.assertEqual(safe_noop.covered_frames, 1, safe_noop.reason)
+
+        callback_target = replace(
+            boss,
+            slot=boss.slot + 1,
+            is_boss=False,
+            death_callback_sub=0,
+            next_instruction=sentinel,
+            ecl_program=(sentinel,),
+        )
+        unsafe_world = forecast_world_births(
+            replace(state, spawners=(boss, callback_target)),
+            ((100.0, 400.0),),
+        )
+
+        self.assertEqual(unsafe_world.covered_frames, 0)
+        self.assertIn("ENEMYKILLALL", unsafe_world.reason)
+
     def test_fan_and_speed_layers_match_shipped_integer_order(self):
         bullets = spawn_pattern(pattern(), (0.0, 0.0), (100.0, 0.0))
         self.assertEqual(len(bullets), 10)

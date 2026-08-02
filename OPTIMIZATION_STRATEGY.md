@@ -17,6 +17,12 @@ change merely to save time.
   f2511 latency CE exposed reflective copies and proxy objects in ECL/enemy
   projection.  Removing those allocations cut the saved f2500 cold decision
   median from about 25.6 ms to 9.5 ms without changing safety or planning.
+- **Advance temporal hazards once and spatially prune exact collision tests.**
+  Bulk bullet projection removes horizon-squared trajectory work; the native
+  proposal grid still runs the original exact margin test inside each cell and
+  stops a min-score branch once it reaches zero.  Saved f1338--f1356 full
+  decisions measured roughly 9.6--11.5 ms median, and the next physical run
+  crossed both the former f1361 authority stop and f5478 hit.
 
 ## Candidates to measure
 

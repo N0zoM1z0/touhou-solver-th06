@@ -17,6 +17,7 @@ from th06.model import (
     FAST_ACTION_BY_VECTOR,
     Bullet,
     EnemyBody,
+    EclInstruction,
     Laser,
     SafeAction,
     Snapshot,
@@ -739,6 +740,41 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(len(actual), 1)
         self.assertEqual(actual[0].action, expected[0].action)
         self.assertAlmostEqual(actual[0].final_x, expected[0].final_x, places=5)
+
+    def test_ecl_graph_budget_prioritizes_direct_fallthrough(self):
+        start = EclInstruction(
+            0x1000,
+            0,
+            116,
+            16,
+            0xFF,
+            (bytes(12) + struct.pack("<i", 0)).hex(),
+        )
+        fallthrough = EclInstruction(
+            0x1010, -1, 0, 12, 0xFF, bytes(12).hex()
+        )
+        instructions = {start.address: start, fallthrough.address: fallthrough}
+        for index in range(native.ECL_PROGRAM_INSTRUCTION_LIMIT + 2):
+            address = 0x2000 + index * 12
+            instructions[address] = EclInstruction(
+                address,
+                0 if index <= native.ECL_PROGRAM_INSTRUCTION_LIMIT else -1,
+                0,
+                12,
+                0xFF,
+                bytes(12).hex(),
+            )
+
+        process = type("Process", (), {
+            "ecl_subroutines": (0x2000,),
+            "read_ecl_instruction": lambda _self, address: instructions[address],
+        })()
+
+        program = native._read_ecl_program(process, start.address)
+
+        self.assertIn(fallthrough.address, {
+            instruction.address for instruction in program
+        })
 
     def test_native_spatial_replanning_matches_reference_scores(self):
         if os.name != "nt":

@@ -58,6 +58,10 @@ def forecast_world_births(
     ]
     emitters = tuple(sorted(snapshot.spawners, key=lambda item: item.slot))
     if rng_mode == "fail-closed":
+        enemy_kill_all_is_noop = not any(
+            not emitter.is_boss and emitter.death_callback_sub >= 0
+            for emitter in emitters
+        )
         covered_frames = len(player_positions)
         reason = ""
         for emitter in emitters:
@@ -72,6 +76,7 @@ def forecast_world_births(
                     allow_player_variables=False,
                     radial_births=True,
                     abstract_rng=True,
+                    enemy_kill_all_is_noop=enemy_kill_all_is_noop,
                 )
             except UnsupportedBirthModel as error:
                 forecast = None

@@ -8,6 +8,7 @@ import math
 import os
 import struct
 import time
+from collections import deque
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -436,10 +437,10 @@ def _read_ecl_program(
     start_address: int,
 ) -> tuple[EclInstruction, ...]:
     """Capture a bounded immutable instruction graph, including jump targets."""
-    pending = [start_address]
+    pending = deque((start_address,))
     found: dict[int, EclInstruction] = {}
     while pending and len(found) < ECL_PROGRAM_INSTRUCTION_LIMIT:
-        address = pending.pop()
+        address = pending.popleft()
         if not address or address in found:
             continue
         instruction = process.read_ecl_instruction(address)
