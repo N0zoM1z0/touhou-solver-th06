@@ -323,7 +323,25 @@ class Solver:
                     )
                     if not current_effort:
                         discouraged = frozenset((current,))
-            if (
+            narrow_combined_authority = (
+                0 < len(certified) <= 3
+                and precomputed_current_effort is not None
+            )
+            if narrow_combined_authority:
+                # Stage 4 f2652 had down/down-left/down-right at Hard-4 but
+                # only the first two at h6; f2665 had stay/up/down at Hard-4
+                # but only stay/down at h6. Treating every narrow hard action
+                # as equally durable selected the short path in both cases
+                # and emptied at f2668. The combined dense pass already
+                # proves the held action through h7. Reuse it when present;
+                # only when the held action is unavailable, certify the three
+                # or fewer replacement candidates at h6 using cached hazards.
+                effort_certified = (
+                    precomputed_current_effort
+                    if precomputed_current_effort
+                    else self._certify(snapshot, effort_horizon)
+                )
+            elif (
                 len(certified) <= 3
                 or (
                     broad_authority

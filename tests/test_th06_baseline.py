@@ -1040,6 +1040,90 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
 
+    def test_extreme_density_reuses_narrow_held_survival(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        narrow = hard[:3]
+        held = action_from_input(state.input_mask)
+        held_effort = tuple(
+            candidate for candidate in narrow if candidate.action == held
+        )
+
+        class CombinedKernel:
+            def certify_delivery_sets_with_selected(
+                self,
+                _state,
+                _hard_horizon,
+                _selected_horizon,
+                _actions,
+                collision_margin,
+            ):
+                self.collision_margin = collision_margin
+                return narrow, narrow, held_effort
+
+            def certify(self, *_args, **_kwargs):
+                raise AssertionError("held h7 proof must avoid a second pass")
+
+        solver = Solver()
+        solver.kernel = CombinedKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, held)
+        self.assertEqual(decision.effort_horizon, 6)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.held_horizon, 7)
+
+    def test_extreme_density_checks_narrow_replacements_at_h6(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(400)
+            ),
+            input_mask=BUTTON_FOCUS | 0x10,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        narrow = tuple(
+            candidate for candidate in hard
+            if candidate.action.name in ("down", "down_left", "down_right")
+        )
+        longer = narrow[:2]
+
+        class CombinedKernel:
+            def __init__(self):
+                self.full_calls = []
+
+            def certify_delivery_sets_with_selected(
+                self,
+                _state,
+                _hard_horizon,
+                _selected_horizon,
+                _actions,
+                collision_margin,
+            ):
+                self.collision_margin = collision_margin
+                return narrow, narrow, ()
+
+            def certify(self, actual_state, horizon, collision_margin):
+                self.full_calls.append((actual_state, horizon, collision_margin))
+                return longer
+
+        kernel = CombinedKernel()
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertIn(decision.action, {
+            candidate.action for candidate in longer
+        })
+        self.assertNotEqual(decision.action, narrow[-1].action)
+        self.assertEqual(kernel.full_calls, [(state, 6, 0.35)])
+        self.assertEqual(decision.effort_horizon, 6)
+
     def test_mixed_hazard_density_bounds_adaptive_effort(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
