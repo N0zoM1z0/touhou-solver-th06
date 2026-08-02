@@ -129,13 +129,18 @@ class ProposalRanker:
 
         def score(candidate: SafeAction) -> tuple[
             bool, bool, bool, bool, bool, bool, bool,
-            int, bool, float, float, float, str,
+            int, bool, float, float, float, float, str,
         ]:
             useful_position = -0.04 * math.hypot(candidate.final_x - 192.0, candidate.final_y - 380.0)
             continuity = 0.15 if candidate.action == current else 0.0
-            boundary_egress = (
-                _boundary_room(candidate.final_x, candidate.final_y)
-                > current_boundary_room + 0.25
+            candidate_boundary_room = _boundary_room(
+                candidate.final_x, candidate.final_y
+            )
+            boundary_egress = candidate_boundary_room > current_boundary_room + 0.25
+            preserved_boundary_room = (
+                candidate_boundary_room
+                if current_boundary_room <= snapshot.focus_speed * 20.0
+                else current_boundary_room
             )
             urgent_egress = near_corner and boundary_egress
             # Use the same one-Hard-segment-early boundary window as the
@@ -171,6 +176,7 @@ class ProposalRanker:
                 ),
                 relief,
                 boundary_egress,
+                preserved_boundary_room,
                 total,
                 candidate.clearance,
                 continuity,

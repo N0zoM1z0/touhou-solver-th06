@@ -2008,6 +2008,32 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(boundary_relief(state, left.action, 20), 0)
         self.assertEqual(chosen, left)
 
+    def test_ranker_preserves_more_room_between_descending_corridors(self):
+        state = snapshot(
+            x=87.644,
+            y=393.461,
+            input_mask=BUTTON_FOCUS | 0x20,
+        )
+        down = SafeAction(
+            ACTION_BY_VECTOR[(0, 1)], 10.0, state.x, state.y + 8.0
+        )
+        down_right = SafeAction(
+            ACTION_BY_VECTOR[(1, 1)],
+            9.0,
+            state.x + 5.657,
+            state.y + 5.657,
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            (down, down_right),
+            durable_actions=frozenset((down.action, down_right.action)),
+        )
+
+        self.assertEqual(boundary_relief(state, down.action, 20), -1)
+        self.assertEqual(boundary_relief(state, down_right.action, 20), -1)
+        self.assertEqual(chosen, down_right)
+
     def test_replanning_proposal_can_turn_after_a_hard_safe_first_segment(self):
         state = snapshot(Bullet(190.5, 369.0, 1.0, 1.0, 2.0, 2.0, 1))
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
