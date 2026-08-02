@@ -748,10 +748,18 @@ class Solver:
         multisegment_durable = self._multisegment_durable(
             snapshot,
             certified,
-            effort_horizon,
+            max(
+                effort_horizon,
+                (
+                    DENSE_CORNER_REPLAN_HORIZON
+                    if extreme_dense_corner_replanning
+                    else 0
+                ),
+            ),
         )
         if (
             extreme_dense_corner_replanning
+            and not multisegment_durable
             and len(certified) == len(ACTIONS)
         ):
             # At f5848 the dense publication path intentionally skipped a

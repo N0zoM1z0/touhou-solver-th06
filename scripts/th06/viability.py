@@ -37,9 +37,10 @@ def replanning_scores(
                 snapshot, candidate.action, first_delay, split
             ):
                 split_x, split_y = first_path[-1]
-                continuation_count = 0
+                continuation_states = set()
                 for continuation in ACTIONS:
                     survived = True
+                    nominal_final = (split_x, split_y)
                     prefixes = transition_actions(candidate.action, continuation)
                     for continuation_delay in DELIVERY_DELAYS:
                         branch_prefixes = (None,) + prefixes if continuation_delay > 0 else (None,)
@@ -96,9 +97,12 @@ def replanning_scores(
                                     break
                             if not survived:
                                 break
+                            if continuation_delay == 0 and prefix is None:
+                                nominal_final = (future_x, future_y)
                         if not survived:
                             break
-                    continuation_count += int(survived)
-                branch_counts.append(continuation_count)
+                    if survived:
+                        continuation_states.add(nominal_final)
+                branch_counts.append(len(continuation_states))
         scores[candidate.action] = min(branch_counts)
     return scores

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _WIN32
@@ -609,6 +610,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                     );
                 }
                 std::int32_t continuationCount = 0;
+                std::unordered_set<std::uint64_t> continuationStates;
                 for (
                     std::int32_t secondIndex = 0;
                     secondIndex < kFocusedActionCount;
@@ -621,6 +623,8 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                         secondTransitions
                     );
                     bool survived = true;
+                    float nominalFinalX = splitX;
+                    float nominalFinalY = splitY;
                     for (const std::int32_t secondDelay : kDelays) {
                         const std::int32_t secondBranchCount = 1 + (
                             secondDelay > 0 ? secondTransitionCount : 0
@@ -658,10 +662,21 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                                 }
                             }
                             if (!survived) break;
+                            if (secondDelay == 0 && secondBranch == 0) {
+                                nominalFinalX = x;
+                                nominalFinalY = y;
+                            }
                         }
                         if (!survived) break;
                     }
-                    continuationCount += static_cast<std::int32_t>(survived);
+                    if (
+                        survived
+                        && continuationStates.insert(positionKey(
+                            nominalFinalX, nominalFinalY
+                        )).second
+                    ) {
+                        continuationCount++;
+                    }
                 }
                 worstBranchCount = std::min(worstBranchCount, continuationCount);
                 if (worstBranchCount == 0) break;
@@ -818,6 +833,7 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
             horizon, startFrame + segmentLength
         );
         std::int32_t total = 0;
+        std::unordered_set<std::uint64_t> nextStates;
         for (std::int32_t nextIndex = 0; nextIndex < kFocusedActionCount; ++nextIndex) {
             float x = startX;
             float y = startY;
@@ -842,6 +858,7 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
                 }
             }
             if (survived) {
+                if (!nextStates.insert(positionKey(x, y)).second) continue;
                 const std::int32_t branchCount = endFrame == horizon
                     ? 1
                     : bestFrom(x, y, endFrame);

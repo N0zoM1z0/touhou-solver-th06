@@ -799,6 +799,27 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
+    def test_replanning_counts_unique_reachable_corner_states(self):
+        state = snapshot(x=376.0, y=432.0)
+        candidates = certify_actions(state, HARD_SAFETY_HORIZON)
+
+        scores = replanning_scores(state, candidates, split=4, horizon=8)
+
+        self.assertEqual(scores[ACTION_BY_VECTOR[(-1, -1)]], 9)
+        self.assertEqual(scores[ACTION_BY_VECTOR[(0, 0)]], 6)
+        self.assertEqual(scores[ACTION_BY_VECTOR[(1, 0)]], 6)
+        self.assertEqual(scores[ACTION_BY_VECTOR[(0, 1)]], 6)
+        if os.name == "nt":
+            kernel = NativeSafetyKernel()
+            self.assertEqual(
+                kernel.replanning_scores(state, candidates, 4, 8, 0.35),
+                scores,
+            )
+            self.assertEqual(
+                kernel.nominal_policy_counts(state, candidates, 4, 8, 0.35),
+                scores,
+            )
+
     def test_dense_scene_reduces_effort_without_changing_hard_authority(self):
         bullets = tuple(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
