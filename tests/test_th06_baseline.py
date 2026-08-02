@@ -10,6 +10,7 @@ from th06.model import (
     BUTTON_DOWN,
     BUTTON_FOCUS,
     BUTTON_LEFT,
+    BUTTON_RIGHT,
     BUTTON_SHOOT,
     CONTROL_ACTIONS,
     FAST_ACTIONS,
@@ -964,12 +965,12 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(
             solver.kernel.selected_horizon,
-            DENSE_PREBOUNDARY_REPLAN_HORIZON,
+            adaptive_horizon(state) + 1,
         )
         self.assertEqual(decision.action, current)
         self.assertEqual(decision.safe_actions, hard)
         self.assertEqual(decision.effort_safe_count, 1)
-        self.assertEqual(decision.held_horizon, DENSE_PREBOUNDARY_REPLAN_HORIZON)
+        self.assertEqual(decision.held_horizon, adaptive_horizon(state) + 1)
         self.assertEqual(
             solver.kernel.comparison,
             (
@@ -983,6 +984,74 @@ class BaselineTests(unittest.TestCase):
                 0.35,
             ),
         )
+
+    def test_constrained_preboundary_authority_skips_long_comparison(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(610)
+            ),
+            x=211.8,
+            y=370.7,
+            input_mask=BUTTON_FOCUS | BUTTON_DOWN | BUTTON_RIGHT,
+        )
+        current = action_from_input(state.input_mask)
+        hard = tuple(
+            candidate for candidate in certify_actions(state, HARD_SAFETY_HORIZON)
+            if candidate.action.name not in ("up", "right", "up_right")
+        )
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        replacement = tuple(
+            candidate for candidate in hard if candidate.action == down_left
+        )
+
+        class ConstrainedPreboundaryKernel:
+            def __init__(self):
+                self.selected_horizon = None
+
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.assertEqual(actual_state, state)
+                self.assertEqual(hard_horizon, HARD_SAFETY_HORIZON)
+                self.assertEqual(actions, (current,))
+                self.assertEqual(collision_margin, 0.35)
+                self.selected_horizon = selected_horizon
+                return hard, hard, ()
+
+            def certify_selected(
+                self,
+                actual_state,
+                horizon,
+                actions,
+                collision_margin,
+            ):
+                self.assertEqual(actual_state, state)
+                self.assertEqual(collision_margin, 0.35)
+                if horizon == adaptive_horizon(state):
+                    return replacement
+                return ()
+
+            def replanning_scores(self, *_args, **_kwargs):
+                raise AssertionError("constrained authority must not prepare h15")
+
+            assertEqual = self.assertEqual
+
+        solver = Solver()
+        solver.kernel = ConstrainedPreboundaryKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(solver.kernel.selected_horizon, adaptive_horizon(state) + 1)
+        self.assertEqual(decision.action, down_left)
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.held_horizon, HARD_SAFETY_HORIZON)
 
     def test_extreme_density_ranks_a_single_wall_branch(self):
         state = snapshot(

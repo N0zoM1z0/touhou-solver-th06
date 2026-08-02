@@ -369,20 +369,20 @@ class Solver:
                     # the chosen down-right path below five alternatives; the
                     # route later had no h12 continuation. A separate f2557
                     # pre-wall comparison needs h15 for only current versus a
-                    # pending replacement. Prepare the applicable horizon
-                    # first so each branch score reuses one hazard build.
+                    # pending replacement, but only while all Hard-4 actions
+                    # remain open. At f2655 only six Hard-4 actions remained;
+                    # preparing h15 anyway took 31.5 ms, was discarded as
+                    # stale, and let the held path reach an empty set. Keep
+                    # the timely h7 held probe here. The later comparison
+                    # prepares h15 only after it observes full authority.
                     # The hard authority remains h4.
                     precomputed_current_horizon = (
-                        DENSE_PREBOUNDARY_REPLAN_HORIZON
-                        if dense_preboundary_replanning
+                        DENSE_CORNER_REPLAN_HORIZON
+                        if extreme_dense_corner_replanning
                         else (
-                            DENSE_CORNER_REPLAN_HORIZON
-                            if extreme_dense_corner_replanning
-                            else (
-                                DENSE_SINGLE_WALL_REPLAN_HORIZON
-                                if extreme_dense_single_wall_replanning
-                                else effort_horizon + 1
-                            )
+                            DENSE_SINGLE_WALL_REPLAN_HORIZON
+                            if extreme_dense_single_wall_replanning
+                            else effort_horizon + 1
                         )
                     )
                     (
