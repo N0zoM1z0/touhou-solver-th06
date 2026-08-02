@@ -98,6 +98,10 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("--save-replay requires --armed")
     if args.save_replay and args.practice_stage is not None:
         raise RuntimeError("the exact game cannot save Practice replays")
+    if args.continue_on_failure and args.practice_stage is None:
+        raise RuntimeError("--continue-on-failure is Practice-only")
+    if args.continue_on_failure and not args.patch_lives:
+        raise RuntimeError("--continue-on-failure requires --patch-lives")
     _prioritize_control_loop()
     process = attach_exact(Path(args.game_dir).resolve())
     keyboard = Keyboard(process.pid) if args.armed else None
@@ -113,6 +117,13 @@ def run(args: argparse.Namespace) -> int:
         trace_name = "th06_baseline_latest.csv" if args.armed else "th06_observe_latest.csv"
     trace_path = Path(__file__).resolve().parents[2] / "artifacts" / trace_name
     trace_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostic_path = trace_path.with_name(
+        f"{trace_path.stem}_diagnostic_events.json"
+    )
+    diagnostic_events: list[dict] = []
+    diagnostic_failure_active = False
+    if args.continue_on_failure:
+        diagnostic_path.write_text("[]\n", encoding="utf-8")
     solver = Solver()
     input_lease = InputLease()
     previous_state: int | None = None
@@ -321,11 +332,15 @@ def run(args: argparse.Namespace) -> int:
                         transition_count += len(keyboard.release_all())
                         input_lease.cleared()
                         authority_stop = True
-                        exit_code = 2
-                        # A dense counterexample can take many seconds to
-                        # serialize. Stop the verified game first so it cannot
-                        # continue into a visible HIT after authority ended.
-                        stop_immediately()
+                        if args.continue_on_failure:
+                            solver.reset_plan()
+                        if not args.continue_on_failure:
+                            exit_code = 2
+                            # A dense counterexample can take many seconds to
+                            # serialize. Stop the verified game first so it
+                            # cannot continue into a visible HIT after
+                            # authority ended.
+                            stop_immediately()
                     elif not keyboard.foreground():
                         keyboard.release_all()
                         decision = Decision(None, (), 0.0, 0, "not-foreground")
@@ -436,7 +451,9 @@ def run(args: argparse.Namespace) -> int:
                             transition_count += len(keyboard.release_all())
                             input_lease.cleared()
                             authority_stop = authority_unavailable(decision)
-                            if authority_stop:
+                            if authority_stop and args.continue_on_failure:
+                                solver.reset_plan()
+                            if authority_stop and not args.continue_on_failure:
                                 exit_code = 2
 
                 row_reason = "stale-decision-retry" if stale_retry else decision.reason
@@ -490,6 +507,41 @@ def run(args: argparse.Namespace) -> int:
                 last_reason = row_reason
                 if authority_stop:
                     output.flush()
+                    if args.continue_on_failure:
+                        if not diagnostic_failure_active or hit:
+                            diagnostic_events.append({
+                                "sequence": len(diagnostic_events) + 1,
+                                "wall_s": time.monotonic() - started,
+                                "frame": snapshot.frame,
+                                "stage": snapshot.stage,
+                                "physical_hit": hit,
+                                "reason": decision.reason,
+                                "snapshot": asdict(snapshot),
+                                "previous_snapshot": (
+                                    asdict(prior_snapshot)
+                                    if prior_snapshot is not None else None
+                                ),
+                                "decision": asdict(decision),
+                                "held_before_release": held_before_authority,
+                            })
+                            diagnostic_path.write_text(
+                                json.dumps(
+                                    diagnostic_events,
+                                    indent=2,
+                                    sort_keys=True,
+                                ),
+                                encoding="utf-8",
+                            )
+                            print(
+                                f"diagnostic event {len(diagnostic_events)} "
+                                f"at f={snapshot.frame}: {decision.reason}; "
+                                f"released movement and continuing; "
+                                f"events={diagnostic_path}",
+                                flush=True,
+                            )
+                        diagnostic_failure_active = True
+                        previous_snapshot = snapshot
+                        continue
                     failure_path = trace_path.with_name("th06_failure_latest.json")
                     failure_path.write_text(
                         json.dumps(
@@ -524,6 +576,8 @@ def run(args: argparse.Namespace) -> int:
                         flush=True,
                     )
                     break
+                if decision.action is not None:
+                    diagnostic_failure_active = False
                 previous_snapshot = snapshot
     finally:
         cleanup()
@@ -539,6 +593,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--practice-stage", type=int, choices=range(1, 7), metavar="1..6")
     parser.add_argument("--stop-game", action="store_true", help="stop the exact attached trial process on exit")
     parser.add_argument("--save-replay", action="store_true", help="save and validate a non-Practice result replay")
+    parser.add_argument(
+        "--continue-on-failure",
+        action="store_true",
+        help=(
+            "Practice diagnostic: record HIT/authority events, release input, "
+            "and continue until the result path"
+        ),
+    )
     parser.add_argument("--replay-slot", type=int, choices=range(1, 16), metavar="1..15")
     parser.add_argument("--replay-name", default="TH06")
     parser.add_argument("--seconds", type=float, default=0.0, help="zero runs until Ctrl+C")

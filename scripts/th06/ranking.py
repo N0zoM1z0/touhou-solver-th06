@@ -16,6 +16,12 @@ class ProposalRanker:
     def observe(self, _survived: bool) -> None:
         """Learning is deliberately disabled until contextual proposals exist."""
 
+    def reset_plan(self) -> None:
+        """Discard proposal commitment after a physical discontinuity."""
+        self.committed_action = None
+        self.commit_until_frame = None
+        self.last_frame = None
+
     def choose(
         self,
         snapshot: Snapshot,

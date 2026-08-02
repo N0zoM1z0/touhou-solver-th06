@@ -37,7 +37,7 @@ from th06.input_lease import (
     bounded_delivery_age,
     covered_current_retry,
 )
-from th06.agent import authority_unavailable
+from th06.agent import authority_unavailable, parse_args
 from th06.menu import _select_unlocked_practice_stage
 from th06 import dialogue, menu, native
 from th06.native import (
@@ -291,6 +291,16 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(
             authority_unavailable(Decision(None, (), 0.0, 6, "physical-hit", 6))
         )
+
+    def test_full_stage_diagnostic_is_an_explicit_option(self):
+        args = parse_args((
+            "--armed",
+            "--patch-lives",
+            "--practice-stage",
+            "1",
+            "--continue-on-failure",
+        ))
+        self.assertTrue(args.continue_on_failure)
 
     def test_terminal_trial_releases_input_before_exact_process_stop(self):
         events = []

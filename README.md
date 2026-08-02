@@ -138,6 +138,12 @@ Its trace is isolated as `artifacts/th06_practice_stageN_latest.csv`. The exact
 the main menu, so Practice cannot save a replay; replay automation is validated
 on a non-Practice result screen instead.
 
+The default remains first-failure fail-close. For a deliberate full-stage
+diagnostic only, pass `--continue-on-failure`: each HIT or authority loss is
+recorded in `artifacts/th06_practice_stageN_latest_diagnostic_events.json`, all
+input is released, and control resumes only when a later fresh snapshot again
+has Hard authority. This mode never relaxes action eligibility or emits Bomb.
+
 Observe without sending input:
 
 ```bat

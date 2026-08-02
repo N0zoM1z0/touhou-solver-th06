@@ -373,6 +373,22 @@ class TerminalGuidanceTests(unittest.TestCase):
             [8, 12, 16],
         )
 
+    def test_physical_discontinuity_discards_only_soft_plan_state(self):
+        solver = Solver()
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = 120
+        solver.pending_target_action = ACTION_BY_NAME["right"]
+        solver.pending_target_horizon = 16
+        solver.ranker.committed_action = ACTION_BY_NAME["right"]
+        solver.ranker.commit_until_frame = 120
+
+        solver.reset_plan()
+
+        self.assertIsNone(solver.guidance_target)
+        self.assertIsNone(solver.pending_target_action)
+        self.assertEqual(solver.pending_target_horizon, 4)
+        self.assertIsNone(solver.ranker.committed_action)
+
     def test_unique_constant_frontier_can_anchor_a_target(self):
         state = snapshot(x=192.0, y=380.0)
         hard = tuple(

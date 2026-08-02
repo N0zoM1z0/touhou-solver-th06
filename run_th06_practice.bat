@@ -16,7 +16,7 @@ if not exist "%PYTHON%" (
   exit /b 1
 )
 if "%~1"=="" (
-  echo Usage: run_th06_practice.bat --practice-stage 1..6 [--seconds N]
+  echo Usage: run_th06_practice.bat --practice-stage 1..6 [--seconds N] [--continue-on-failure]
   exit /b 2
 )
 

@@ -398,6 +398,14 @@ class Solver:
         self.guidance_target = None
         self.guidance_deadline = None
 
+    def reset_plan(self) -> None:
+        """Discard soft continuation state without changing Hard authority."""
+        self._clear_target()
+        self.pending_target_action = None
+        self.pending_target_horizon = HARD_SAFETY_HORIZON
+        self.guidance_last_frame = None
+        self.ranker.reset_plan()
+
     def _terminal_guidance(
         self,
         snapshot: Snapshot,
