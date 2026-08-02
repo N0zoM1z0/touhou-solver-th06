@@ -18,6 +18,7 @@ class WorldBirthForecast:
     hazards: tuple[tuple[tuple[float, float, float, float], ...], ...]
     covered_frames: int
     reason: str = ""
+    body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
 
 
 def _project_hazards(
@@ -52,6 +53,9 @@ def forecast_world_births(
     if rng_mode not in ("fail-closed", "nominal"):
         raise ValueError(f"unknown RNG mode {rng_mode}")
     births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
     emitters = tuple(sorted(snapshot.spawners, key=lambda item: item.slot))
     if rng_mode == "fail-closed":
         covered_frames = len(player_positions)
@@ -78,6 +82,8 @@ def forecast_world_births(
                 emitter_reason = forecast.reason
                 for frame_index, frame_births in enumerate(forecast.births):
                     births[frame_index].extend(frame_births)
+                for frame_index, frame_bodies in enumerate(forecast.body_hazards):
+                    bodies[frame_index].extend(frame_bodies)
             if emitter_coverage < covered_frames:
                 covered_frames = emitter_coverage
                 reason = f"emitter {emitter.slot}: {emitter_reason}"
@@ -86,6 +92,7 @@ def forecast_world_births(
             _project_hazards(births, True),
             covered_frames,
             reason,
+            tuple(tuple(frame) for frame in bodies),
         )
     rng = (
         RngState(snapshot.rng_seed, snapshot.rng_generation)
@@ -125,6 +132,8 @@ def forecast_world_births(
                     f"emitter {emitter.slot}: {forecast.reason}",
                 )
             births[frame_index].extend(forecast.births[0])
+            if forecast.body_hazards:
+                bodies[frame_index].extend(forecast.body_hazards[0])
             if forecast.next_spawner is None:
                 stop_reason = stop_reason or (
                     f"emitter {emitter.slot}: {forecast.reason}"
@@ -144,4 +153,5 @@ def forecast_world_births(
         tuple(tuple(frame) for frame in births),
         _project_hazards(births, radial),
         len(player_positions),
+        body_hazards=tuple(tuple(frame) for frame in bodies),
     )

@@ -469,8 +469,29 @@ class EclBirthTests(unittest.TestCase):
             struct.pack("<i", 66),
             0x10,
         )
+        spell_effect = self.instruction(
+            0x1034,
+            0,
+            102,
+            struct.pack("<iffff", 9, -0.7, -0.1, -0.5, 48.0),
+            0x20,
+        )
+        damageable_flag = self.instruction(
+            0x1054,
+            0,
+            105,
+            struct.pack("<i", 0),
+            0x10,
+        )
+        bounds_disable = self.instruction(
+            0x1064,
+            0,
+            65,
+            b"",
+            0x0C,
+        )
         sentinel = EclInstruction(
-            0x1034, -1, 0, 0, 0, (b"\xff" * 12).hex()
+            0x1070, -1, 0, 0, 0, (b"\xff" * 12).hex()
         )
         emitter = spawner(
             pattern(count1=1, count2=1),
@@ -480,6 +501,9 @@ class EclBirthTests(unittest.TestCase):
                 animation_slot,
                 animation_rotation,
                 animation_main,
+                spell_effect,
+                damageable_flag,
+                bounds_disable,
                 sentinel,
             ),
         )
@@ -532,6 +556,40 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 1)
         self.assertEqual(len(forecast.births[0]), 1)
         self.assertEqual(forecast.births[0][0].speed, 3.5)
+
+    def test_interactable_opcode_activates_future_enemy_body_hazard(self):
+        interactable = self.instruction(
+            0x1000,
+            0,
+            117,
+            struct.pack("<i", 1),
+            0x10,
+        )
+        sentinel = EclInstruction(
+            0x1010, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            x=100.0,
+            y=200.0,
+            velocity_x=0.0,
+            interval=0,
+            next_instruction=interactable,
+            ecl_program=(interactable, sentinel),
+            hitbox_half_width=6.0,
+            hitbox_half_height=9.0,
+            interactable=False,
+            collidable=True,
+        )
+        forecast = forecast_world_births(
+            snapshot(10, spawners=(emitter,)),
+            ((100.0, 400.0),),
+        )
+        self.assertEqual(forecast.covered_frames, 1)
+        self.assertEqual(
+            forecast.body_hazards,
+            (((94.0, 191.0, 106.0, 209.0),),),
+        )
 
     def test_hard_world_carries_player_angle_as_position_uncertainty(self):
         set_angle = self.instruction(

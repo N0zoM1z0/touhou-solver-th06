@@ -48,6 +48,7 @@ OPCODE_MOVE_POSITION = 43
 OPCODE_MOVE_AT_PLAYER = 51
 OPCODE_MOVE_RANDOM = 49
 OPCODE_MOVE_RANDOM_IN_BOUNDS = 50
+OPCODE_MOVE_BOUNDS_DISABLE = 65
 OPCODE_BULLET_FIRST = 67
 OPCODE_BULLET_LAST = 75
 OPCODE_SHOOT_INTERVAL = 76
@@ -60,8 +61,12 @@ OPCODE_BULLET_EFFECTS = 82
 OPCODE_BULLET_SOUND = 84
 OPCODE_ANIMATION_MAIN = 97
 OPCODE_ANIMATION_SLOT = 99
+OPCODE_SPELL_EFFECT = 102
+OPCODE_COLLIDABLE_FLAG = 104
+OPCODE_DAMAGEABLE_FLAG = 105
 OPCODE_EFFECT_SOUND = 106
 OPCODE_EFFECT_PARTICLE = 118
+OPCODE_INTERACTABLE_FLAG = 117
 OPCODE_ANIMATION_ROTATION = 120
 
 
@@ -71,6 +76,7 @@ class EclForecast:
     covered_frames: int
     reason: str = ""
     next_spawner: EnemySpawner | None = None
+    body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -285,6 +291,9 @@ def forecast_ecl_births(
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
     births: list[list[Bullet]] = [[] for _ in player_positions]
+    body_hazards: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
     if not spawner.ecl_program or spawner.next_instruction is None:
         return EclForecast(tuple(map(tuple, births)), 0, "missing ECL instruction graph")
     if spawner.repeat_ex_index is not None:
@@ -297,6 +306,9 @@ def forecast_ecl_births(
     floats = list(spawner.ecl_floats)
     compare_register = spawner.ecl_compare
     call_stack = list(spawner.ecl_stack)
+    interactable = spawner.interactable
+    collidable = spawner.collidable
+    invisible = spawner.invisible
     pattern = spawner.pattern
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
@@ -587,6 +599,10 @@ def forecast_ecl_births(
                 floats = list(caller.floats)
                 compare_register = caller.compare
                 continue
+            elif instruction.opcode == OPCODE_COLLIDABLE_FLAG:
+                collidable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_INTERACTABLE_FLAG:
+                interactable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif OPCODE_MOVE_POSITION <= instruction.opcode <= OPCODE_MOVE_AT_PLAYER:
                 if instruction.opcode == OPCODE_MOVE_POSITION:
                     enemy_x = _float_var(
@@ -816,8 +832,11 @@ def forecast_ecl_births(
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
             elif instruction.opcode in (
                 OPCODE_BULLET_SOUND,
+                OPCODE_MOVE_BOUNDS_DISABLE,
                 OPCODE_ANIMATION_MAIN,
                 OPCODE_ANIMATION_SLOT,
+                OPCODE_SPELL_EFFECT,
+                OPCODE_DAMAGEABLE_FLAG,
                 OPCODE_EFFECT_SOUND,
                 OPCODE_EFFECT_PARTICLE,
                 OPCODE_ANIMATION_ROTATION,
@@ -861,6 +880,20 @@ def forecast_ecl_births(
         else:
             velocity_uncertainty = 0.0
         enemy = (enemy_x, enemy_y)
+
+        if (
+            interactable
+            and collidable
+            and not invisible
+            and spawner.hitbox_half_width > 0.0
+            and spawner.hitbox_half_height > 0.0
+        ):
+            body_hazards[frame_index].append((
+                enemy_x - spawner.hitbox_half_width,
+                enemy_y - spawner.hitbox_half_height,
+                enemy_x + spawner.hitbox_half_width,
+                enemy_y + spawner.hitbox_half_height,
+            ))
 
         if spawner.life > 0 and interval > 0:
             interval_subframe += frame_multiplier
@@ -932,5 +965,9 @@ def forecast_ecl_births(
             ecl_compare=compare_register,
             next_instruction=next_instruction,
             ecl_stack=tuple(call_stack),
+            interactable=interactable,
+            collidable=collidable,
+            invisible=invisible,
         ),
+        body_hazards=tuple(tuple(frame) for frame in body_hazards),
     )

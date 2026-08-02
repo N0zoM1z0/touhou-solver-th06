@@ -209,6 +209,11 @@ class EnemySpawner:
     next_instruction: EclInstruction | None
     ecl_program: tuple[EclInstruction, ...]
     ecl_stack: tuple[EnemyEclContext, ...] = ()
+    hitbox_half_width: float = 0.0
+    hitbox_half_height: float = 0.0
+    interactable: bool = False
+    collidable: bool = False
+    invisible: bool = False
 
 
 @dataclass(frozen=True)

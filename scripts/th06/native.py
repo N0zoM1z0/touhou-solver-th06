@@ -785,19 +785,19 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             and flags1 & 0x04
             and not flags2 & 0x08
         )
-        if lethal:
-            hitbox_x, hitbox_y = struct.unpack_from(
-                "<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET
+        hitbox_x, hitbox_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET
+        )
+        if (
+            not math.isfinite(hitbox_x)
+            or not math.isfinite(hitbox_y)
+            or not 0.0 <= hitbox_x <= 1024.0
+            or not 0.0 <= hitbox_y <= 1024.0
+        ):
+            raise RuntimeError(
+                f"invalid occupied enemy geometry at slot {index}"
             )
-            if (
-                not math.isfinite(hitbox_x)
-                or not math.isfinite(hitbox_y)
-                or not 0.0 <= hitbox_x <= 1024.0
-                or not 0.0 <= hitbox_y <= 1024.0
-            ):
-                raise RuntimeError(
-                    f"invalid lethal enemy geometry at slot {index}"
-                )
+        if lethal:
             enemies.append(EnemyBody(
                 ex,
                 ey,
@@ -1006,6 +1006,11 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             next_instruction,
             ecl_program,
             ecl_stack,
+            hitbox_x / 3.0,
+            hitbox_y / 3.0,
+            bool(flags1 & 0x01),
+            bool(flags1 & 0x02),
+            bool(flags2 & 0x08),
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
