@@ -645,7 +645,7 @@ class Solver:
             and 220 <= len(snapshot.bullets) < 400
             and len(snapshot.enemies) <= 1
             and len(certified) < len(ACTIONS)
-            and 0 < len(durable) <= 3
+            and 0 < len(durable) <= 4
             and effort_horizon == 8
             and any(
                 boundary_relief(snapshot, action, 20) != 0
@@ -657,8 +657,12 @@ class Solver:
             # relief preferred the tangent right path, but the already
             # prepared h8 hazards gave it four second-segment continuations
             # versus five for down-right; the tangent path had no h20 survivor
-            # and reached an empty Hard-4 set at f3235. Reuse the bounded h8
-            # two-segment score only after both hard and durable sets narrow.
+            # and reached an empty Hard-4 set at f3235. A later physical branch
+            # reached the same geometry with four h8 survivors at f3233. Its
+            # tangent left path had four continuations versus seven for down,
+            # and then disappeared by h12 before the set emptied at f3264.
+            # Reuse the bounded h8 two-segment score once both hard and the
+            # at-most-four-way durable sets narrow.
             # The saved 338-bullet state measured 1.65 ms median and 3.19 ms
             # max, versus 9.43/21.83 ms for an extra constant h20 scan.
             corridor_scores = (

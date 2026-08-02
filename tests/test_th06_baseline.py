@@ -2265,6 +2265,69 @@ class BaselineTests(unittest.TestCase):
             collision_margin=0.35,
         )
 
+    def test_solver_ranks_a_four_way_dense_boundary_corridor(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(354)
+        )
+        state = snapshot(
+            *bullets,
+            x=294.25,
+            y=395.858,
+            input_mask=BUTTON_FOCUS,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": (enemy_body(x=192.0, y=128.0),),
+        })
+        hard = tuple(
+            SafeAction(
+                candidate.action,
+                2.0,
+                candidate.final_x,
+                candidate.final_y,
+            )
+            for candidate in certify_actions(state, HARD_SAFETY_HORIZON)
+            if candidate.action.name != "up"
+        )
+        effort = tuple(
+            candidate for candidate in hard
+            if candidate.action.name in (
+                "down", "left", "down_left", "down_right"
+            )
+        )
+        down = ACTION_BY_VECTOR[(0, 1)]
+        left = ACTION_BY_VECTOR[(-1, 0)]
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        kernel = mock.Mock()
+        kernel.certify_delivery_sets.return_value = (hard, hard)
+        kernel.certify.return_value = effort
+        kernel.replanning_scores.return_value = {
+            down: 7,
+            left: 4,
+            down_left: 6,
+            down_right: 6,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 8)
+        self.assertEqual(decision.action, down)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+        kernel.replanning_scores.assert_called_once_with(
+            state,
+            effort,
+            HARD_SAFETY_HORIZON,
+            8,
+            collision_margin=0.35,
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
