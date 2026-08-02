@@ -41,6 +41,7 @@ OPCODE_MATH_INT_MODULO = 17
 OPCODE_MATH_INCREMENT = 18
 OPCODE_MATH_DECREMENT = 19
 OPCODE_MATH_FLOAT_ADD = 20
+OPCODE_MATH_FLOAT_SUBTRACT = 21
 OPCODE_COMPARE_INT = 27
 OPCODE_COMPARE_FLOAT = 28
 OPCODE_JUMP_LESS = 29
@@ -104,6 +105,17 @@ def _float_add(left: float | FloatInterval, right: float | FloatInterval) -> flo
         right_low, right_high = (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
         return FloatInterval(left_low + right_low, left_high + right_high)
     return left + right
+
+
+def _float_subtract(
+    left: float | FloatInterval,
+    right: float | FloatInterval,
+) -> float | FloatInterval:
+    if isinstance(left, FloatInterval) or isinstance(right, FloatInterval):
+        left_low, left_high = (left.low, left.high) if isinstance(left, FloatInterval) else (left, left)
+        right_low, right_high = (right.low, right.high) if isinstance(right, FloatInterval) else (right, right)
+        return FloatInterval(left_low - right_high, left_high - right_low)
+    return left - right
 
 
 def _maximum_magnitude(value: float | FloatInterval) -> float:
@@ -343,22 +355,48 @@ def forecast_ecl_births(
     position_uncertainty = 0.0
     velocity_uncertainty = 0.0
     uncertain_heading = False
+    shoot_offset_x: float | FloatInterval = spawner.shoot_offset_x
+    shoot_offset_y: float | FloatInterval = spawner.shoot_offset_y
 
     def emit(
         resolved: BulletPattern,
-        origin: tuple[float, float],
+        origin: tuple[float | FloatInterval, float | FloatInterval],
         player: tuple[float, float],
     ) -> tuple[Bullet, ...]:
+        origin_x, origin_y = origin
+        origin_uncertainty_x = 0.0
+        origin_uncertainty_y = 0.0
+        if isinstance(origin_x, FloatInterval):
+            if not radial_births:
+                raise UnsupportedBirthModel("uncertain shoot-offset x needs a hard envelope")
+            origin_uncertainty_x = (origin_x.high - origin_x.low) / 2.0
+            origin_x = (origin_x.low + origin_x.high) / 2.0
+        if isinstance(origin_y, FloatInterval):
+            if not radial_births:
+                raise UnsupportedBirthModel("uncertain shoot-offset y needs a hard envelope")
+            origin_uncertainty_y = (origin_y.high - origin_y.low) / 2.0
+            origin_y = (origin_y.low + origin_y.high) / 2.0
         if radial_births:
             return tuple(
                 replace(
                     bullet,
-                    half_width=bullet.half_width + position_uncertainty,
-                    half_height=bullet.half_height + position_uncertainty,
+                    half_width=(
+                        bullet.half_width
+                        + position_uncertainty
+                        + origin_uncertainty_x
+                    ),
+                    half_height=(
+                        bullet.half_height
+                        + position_uncertainty
+                        + origin_uncertainty_y
+                    ),
                 )
-                for bullet in spawn_pattern_envelope(resolved, origin)
+                for bullet in spawn_pattern_envelope(
+                    resolved,
+                    (origin_x, origin_y),
+                )
             )
-        return spawn_pattern(resolved, origin, player, rng)
+        return spawn_pattern(resolved, (origin_x, origin_y), player, rng)
 
     for frame_index, player in enumerate(player_positions):
         variable_player = player if allow_player_variables else None
@@ -538,7 +576,10 @@ def forecast_ecl_births(
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "unsupported increment target"
                     )
-            elif instruction.opcode == OPCODE_MATH_FLOAT_ADD:
+            elif instruction.opcode in (
+                OPCODE_MATH_FLOAT_ADD,
+                OPCODE_MATH_FLOAT_SUBTRACT,
+            ):
                 target = struct.unpack_from("<i", raw, 0x0C)[0]
                 lhs = _float_var(
                     raw[0x10:0x14], integers, floats, difficulty, rank,
@@ -548,9 +589,14 @@ def forecast_ecl_births(
                     raw[0x14:0x18], integers, floats, difficulty, rank,
                     spawner.life, enemy, variable_player,
                 )
-                if not _set_float_var(target, _float_add(lhs, rhs), floats):
+                value = (
+                    _float_add(lhs, rhs)
+                    if instruction.opcode == OPCODE_MATH_FLOAT_ADD
+                    else _float_subtract(lhs, rhs)
+                )
+                if not _set_float_var(target, value, floats):
                     return EclForecast(
-                        tuple(map(tuple, births)), frame_index, "unsupported float-add target"
+                        tuple(map(tuple, births)), frame_index, "unsupported float-math target"
                     )
             elif instruction.opcode in (OPCODE_COMPARE_INT, OPCODE_COMPARE_FLOAT):
                 if instruction.opcode == OPCODE_COMPARE_INT:
@@ -838,8 +884,8 @@ def forecast_ecl_births(
                         births[frame_index].extend(emit(
                             pattern,
                             (
-                                enemy[0] + spawner.shoot_offset_x,
-                                enemy[1] + spawner.shoot_offset_y,
+                                _float_add(enemy[0], shoot_offset_x),
+                                _float_add(enemy[1], shoot_offset_y),
                             ),
                             player,
                         ))
@@ -891,13 +937,29 @@ def forecast_ecl_births(
                     births[frame_index].extend(emit(
                         pattern,
                         (
-                            enemy[0] + spawner.shoot_offset_x,
-                            enemy[1] + spawner.shoot_offset_y,
+                            _float_add(enemy[0], shoot_offset_x),
+                            _float_add(enemy[1], shoot_offset_y),
                         ),
                         player,
                     ))
                 except UnsupportedBirthModel as error:
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
+            elif instruction.opcode == OPCODE_SHOOT_OFFSET:
+                shoot_offset_x = _float_var(
+                    raw[0x0C:0x10], integers, floats, difficulty, rank,
+                    spawner.life, enemy, variable_player,
+                )
+                shoot_offset_y = _float_var(
+                    raw[0x10:0x14], integers, floats, difficulty, rank,
+                    spawner.life, enemy, variable_player,
+                )
+                # The source also stores z. It does not affect TH06's 2D
+                # collision geometry, but resolve it so unknown variables
+                # still fail closed consistently.
+                _float_var(
+                    raw[0x14:0x18], integers, floats, difficulty, rank,
+                    spawner.life, enemy, variable_player,
+                )
             elif instruction.opcode in (
                 OPCODE_BULLET_SOUND,
                 OPCODE_MOVE_BOUNDS_DISABLE,
@@ -979,8 +1041,8 @@ def forecast_ecl_births(
                     births[frame_index].extend(emit(
                         pattern,
                         (
-                            enemy[0] + spawner.shoot_offset_x,
-                            enemy[1] + spawner.shoot_offset_y,
+                            _float_add(enemy[0], shoot_offset_x),
+                            _float_add(enemy[1], shoot_offset_y),
                         ),
                         player,
                     ))
@@ -1022,6 +1084,8 @@ def forecast_ecl_births(
             move_timer=move_timer,
             move_timer_float=move_timer_float,
             shooting_disabled=shooting_disabled,
+            shoot_offset_x=shoot_offset_x,
+            shoot_offset_y=shoot_offset_y,
             interval=interval,
             timer=interval_timer,
             timer_float=interval_timer + interval_subframe,

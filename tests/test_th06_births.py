@@ -726,6 +726,127 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(len(hard.births[0]), 1)
         self.assertEqual(hard.births[0][0].speed, 1.5)
 
+    def test_hard_world_subtracts_rng_interval_with_outward_bounds(self):
+        random_value = self.instruction(
+            0x1000,
+            0,
+            8,
+            struct.pack("<if", -10005, 1.0),
+            0x14,
+        )
+        subtract = self.instruction(
+            0x1014,
+            0,
+            21,
+            struct.pack("<iff", -10005, 3.0, -10005.0),
+            0x18,
+        )
+        bullet = self.instruction(
+            0x102C,
+            0,
+            67,
+            struct.pack(
+                "<hhii ffff I",
+                0,
+                0,
+                1,
+                1,
+                -10005.0,
+                0.0,
+                0.0,
+                0.0,
+                4,
+            ),
+            0x30,
+        )
+        sentinel = EclInstruction(
+            0x105C, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=random_value,
+            ecl_program=(random_value, subtract, bullet, sentinel),
+        )
+
+        hard = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+
+        self.assertEqual(hard.covered_frames, 1)
+        self.assertEqual(len(hard.births[0]), 1)
+        # 3 - RNG[0, 1] is [2, 3], then the rank adjustment is -0.5.
+        self.assertEqual(hard.births[0][0].speed, 2.5)
+
+    def test_hard_world_encloses_rng_derived_shoot_offset(self):
+        random_x = self.instruction(
+            0x1000,
+            0,
+            8,
+            struct.pack("<if", -10005, 10.0),
+            0x14,
+        )
+        shoot_offset = self.instruction(
+            0x1014,
+            0,
+            81,
+            struct.pack("<fff", -10005.0, 4.0, 0.0),
+            0x18,
+        )
+        bullet = self.instruction(
+            0x102C,
+            0,
+            67,
+            struct.pack(
+                "<hhii ffff I",
+                0,
+                0,
+                1,
+                1,
+                2.0,
+                0.0,
+                0.0,
+                0.0,
+                4,
+            ),
+            0x30,
+        )
+        sentinel = EclInstruction(
+            0x105C, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            x=20.0,
+            y=30.0,
+            velocity_x=0.0,
+            shoot_offset_x=0.0,
+            shoot_offset_y=0.0,
+            interval=0,
+            next_instruction=random_x,
+            ecl_program=(random_x, shoot_offset, bullet, sentinel),
+        )
+
+        hard = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+
+        self.assertEqual(hard.covered_frames, 1)
+        self.assertEqual(len(hard.births[0]), 1)
+        self.assertEqual(hard.births[0][0].x, 25.0)
+        self.assertEqual(hard.births[0][0].y, 34.0)
+        self.assertEqual(hard.births[0][0].half_width, 8.0)
+        self.assertEqual(hard.births[0][0].half_height, 3.0)
+
     def test_world_retains_accelerating_emitter_motion_between_frames(self):
         sentinel = EclInstruction(
             0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex()
