@@ -364,6 +364,12 @@ class Solver:
                 0 < len(certified) <= 3
                 and precomputed_current_effort is not None
             )
+            broad_expiring_held = (
+                broad_authority
+                and len(snapshot.bullets) >= 400
+                and precomputed_current_effort is not None
+                and not precomputed_current_effort
+            )
             if narrow_combined_authority:
                 # Stage 4 f2652 had down/down-left/down-right at Hard-4 but
                 # only the first two at h6; f2665 had stay/up/down at Hard-4
@@ -384,6 +390,7 @@ class Solver:
                 )
             elif (
                 len(certified) <= 3
+                or broad_expiring_held
                 or (
                     broad_authority
                     and (
@@ -405,7 +412,13 @@ class Solver:
                 # not, the native bridge now reuses the prepared hazards for
                 # the full search.  Stage 4 f10251 then rejects a newly chosen
                 # up-left path outside its four h6 survivors.  The Hard-4 set
-                # above remains unchanged either way.
+                # above remains unchanged either way. Stage 5 f3064 still had
+                # seven hard replacements after the held down-left path failed
+                # the combined h7 probe. A second full h6 pass found up-left
+                # but took 29 ms, so publication aged two frames and the held
+                # path reached an empty set. The broad-expiring-held case above
+                # now publishes from Hard-4 immediately; sets of six or fewer
+                # retain this longer replacement search.
                 effort_certified = (
                     precomputed_current_effort
                     if precomputed_current_effort

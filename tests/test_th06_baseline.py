@@ -838,26 +838,41 @@ class BaselineTests(unittest.TestCase):
         )
         kernel.certify.assert_not_called()
 
-    def test_extreme_density_reuses_hazards_for_the_held_probe(self):
+    def test_extreme_density_publishes_broad_replacement_after_held_probe(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
-            for _ in range(400)
-        ))
-        hard = certify_actions(state, HARD_SAFETY_HORIZON)
-        close = (
-            SafeAction(
-                hard[0].action,
-                2.0,
-                hard[0].final_x,
-                hard[0].final_y,
+            for _ in range(546)
+        ),
+            x=366.1,
+            y=432.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": tuple(
+                enemy_body(x=40.0 + index * 40.0, y=128.0)
+                for index in range(3)
             ),
-        ) + hard[1:-1]
+        })
+        hard = tuple(
+            SafeAction(
+                candidate.action,
+                2.0,
+                candidate.final_x,
+                candidate.final_y,
+            )
+            for candidate in certify_actions(state, HARD_SAFETY_HORIZON)
+            if candidate.action.name in (
+                "stay", "down", "left", "right", "up_left", "down_left",
+                "down_right",
+            )
+        )
         held = action_from_input(state.input_mask)
+        up_left = ACTION_BY_VECTOR[(-1, -1)]
 
         class CombinedKernel:
             def __init__(self):
                 self.calls = []
-                self.full_calls = []
 
             def certify_delivery_sets_with_selected(
                 self,
@@ -874,11 +889,10 @@ class BaselineTests(unittest.TestCase):
                     actions,
                     collision_margin,
                 ))
-                return close, close, ()
+                return hard, hard, ()
 
-            def certify(self, actual_state, horizon, collision_margin):
-                self.full_calls.append((actual_state, horizon, collision_margin))
-                return close[1:]
+            def certify(self, *_args, **_kwargs):
+                raise AssertionError("broad replacement must publish promptly")
 
         kernel = CombinedKernel()
         solver = Solver()
@@ -886,7 +900,9 @@ class BaselineTests(unittest.TestCase):
 
         decision = solver.decide(state)
 
-        self.assertNotEqual(decision.action, held)
+        self.assertEqual(len(hard), len(ACTIONS) - 2)
+        self.assertEqual(decision.action, up_left)
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         self.assertEqual(kernel.calls, [(
             state,
             HARD_SAFETY_HORIZON,
@@ -894,11 +910,6 @@ class BaselineTests(unittest.TestCase):
             (held,),
             0.35,
         )])
-        self.assertEqual(kernel.full_calls, [(state, 6, 0.35)])
-        self.assertIn(decision.action, {
-            candidate.action for candidate in close[1:]
-        })
-        self.assertEqual(decision.effort_horizon, 6)
 
     def test_native_dense_followup_reuses_the_prepared_hazards(self):
         state = snapshot()
