@@ -690,9 +690,10 @@ def _forecast_ecl_births_single(
                     finished=True,
                 )
             if instruction.opcode in (OPCODE_JUMP, OPCODE_JUMPDEC):
-                jump_time, jump_offset, variable = struct.unpack_from("<iii", raw, 0x0C)
+                jump_time, jump_offset = struct.unpack_from("<ii", raw, 0x0C)
                 take_jump = True
                 if instruction.opcode == OPCODE_JUMPDEC:
+                    variable = struct.unpack_from("<i", raw, 0x14)[0]
                     value = _int_var(variable, integers, difficulty, rank, life) - 1
                     if not _set_int_var(variable, value, integers):
                         return EclForecast(

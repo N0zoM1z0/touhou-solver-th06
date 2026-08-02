@@ -215,6 +215,25 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 2, forecast.reason)
         self.assertEqual([len(frame) for frame in forecast.births], [0, 1])
 
+    def test_unconditional_jump_uses_its_short_source_layout(self):
+        jump = instruction(
+            0x1000,
+            2,
+            struct.pack("<ii", 0, 0x14),
+            0x14,
+        )
+        sentinel = EclInstruction(0x1014, -1, 0, 0, 0, bytes(12).hex())
+
+        forecast = forecast_ecl_births(
+            emitter(jump, sentinel),
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+
     def test_move_time_accelerate_matches_source_interpolation(self):
         # Opcode 63 calls MoveTime and selects easing type 3.  The source
         # displacement is cos(angle) * speed * duration / 2.
