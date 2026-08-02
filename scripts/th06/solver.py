@@ -591,6 +591,51 @@ class Solver:
             refined_durable = durable & laser_survivors
             if refined_durable:
                 durable = refined_durable
+        pre_boundary_corridor = (
+            not snapshot.lasers
+            and 100 <= len(snapshot.bullets) < 220
+            and len(snapshot.enemies) <= 1
+            and len(certified) == len(ACTIONS)
+            and 0 < len(durable) <= 5
+            and not any(
+                boundary_relief(snapshot, action, 20) != 0
+                for action in ACTIONS
+            )
+            and any(
+                boundary_relief(snapshot, action, 20 + effort_horizon) != 0
+                for action in ACTIONS
+            )
+        )
+        if pre_boundary_corridor:
+            # Stage 4 f16924 was still outside the 20-frame bottom warning,
+            # so five constant h12 survivors were ranked alike and down won
+            # on clearance.  It then became the shrinking last frontier and
+            # reached an empty Hard-4 set at f16949.  The already-prepared h12
+            # hazards gave down-right five safe second actions versus four for
+            # down.  Use that cheap two-segment evidence just before a narrowed
+            # corridor enters the warning band; eligibility remains Hard-4.
+            corridor_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    effort_certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    effort_certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                )
+            )
+            best_corridor_score = max(corridor_scores.values(), default=0)
+            if best_corridor_score:
+                durable = frozenset(
+                    action for action, score in corridor_scores.items()
+                    if score == best_corridor_score
+                )
         repairable = frozenset()
         single_wall_trap = durable and all(
             heads_toward_single_wall(snapshot, action)

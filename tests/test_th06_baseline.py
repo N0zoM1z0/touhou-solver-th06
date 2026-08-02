@@ -1973,6 +1973,61 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(len(decision.safe_actions), len(ACTIONS))
         kernel.replanning_scores.assert_called_once()
 
+    def test_solver_ranks_a_narrow_corridor_before_it_reaches_boundary_warning(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(180)
+        )
+        state = snapshot(
+            *bullets,
+            x=268.5,
+            y=375.6,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": (enemy_body(x=192.0, y=128.0),),
+        })
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        effort = tuple(
+            candidate for candidate in hard
+            if candidate.action.name in (
+                "down", "right", "up_right", "down_left", "down_right"
+            )
+        )
+        down = ACTION_BY_VECTOR[(0, 1)]
+        right = ACTION_BY_VECTOR[(1, 0)]
+        up_right = ACTION_BY_VECTOR[(1, -1)]
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            effort,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            down: 4,
+            right: 4,
+            up_right: 3,
+            down_left: 3,
+            down_right: 5,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 12)
+        self.assertEqual(decision.action, down_right)
+        kernel.replanning_scores.assert_called_once_with(
+            state,
+            effort,
+            HARD_SAFETY_HORIZON,
+            12,
+            collision_margin=0.35,
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,
