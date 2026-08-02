@@ -58,6 +58,7 @@ OPCODE_SHOOT_OFFSET = 81
 OPCODE_BULLET_EFFECTS = 82
 OPCODE_BULLET_SOUND = 84
 OPCODE_EFFECT_SOUND = 106
+OPCODE_EFFECT_PARTICLE = 118
 
 
 @dataclass(frozen=True)
@@ -787,7 +788,11 @@ def forecast_ecl_births(
                     ))
                 except UnsupportedBirthModel as error:
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
-            elif instruction.opcode in (OPCODE_BULLET_SOUND, OPCODE_EFFECT_SOUND):
+            elif instruction.opcode in (
+                OPCODE_BULLET_SOUND,
+                OPCODE_EFFECT_SOUND,
+                OPCODE_EFFECT_PARTICLE,
+            ):
                 pass
             else:
                 return EclForecast(

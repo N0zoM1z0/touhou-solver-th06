@@ -417,6 +417,30 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(nominal.covered_frames, 3)
         self.assertEqual([len(items) for items in nominal.births], [1, 0, 0])
 
+    def test_source_visual_particle_opcode_is_hazard_neutral(self):
+        particle = self.instruction(
+            0x1000,
+            0,
+            118,
+            struct.pack("<iii", 4, 2, 1),
+            0x18,
+        )
+        sentinel = EclInstruction(
+            0x1018, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=particle,
+            ecl_program=(particle, sentinel),
+        )
+        forecast = forecast_world_births(
+            snapshot(10, spawners=(emitter,)),
+            ((100.0, 400.0),) * 4,
+        )
+        self.assertEqual(forecast.covered_frames, 4)
+        self.assertEqual(forecast.births, ((), (), (), ()))
+
     def test_hard_world_carries_player_angle_as_position_uncertainty(self):
         set_angle = self.instruction(
             0x1000,
