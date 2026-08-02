@@ -8,6 +8,7 @@ instruction as modeled.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 import math
 import struct
@@ -139,6 +140,8 @@ OPCODE_BOSS_TIMER_CLEAR = 133
 OPCODE_LASER_CLEAR_ALL = 134
 OPCODE_SPELL_TIMEOUT_FLAG = 135
 ECL_OPCODE_COUNT = 136
+MAX_ABSTRACT_INTEGER_RNG_BRANCHES = 64
+MAX_ABSTRACT_INTEGER_RNG_EVALUATIONS = 256
 
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
@@ -216,6 +219,7 @@ class EclForecast:
     next_spawner: EnemySpawner | None = None
     body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
     finished: bool = False
+    unresolved_int_extent: int = 0
 
 
 @dataclass(frozen=True)
@@ -564,6 +568,7 @@ def _forecast_ecl_births_single(
     radial_births: bool = False,
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
+    abstract_int_choices: tuple[int, ...] = (),
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -642,6 +647,7 @@ def _forecast_ecl_births_single(
     uncertain_heading = False
     shoot_offset_x: float | FloatInterval = spawner.shoot_offset_x
     shoot_offset_y: float | FloatInterval = spawner.shoot_offset_y
+    abstract_int_cursor = 0
 
     def emit(
         resolved: BulletPattern,
@@ -840,17 +846,37 @@ def _forecast_ecl_births_single(
                     OPCODE_SET_INT_RANDOM,
                     OPCODE_SET_INT_RANDOM_MIN,
                 ):
-                    if rng is None:
-                        return EclForecast(
-                            tuple(map(tuple, births)),
-                            frame_index,
-                            "integer RNG requires a discrete uncertainty domain",
-                        )
                     extent_raw = struct.unpack_from("<i", raw, 0x10)[0]
                     extent = _int_var(
                         extent_raw, integers, difficulty, rank, life
-                    )
-                    value = rng.u32_in_range(extent)
+                    ) & 0xFFFFFFFF
+                    if rng is None:
+                        if not abstract_rng:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "integer ECL random variable requires RNG state",
+                            )
+                        if extent == 0:
+                            value = 0
+                        elif abstract_int_cursor >= len(abstract_int_choices):
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "integer RNG needs bounded branch expansion",
+                                unresolved_int_extent=extent,
+                            )
+                        else:
+                            value = abstract_int_choices[abstract_int_cursor]
+                            abstract_int_cursor += 1
+                            if not 0 <= value < extent:
+                                return EclForecast(
+                                    tuple(map(tuple, births)),
+                                    frame_index,
+                                    "integer RNG branch is outside its source range",
+                                )
+                    else:
+                        value = rng.u32_in_range(extent)
                     if instruction.opcode == OPCODE_SET_INT_RANDOM_MIN:
                         minimum_raw = struct.unpack_from("<i", raw, 0x14)[0]
                         value += _int_var(
@@ -1799,7 +1825,7 @@ def _forecast_ecl_births_single(
     )
 
 
-def forecast_ecl_births(
+def _forecast_ecl_births_with_life_callbacks(
     spawner: EnemySpawner,
     player_positions: tuple[tuple[float, float], ...],
     difficulty: int,
@@ -1948,4 +1974,173 @@ def forecast_ecl_births(
         covered_frames,
         reason if covered_frames < horizon else "",
         body_hazards=tuple(tuple(frame) for frame in bodies),
+    )
+
+
+def _life_callback_can_branch(
+    spawner: EnemySpawner,
+    horizon: int,
+    abstract_rng: bool,
+) -> bool:
+    callback_damage = (70 if spawner.damageable else 0) + (
+        10 if spawner.collidable and not spawner.is_boss else 0
+    )
+    callback_gap = spawner.life - spawner.life_callback_threshold
+    earliest_callback = (
+        max(0, callback_gap // callback_damage + 1)
+        if callback_damage > 0 and spawner.life_callback_threshold >= 0
+        else horizon
+    )
+    return (
+        abstract_rng
+        and spawner.interactable
+        and spawner.life_callback_threshold >= 0
+        and 0 <= spawner.life_callback_sub < len(spawner.ecl_subroutines)
+        and earliest_callback < horizon
+    )
+
+
+def _forecast_abstract_integer_domains(
+    spawner: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    difficulty: int,
+    rank: int,
+    bullet_sizes: tuple[tuple[float, float], ...],
+    frame_multiplier: float,
+    allow_player_variables: bool,
+    radial_births: bool,
+    enemy_kill_all_is_noop: bool,
+) -> EclForecast:
+    """Union every bounded source integer-RNG control-flow outcome."""
+    pending: list[tuple[int, ...]] = [()]
+    leaves: list[EclForecast] = []
+    evaluated = 0
+    while pending:
+        choices = pending.pop()
+        evaluated += 1
+        if evaluated > MAX_ABSTRACT_INTEGER_RNG_EVALUATIONS:
+            return EclForecast(
+                tuple(() for _ in player_positions),
+                0,
+                "integer RNG branch budget exhausted",
+            )
+        forecast = _forecast_ecl_births_single(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            None,
+            allow_player_variables,
+            radial_births,
+            True,
+            enemy_kill_all_is_noop,
+            choices,
+        )
+        extent = forecast.unresolved_int_extent
+        if extent:
+            future_branch_count = len(pending) + len(leaves) + extent
+            if future_branch_count > MAX_ABSTRACT_INTEGER_RNG_BRANCHES:
+                return EclForecast(
+                    tuple(() for _ in player_positions),
+                    0,
+                    f"integer RNG domain {extent} exceeds branch budget",
+                )
+            pending.extend(choices + (value,) for value in range(extent))
+        else:
+            leaves.append(forecast)
+
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    body_seen = [set() for _ in player_positions]
+    for index in range(len(player_positions)):
+        maximum_counts: Counter[Bullet] = Counter()
+        for forecast in leaves:
+            branch_counts = Counter(forecast.births[index])
+            maximum_counts |= branch_counts
+        for bullet, count in maximum_counts.items():
+            births[index].extend((bullet,) * count)
+    for forecast in leaves:
+        for index, frame_bodies in enumerate(forecast.body_hazards):
+            for body in frame_bodies:
+                if body not in body_seen[index]:
+                    body_seen[index].add(body)
+                    bodies[index].append(body)
+    covered_frames = min(
+        (forecast.covered_frames for forecast in leaves),
+        default=0,
+    )
+    reason = next(
+        (
+            forecast.reason for forecast in leaves
+            if forecast.covered_frames == covered_frames
+            and covered_frames < len(player_positions)
+        ),
+        "",
+    )
+    first_next = leaves[0].next_spawner if leaves else None
+    common_next = (
+        first_next
+        if all(forecast.next_spawner == first_next for forecast in leaves)
+        else None
+    )
+    return EclForecast(
+        tuple(tuple(frame) for frame in births),
+        covered_frames,
+        reason,
+        next_spawner=common_next,
+        body_hazards=tuple(tuple(frame) for frame in bodies),
+        finished=bool(leaves) and all(forecast.finished for forecast in leaves),
+    )
+
+
+def forecast_ecl_births(
+    spawner: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    difficulty: int,
+    rank: int,
+    bullet_sizes: tuple[tuple[float, float], ...],
+    frame_multiplier: float = 1.0,
+    rng: RngState | None = None,
+    allow_player_variables: bool = True,
+    radial_births: bool = False,
+    abstract_rng: bool = False,
+    enemy_kill_all_is_noop: bool = False,
+) -> EclForecast:
+    """Forecast one emitter and preserve every bounded hard uncertainty."""
+    if (
+        abstract_rng
+        and rng is None
+        and not _life_callback_can_branch(
+            spawner,
+            len(player_positions),
+            abstract_rng,
+        )
+    ):
+        return _forecast_abstract_integer_domains(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            allow_player_variables,
+            radial_births,
+            enemy_kill_all_is_noop,
+        )
+    return _forecast_ecl_births_with_life_callbacks(
+        spawner,
+        player_positions,
+        difficulty,
+        rank,
+        bullet_sizes,
+        frame_multiplier,
+        rng,
+        allow_player_variables,
+        radial_births,
+        abstract_rng,
+        enemy_kill_all_is_noop,
     )

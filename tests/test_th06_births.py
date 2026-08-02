@@ -394,7 +394,7 @@ class EclBirthTests(unittest.TestCase):
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
 
-    def test_hard_world_still_fails_closed_on_discrete_rng_control(self):
+    def test_hard_world_expands_a_bounded_discrete_rng_domain(self):
         random_int = self.instruction(
             0x1000,
             0,
@@ -413,14 +413,40 @@ class EclBirthTests(unittest.TestCase):
         )
         state = snapshot(10, spawners=(emitter,))
         hard = forecast_world_births(state, ((100.0, 400.0),))
-        self.assertEqual(hard.covered_frames, 0)
-        self.assertIn("discrete uncertainty", hard.reason)
+        self.assertEqual(hard.covered_frames, 1)
+        self.assertEqual(hard.reason, "")
         nominal = forecast_world_births(
             state,
             ((100.0, 400.0),),
             rng_mode="nominal",
         )
         self.assertEqual(nominal.covered_frames, 1)
+
+    def test_hard_world_fails_closed_on_an_unbounded_integer_rng_domain(self):
+        random_int = self.instruction(
+            0x1000,
+            0,
+            6,
+            struct.pack("<ii", -10001, 65),
+            0x14,
+        )
+        sentinel = EclInstruction(
+            0x1014, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=random_int,
+            ecl_program=(random_int, sentinel),
+        )
+
+        hard = forecast_world_births(
+            snapshot(10, spawners=(emitter,)),
+            ((100.0, 400.0),),
+        )
+
+        self.assertEqual(hard.covered_frames, 0)
+        self.assertIn("exceeds branch budget", hard.reason)
 
     def test_delayed_interval_uses_exact_rng_or_all_hard_phases(self):
         delayed = self.instruction(
