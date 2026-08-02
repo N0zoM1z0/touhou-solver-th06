@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import os
 import time
 
+from .guidance import terminal_guidance_scores
 from .hazards.lasers import unknown_motion_may_reach_player
 from .kernels.safety import NativeSafetyKernel
 from .model import (
@@ -46,6 +48,14 @@ class EffortController:
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
+        self.target_rate_by_kind: dict[str, dict[int, float]] = {
+            "acquire": {},
+            "track": {},
+        }
+        self.target_frame_by_kind: dict[str, dict[int, int]] = {
+            "acquire": {},
+            "track": {},
+        }
         self.policy_rate_growth = INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT
         self.last_limit = HARD_SAFETY_HORIZON
 
@@ -284,6 +294,80 @@ class EffortController:
         self.policy_rate_by_horizon[horizon] = measured_rate
         self.policy_frame_by_horizon[horizon] = snapshot.frame
 
+    def _effective_target_rate(
+        self,
+        kind: str,
+        snapshot: Snapshot,
+        horizon: int,
+    ) -> float | None:
+        rates = self.target_rate_by_kind[kind]
+        frames = self.target_frame_by_kind[kind]
+        measured = rates.get(horizon)
+        lower = tuple(value for value in rates if value < horizon)
+        predicted = None
+        if lower:
+            nearest = max(lower)
+            added_segments = max(
+                1,
+                (horizon - nearest) // HARD_SAFETY_HORIZON,
+            )
+            predicted = (
+                rates[nearest]
+                * self.policy_rate_growth ** added_segments
+            )
+        fallback = self._effective_policy_rate(snapshot, horizon)
+        if fallback is None:
+            fallback = self.policy_ms_per_work or self.rollout_ms_per_work
+        if predicted is None:
+            predicted = fallback
+        if measured is None:
+            return predicted
+        if predicted is None:
+            return measured
+        freshness = self._measurement_freshness(
+            snapshot.frame,
+            frames.get(horizon),
+        )
+        return measured * freshness + predicted * (1.0 - freshness)
+
+    def target_affordable(
+        self,
+        kind: str,
+        snapshot: Snapshot,
+        candidate_count: int,
+        horizon: int,
+        elapsed_ms: float,
+    ) -> bool:
+        remaining_ms = self.budget_ms() - elapsed_ms
+        rate = self._effective_target_rate(kind, snapshot, horizon)
+        estimate = (
+            rate * self.rollout_work(snapshot, candidate_count, horizon)
+            if rate is not None
+            else None
+        )
+        return (
+            remaining_ms > 0.0
+            and estimate is not None
+            and estimate <= remaining_ms * PROMOTION_BUDGET_FRACTION
+        )
+
+    def observe_target(
+        self,
+        kind: str,
+        snapshot: Snapshot,
+        candidate_count: int,
+        horizon: int,
+        elapsed_ms: float,
+    ) -> None:
+        work = self.rollout_work(snapshot, candidate_count, horizon)
+        effective = self._effective_target_rate(kind, snapshot, horizon)
+        self.target_rate_by_kind[kind][horizon] = self._update_rate(
+            effective,
+            elapsed_ms,
+            work,
+        )
+        self.target_frame_by_kind[kind][horizon] = snapshot.frame
+
     def observe_publication(self, stale: bool) -> None:
         if stale:
             self.publication_scale = max(0.25, self.publication_scale * 0.5)
@@ -304,6 +388,47 @@ class Solver:
         self.backend = "native-c++" if self.kernel is not None else "python-reference"
         self.effort = EffortController(decision_budget_ms)
         self.clock = clock
+        self.guidance_target: tuple[float, float] | None = None
+        self.guidance_deadline: int | None = None
+        self.pending_target_action: Action | None = None
+        self.pending_target_horizon = HARD_SAFETY_HORIZON
+        self.guidance_last_frame: int | None = None
+
+    def _clear_target(self) -> None:
+        self.guidance_target = None
+        self.guidance_deadline = None
+
+    def _terminal_guidance(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        target: tuple[float, float] | None = None,
+    ):
+        native = (
+            getattr(type(self.kernel), "terminal_guidance", None)
+            if self.kernel is not None
+            else None
+        )
+        if native is not None:
+            return native(
+                self.kernel,
+                snapshot,
+                candidates,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=0.35,
+                target=target,
+            )
+        if self.kernel is not None:
+            return None
+        return terminal_guidance_scores(
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            target,
+        )
 
     def _certify_selected(
         self,
@@ -426,7 +551,21 @@ class Solver:
         snapshot: Snapshot,
         required_action: Action | None = None,
     ) -> Decision:
+        if (
+            self.guidance_last_frame is not None
+            and snapshot.frame <= self.guidance_last_frame
+        ):
+            self._clear_target()
+            self.pending_target_action = None
+        self.guidance_last_frame = snapshot.frame
+        if (
+            self.guidance_deadline is not None
+            and snapshot.frame >= self.guidance_deadline
+        ):
+            self._clear_target()
         if snapshot.in_menu:
+            self._clear_target()
+            self.pending_target_action = None
             return Decision(None, (), 0.0, 0, "menu")
         if snapshot.replay_or_demo:
             return Decision(None, (), 0.0, 0, "replay-or-demo")
@@ -510,12 +649,82 @@ class Solver:
         rollout_horizon = HARD_SAFETY_HORIZON
         policy_preferred: frozenset[Action] = frozenset()
         policy_horizon = HARD_SAFETY_HORIZON
+        target_guided = False
+        target_invalid = False
+        acquired_pending_target = False
+        last_target_horizon = 0
 
         if limit > HARD_SAFETY_HORIZON:
             operation_started = self.clock()
             self._prepare_soft(snapshot, limit)
             rollout_ms += (self.clock() - operation_started) * 1000.0
-            for horizon in EFFORT_HORIZONS:
+            observed_held = action_from_input(snapshot.input_mask)
+            pending_candidate = next(
+                (
+                    candidate
+                    for candidate in hard
+                    if (
+                        candidate.action == self.pending_target_action
+                        and candidate.action == observed_held
+                    )
+                ),
+                None,
+            )
+            elapsed_ms = (self.clock() - started) * 1000.0
+            acquisition_horizon = min(
+                limit,
+                self.pending_target_horizon,
+            )
+            if (
+                pending_candidate is not None
+                and self.effort.target_affordable(
+                    "acquire",
+                    snapshot,
+                    1,
+                    acquisition_horizon,
+                    elapsed_ms,
+                )
+            ):
+                guidance_started = self.clock()
+                guidance = self._terminal_guidance(
+                    snapshot,
+                    (pending_candidate,),
+                    acquisition_horizon,
+                )
+                guidance_ms = (
+                    self.clock() - guidance_started
+                ) * 1000.0
+                if guidance is not None:
+                    self.effort.observe_target(
+                        "acquire",
+                        snapshot,
+                        1,
+                        acquisition_horizon,
+                        guidance_ms,
+                    )
+                    value = guidance.get(pending_candidate.action)
+                    if (
+                        value is not None
+                        and value.terminal_count > 0
+                        and math.isfinite(value.free_clearance)
+                    ):
+                        self.guidance_target = (
+                            value.free_x,
+                            value.free_y,
+                        )
+                        self.guidance_deadline = (
+                            snapshot.frame + acquisition_horizon
+                        )
+                        policy_preferred = frozenset(
+                            (pending_candidate.action,)
+                        )
+                        policy_horizon = acquisition_horizon
+                        acquired_pending_target = True
+                self.pending_target_action = None
+            elif pending_candidate is None:
+                self.pending_target_action = None
+
+            for horizon in (() if acquired_pending_target else EFFORT_HORIZONS):
                 if horizon > limit:
                     break
                 if not constant_exhausted:
@@ -542,34 +751,109 @@ class Solver:
                     or len(hard) <= 1
                     or policy_exhausted
                     or (
+                        self.guidance_target is None
+                        and
                         horizon > BASE_POLICY_HORIZON
                         and not contracted
                     )
                 ):
                     continue
+                if self.guidance_target is not None:
+                    remaining = max(
+                        HARD_SAFETY_HORIZON,
+                        (self.guidance_deadline or snapshot.frame)
+                        - snapshot.frame,
+                    )
+                    if horizon > remaining and last_target_horizon > 0:
+                        continue
+                    effective_horizon = min(horizon, remaining)
+                    if effective_horizon <= last_target_horizon:
+                        continue
+                else:
+                    effective_horizon = horizon
                 elapsed_ms = (self.clock() - started) * 1000.0
-                if not self.effort.policy_affordable(
-                    snapshot,
-                    len(hard),
-                    horizon,
-                    elapsed_ms,
-                ):
+                affordable = (
+                    self.effort.target_affordable(
+                        "track",
+                        snapshot,
+                        len(hard),
+                        effective_horizon,
+                        elapsed_ms,
+                    )
+                    if self.guidance_target is not None
+                    else self.effort.policy_affordable(
+                        snapshot,
+                        len(hard),
+                        effective_horizon,
+                        elapsed_ms,
+                    )
+                )
+                if not affordable:
                     policy_exhausted = True
                     continue
                 policy_started = self.clock()
-                scores = self._policy_scores(
-                    snapshot,
-                    hard,
-                    horizon,
-                )
+                if self.guidance_target is not None:
+                    guidance = self._terminal_guidance(
+                        snapshot,
+                        hard,
+                        effective_horizon,
+                        self.guidance_target,
+                    )
+                    last_target_horizon = effective_horizon
+                    scores = None
+                else:
+                    guidance = None
+                    scores = self._policy_scores(
+                        snapshot,
+                        hard,
+                        horizon,
+                    )
                 policy_ms = (self.clock() - policy_started) * 1000.0
-                self.effort.observe_policy(
-                    snapshot,
-                    len(hard),
-                    horizon,
-                    policy_ms,
-                )
+                if self.guidance_target is not None:
+                    self.effort.observe_target(
+                        "track",
+                        snapshot,
+                        len(hard),
+                        effective_horizon,
+                        policy_ms,
+                    )
+                else:
+                    self.effort.observe_policy(
+                        snapshot,
+                        len(hard),
+                        effective_horizon,
+                        policy_ms,
+                    )
                 allowed = frozenset(candidate.action for candidate in hard)
+                if guidance is not None:
+                    reachable = {
+                        action: value.target_distance_squared
+                        for action, value in guidance.items()
+                        if (
+                            action in allowed
+                            and value.terminal_count > 0
+                            and math.isfinite(
+                                value.target_distance_squared
+                            )
+                        )
+                    }
+                    if reachable:
+                        best_distance = min(reachable.values())
+                        policy_preferred = frozenset(
+                            action
+                            for action, distance in reachable.items()
+                            if distance == best_distance
+                        )
+                        policy_horizon = effective_horizon
+                        target_guided = True
+                    else:
+                        if not target_guided:
+                            target_invalid = True
+                        policy_exhausted = True
+                    continue
+                if scores is None:
+                    policy_exhausted = True
+                    continue
                 best_score = max(
                     (
                         score for action, score in scores.items()
@@ -584,6 +868,13 @@ class Solver:
                         and action in allowed
                     )
                     policy_horizon = horizon
+
+            if (
+                self.guidance_target is not None
+                and not acquired_pending_target
+                and target_invalid
+            ):
+                self._clear_target()
 
             self.effort.observe_rollout(
                 snapshot,
@@ -605,6 +896,14 @@ class Solver:
             commitment_frames=HARD_SAFETY_HORIZON,
         )
         held = action_from_input(snapshot.input_mask)
+        if (
+            self.guidance_target is None
+            and len(policy_preferred) == 1
+            and policy_horizon > HARD_SAFETY_HORIZON
+            and chosen.action != held
+        ):
+            self.pending_target_action = chosen.action
+            self.pending_target_horizon = policy_horizon
         held_horizon = (
             frontier_horizon
             if any(candidate.action == held for candidate in frontier)

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -915,6 +916,300 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
             }
         }
         output[firstIndex] = worst == INT32_MAX ? 0 : worst;
+    }
+    return 0;
+}
+
+// Proposal-only global target/local path guidance. Terminal positions are
+// deduplicated across every nominal continuation path. The free-space target
+// is selected only inside a caller-supplied Hard first-action branch; a later
+// call can rank Hard actions by robust distance to that fixed target/deadline.
+TH06_EXPORT std::int32_t th06_terminal_guidance(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    float targetX,
+    float targetY,
+    std::int32_t* terminalCountOutput,
+    float* freeClearanceOutput,
+    float* freeTargetXOutput,
+    float* freeTargetYOutput,
+    float* targetDistanceSquaredOutput
+) {
+    if (
+        segmentLength <= 0 || horizon < segmentLength || horizon > 64 ||
+        bulletOffsets == nullptr || laserOffsets == nullptr ||
+        terminalCountOutput == nullptr || freeClearanceOutput == nullptr ||
+        freeTargetXOutput == nullptr || freeTargetYOutput == nullptr ||
+        targetDistanceSquaredOutput == nullptr
+    ) {
+        return -1;
+    }
+
+    struct TerminalStats {
+        std::int32_t count;
+        float freeClearance;
+        float freeX;
+        float freeY;
+        float targetDistanceSquared;
+    };
+    using Position = std::array<float, 2>;
+    const float negativeInfinity = -std::numeric_limits<float>::infinity();
+    const float positiveInfinity = std::numeric_limits<float>::infinity();
+    std::unordered_map<std::uint64_t, TerminalStats> terminalCache;
+
+    const auto terminalStats = [&](float startX, float startY) {
+        const std::uint64_t startKey = positionKey(startX, startY);
+        const auto cached = terminalCache.find(startKey);
+        if (cached != terminalCache.end()) return cached->second;
+
+        std::unordered_map<std::uint64_t, Position> states;
+        states.emplace(startKey, Position{startX, startY});
+        for (
+            std::int32_t startFrame = segmentLength;
+            startFrame < horizon;
+            startFrame += segmentLength
+        ) {
+            const std::int32_t endFrame = std::min(
+                horizon, startFrame + segmentLength
+            );
+            std::unordered_map<std::uint64_t, Position> nextStates;
+            for (const auto& state : states) {
+                for (
+                    std::int32_t actionIndex = 0;
+                    actionIndex < kFocusedActionCount;
+                    ++actionIndex
+                ) {
+                    float x = state.second[0];
+                    float y = state.second[1];
+                    bool survived = true;
+                    for (
+                        std::int32_t frame = startFrame + 1;
+                        frame <= endFrame;
+                        ++frame
+                    ) {
+                        stepPlayer(
+                            x,
+                            y,
+                            kActions[actionIndex],
+                            normalSpeed,
+                            focusSpeed,
+                            normalDiagonalSpeed,
+                            focusDiagonalSpeed
+                        );
+                        if (!safeAtFrame(
+                            x,
+                            y,
+                            playerHalfWidth,
+                            playerHalfHeight,
+                            frame - 1,
+                            bulletOffsets,
+                            bullets,
+                            laserOffsets,
+                            lasers,
+                            collisionMargin,
+                            nullptr
+                        )) {
+                            survived = false;
+                            break;
+                        }
+                    }
+                    if (survived) {
+                        nextStates.emplace(
+                            positionKey(x, y), Position{x, y}
+                        );
+                    }
+                }
+            }
+            states = std::move(nextStates);
+            if (states.empty()) break;
+        }
+
+        TerminalStats result{
+            static_cast<std::int32_t>(states.size()),
+            negativeInfinity,
+            startX,
+            startY,
+            positiveInfinity,
+        };
+        if (!states.empty()) {
+            const std::int32_t terminalFrame = horizon - 1;
+            for (const auto& state : states) {
+                const float x = state.second[0];
+                const float y = state.second[1];
+                float clearance = std::min({
+                    x - 8.0F,
+                    376.0F - x,
+                    y - 16.0F,
+                    432.0F - y,
+                });
+                for (
+                    std::uint32_t index = bulletOffsets[terminalFrame];
+                    index < bulletOffsets[terminalFrame + 1];
+                    ++index
+                ) {
+                    clearance = std::min(
+                        clearance,
+                        signedClearance(
+                            x,
+                            y,
+                            playerHalfWidth,
+                            playerHalfHeight,
+                            bullets[index]
+                        )
+                    );
+                }
+                for (
+                    std::uint32_t index = laserOffsets[terminalFrame];
+                    index < laserOffsets[terminalFrame + 1];
+                    ++index
+                ) {
+                    clearance = std::min(
+                        clearance,
+                        signedLaserClearance(
+                            x,
+                            y,
+                            playerHalfWidth,
+                            playerHalfHeight,
+                            lasers[index]
+                        )
+                    );
+                }
+                if (clearance > result.freeClearance) {
+                    result.freeClearance = clearance;
+                    result.freeX = x;
+                    result.freeY = y;
+                }
+                const float targetDx = x - targetX;
+                const float targetDy = y - targetY;
+                result.targetDistanceSquared = std::min(
+                    result.targetDistanceSquared,
+                    targetDx * targetDx + targetDy * targetDy
+                );
+            }
+        }
+        terminalCache.emplace(startKey, result);
+        return result;
+    };
+
+    const ControlAction current = actionFromInput(inputMask);
+    for (
+        std::int32_t firstIndex = 0;
+        firstIndex < kControlActionCount;
+        ++firstIndex
+    ) {
+        terminalCountOutput[firstIndex] = 0;
+        freeClearanceOutput[firstIndex] = negativeInfinity;
+        freeTargetXOutput[firstIndex] = playerX;
+        freeTargetYOutput[firstIndex] = playerY;
+        targetDistanceSquaredOutput[firstIndex] = positiveInfinity;
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+
+        ControlAction transitions[5];
+        const std::int32_t transitionCount = transitionActions(
+            inputMask, kActionMasks[firstIndex], transitions
+        );
+        std::int32_t worstCount = INT32_MAX;
+        float worstFreeClearance = positiveInfinity;
+        float worstFreeX = playerX;
+        float worstFreeY = playerY;
+        float worstTargetDistanceSquared = 0.0F;
+        for (const std::int32_t delay : kDelays) {
+            const std::int32_t branchCount = 1 + (
+                delay > 0 ? transitionCount : 0
+            );
+            for (
+                std::int32_t branch = 0;
+                branch < branchCount;
+                ++branch
+            ) {
+                const ControlAction* transition = branch == 0
+                    ? nullptr
+                    : &transitions[branch - 1];
+                float x = playerX;
+                float y = playerY;
+                bool survived = true;
+                for (
+                    std::int32_t frame = 1;
+                    frame <= segmentLength;
+                    ++frame
+                ) {
+                    stepPlayer(
+                        x,
+                        y,
+                        scheduledAction(
+                            frame,
+                            delay,
+                            current,
+                            kActions[firstIndex],
+                            transition
+                        ),
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
+                    );
+                    if (!safeAtFrame(
+                        x,
+                        y,
+                        playerHalfWidth,
+                        playerHalfHeight,
+                        frame - 1,
+                        bulletOffsets,
+                        bullets,
+                        laserOffsets,
+                        lasers,
+                        collisionMargin,
+                        nullptr
+                    )) {
+                        survived = false;
+                        break;
+                    }
+                }
+                const TerminalStats branchStats = survived
+                    ? terminalStats(x, y)
+                    : TerminalStats{
+                        0,
+                        negativeInfinity,
+                        x,
+                        y,
+                        positiveInfinity,
+                    };
+                worstCount = std::min(worstCount, branchStats.count);
+                if (branchStats.freeClearance < worstFreeClearance) {
+                    worstFreeClearance = branchStats.freeClearance;
+                    worstFreeX = branchStats.freeX;
+                    worstFreeY = branchStats.freeY;
+                }
+                worstTargetDistanceSquared = std::max(
+                    worstTargetDistanceSquared,
+                    branchStats.targetDistanceSquared
+                );
+            }
+        }
+        terminalCountOutput[firstIndex] = (
+            worstCount == INT32_MAX ? 0 : worstCount
+        );
+        freeClearanceOutput[firstIndex] = worstFreeClearance;
+        freeTargetXOutput[firstIndex] = worstFreeX;
+        freeTargetYOutput[firstIndex] = worstFreeY;
+        targetDistanceSquaredOutput[firstIndex] = (
+            worstTargetDistanceSquared
+        );
     }
     return 0;
 }

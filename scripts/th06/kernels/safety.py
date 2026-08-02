@@ -12,6 +12,7 @@ from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from ..hazards.world import forecast_world_births
+from ..guidance import TerminalGuidance
 from ..model import (
     ACTIONS,
     CONTROL_ACTIONS,
@@ -103,6 +104,18 @@ class NativeSafetyKernel:
         self.nominal_function = self.library.th06_nominal_policy_counts
         self.nominal_function.argtypes = self.replanning_function.argtypes
         self.nominal_function.restype = ctypes.c_int32
+        self.guidance_function = self.library.th06_terminal_guidance
+        self.guidance_function.argtypes = (
+            *self.replanning_function.argtypes[:-1],
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+        )
+        self.guidance_function.restype = ctypes.c_int32
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
         self._prepared_hazards = None
@@ -609,6 +622,73 @@ class NativeSafetyKernel:
             collision_margin,
             prepared,
         )
+
+    def terminal_guidance(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        target: tuple[float, float] | None = None,
+    ) -> dict[Action, TerminalGuidance]:
+        """Return unique terminal volume and target values on one snapshot."""
+        bullet_offsets, bullets, laser_offsets, lasers = (
+            self._prepare_reusable(snapshot, horizon)
+        )
+        candidate_actions = {candidate.action for candidate in candidates}
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        )
+        terminal_counts = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
+        free_clearances = (ctypes.c_float * len(CONTROL_ACTIONS))()
+        free_x = (ctypes.c_float * len(CONTROL_ACTIONS))()
+        free_y = (ctypes.c_float * len(CONTROL_ACTIONS))()
+        target_distances = (ctypes.c_float * len(CONTROL_ACTIONS))()
+        target_x, target_y = target or (snapshot.x, snapshot.y)
+        status = self.guidance_function(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.normal_speed,
+            snapshot.focus_speed,
+            snapshot.normal_diagonal_speed,
+            snapshot.focus_diagonal_speed,
+            snapshot.input_mask,
+            segment_length,
+            horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+            target_x,
+            target_y,
+            terminal_counts,
+            free_clearances,
+            free_x,
+            free_y,
+            target_distances,
+        )
+        if status != 0:
+            raise RuntimeError(
+                f"native terminal guidance rejected input with status {status}"
+            )
+        return {
+            action: TerminalGuidance(
+                terminal_count=terminal_counts[index],
+                free_clearance=free_clearances[index],
+                free_x=free_x[index],
+                free_y=free_y[index],
+                target_distance_squared=target_distances[index],
+            )
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        }
 
     def nominal_policy_counts_ahead(
         self,
