@@ -492,6 +492,18 @@ class Solver:
             comfortable_authority = bool(certified) and min(
                 candidate.clearance for candidate in certified
             ) > snapshot.focus_speed * HARD_SAFETY_HORIZON + 0.35
+            current = action_from_input(snapshot.input_mask)
+            if (
+                precomputed_current_effort is not None
+                and not precomputed_current_effort
+                and len(certified) > 1
+            ):
+                # A failed selected probe one frame beyond the shared effort
+                # horizon is strictly stronger evidence about the held path
+                # than a later all-action pass at the shorter horizon. Keep
+                # every Hard-4 action eligible, but do not let continuity
+                # overwrite that already-computed future counterexample.
+                discouraged = frozenset((current,))
             if (
                 self.kernel is not None
                 and len(snapshot.bullets) >= 400
@@ -505,7 +517,6 @@ class Solver:
                 # set. Probe only that held action. This stays a soft ranking
                 # signal: the unchanged Hard-4 set remains authoritative, and
                 # a discouraged action remains selectable when it is alone.
-                current = action_from_input(snapshot.input_mask)
                 if any(candidate.action == current for candidate in certified):
                     current_effort = (
                         precomputed_current_effort

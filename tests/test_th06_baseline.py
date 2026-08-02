@@ -1447,6 +1447,46 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.held_horizon, 7)
         self.assertEqual(solver.kernel.collision_margin, 0.35)
 
+    def test_longer_failed_held_probe_outranks_shorter_continuity(self):
+        state = snapshot(*(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(400)
+        ))
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)[:6]
+        held = action_from_input(state.input_mask)
+        self.assertIn(held, {candidate.action for candidate in hard})
+
+        class CombinedKernel:
+            def certify_delivery_sets_with_selected(
+                self,
+                _state,
+                _hard_horizon,
+                _selected_horizon,
+                _actions,
+                collision_margin,
+            ):
+                self.collision_margin = collision_margin
+                return hard, hard, ()
+
+            def certify_selected(
+                self,
+                _state,
+                _horizon,
+                _actions,
+                collision_margin,
+            ):
+                self.collision_margin = collision_margin
+                return hard
+
+        solver = Solver()
+        solver.kernel = CombinedKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertNotEqual(decision.action, held)
+        self.assertEqual(solver.kernel.collision_margin, 0.35)
+
     def test_extreme_density_publishes_a_narrow_hard_set_immediately(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
