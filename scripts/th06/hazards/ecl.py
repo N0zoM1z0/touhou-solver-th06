@@ -12,7 +12,13 @@ from dataclasses import dataclass, replace
 import math
 import struct
 
-from ..model import Bullet, BulletPattern, EnemySpawner, EclInstruction
+from ..model import (
+    Bullet,
+    BulletPattern,
+    EnemyEclContext,
+    EnemySpawner,
+    EclInstruction,
+)
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
 from .enemies import advance_position, finish_motion
 from .rng import RngState
@@ -43,7 +49,14 @@ OPCODE_JUMP_EQUAL = 31
 OPCODE_JUMP_GREATER = 32
 OPCODE_JUMP_GREATER_EQUAL = 33
 OPCODE_JUMP_NOT_EQUAL = 34
+OPCODE_CALL = 35
 OPCODE_RETURN = 36
+OPCODE_CALL_LESS = 37
+OPCODE_CALL_LESS_EQUAL = 38
+OPCODE_CALL_EQUAL = 39
+OPCODE_CALL_GREATER = 40
+OPCODE_CALL_GREATER_EQUAL = 41
+OPCODE_CALL_NOT_EQUAL = 42
 OPCODE_MOVE_POSITION = 43
 OPCODE_MOVE_AT_PLAYER = 51
 OPCODE_MOVE_RANDOM = 49
@@ -599,6 +612,61 @@ def forecast_ecl_births(
                 floats = list(caller.floats)
                 compare_register = caller.compare
                 continue
+            elif OPCODE_CALL <= instruction.opcode <= OPCODE_CALL_NOT_EQUAL:
+                take_call = instruction.opcode == OPCODE_CALL
+                if instruction.opcode >= OPCODE_CALL_LESS:
+                    lhs_raw, rhs = struct.unpack_from("<ii", raw, 0x18)
+                    lhs = _int_var(
+                        lhs_raw, integers, difficulty, rank, spawner.life
+                    )
+                    take_call = (
+                        lhs < rhs
+                        if instruction.opcode == OPCODE_CALL_LESS
+                        else lhs <= rhs
+                        if instruction.opcode == OPCODE_CALL_LESS_EQUAL
+                        else lhs == rhs
+                        if instruction.opcode == OPCODE_CALL_EQUAL
+                        else lhs > rhs
+                        if instruction.opcode == OPCODE_CALL_GREATER
+                        else lhs >= rhs
+                        if instruction.opcode == OPCODE_CALL_GREATER_EQUAL
+                        else lhs != rhs
+                    )
+                if take_call:
+                    if spawner.call_stack_disabled:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "ECL call stack is disabled",
+                        )
+                    if len(call_stack) >= 7:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "ECL call stack capacity exceeded",
+                        )
+                    sub_id, var0 = struct.unpack_from("<ii", raw, 0x0C)
+                    if not 0 <= sub_id < len(spawner.ecl_subroutines):
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            f"ECL call subroutine {sub_id} is unavailable",
+                        )
+                    call_stack.append(EnemyEclContext(
+                        next_address,
+                        current_time,
+                        current_time + time_subframe,
+                        tuple(integers),
+                        tuple(floats),
+                        compare_register,
+                        None,
+                    ))
+                    integers[0] = var0
+                    floats[0] = struct.unpack_from("<f", raw, 0x14)[0]
+                    instruction_address = spawner.ecl_subroutines[sub_id]
+                    current_time = 0
+                    time_subframe = 0.0
+                    continue
             elif instruction.opcode == OPCODE_COLLIDABLE_FLAG:
                 collidable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_INTERACTABLE_FLAG:

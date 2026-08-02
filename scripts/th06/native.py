@@ -41,6 +41,7 @@ ADDR_PLAYER = 0x6CA628
 ADDR_FRAME_MULTIPLIER = 0x6C6EC0
 ADDR_ENEMY_MANAGER = 0x4B79C8
 ADDR_ECL_EX_TABLE = 0x476220
+ADDR_ECL_MANAGER = 0x487E50
 ADDR_ENEMY_CALC_CHAIN = 0x5A5FB4
 ADDR_BULLET_MANAGER = 0x5A5FF8
 ADDR_BULLET_ARRAY = 0x5AB5F8
@@ -146,6 +147,7 @@ ENEMY_SHOOT_TIMER_OFFSET = 0xD60
 ENEMY_FLAGS_OFFSET = 0xE50
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 96
+ECL_SUBROUTINE_LIMIT = 512
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -338,6 +340,7 @@ class NativeProcess:
         self.pid = pid
         self.ecl_instruction_cache: dict[int, EclInstruction] = {}
         self.ecl_cache_stage: int | None = None
+        self.ecl_subroutines: tuple[int, ...] = ()
 
     def close(self) -> None:
         if self.handle:
@@ -439,7 +442,31 @@ def _read_ecl_program(
             raw = bytes.fromhex(instruction.raw_hex)
             jump_offset = struct.unpack_from("<i", raw, 0x10)[0]
             pending.append(address + jump_offset)
+        if instruction.opcode == 35 or 37 <= instruction.opcode <= 42:
+            raw = bytes.fromhex(instruction.raw_hex)
+            sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
+            if not 0 <= sub_id < len(process.ecl_subroutines):
+                raise RuntimeError(f"invalid ECL subroutine id {sub_id}")
+            pending.append(process.ecl_subroutines[sub_id])
     return tuple(found[address] for address in sorted(found))
+
+
+def _read_ecl_subroutines(process: NativeProcess) -> tuple[int, ...]:
+    ecl_file, sub_table = struct.unpack(
+        "<II", process.read(ADDR_ECL_MANAGER, 8)
+    )
+    if not ecl_file or not sub_table:
+        return ()
+    sub_count = struct.unpack("<h", process.read(ecl_file, 2))[0]
+    if not 0 <= sub_count <= ECL_SUBROUTINE_LIMIT:
+        raise RuntimeError(f"invalid ECL subroutine count {sub_count}")
+    addresses = struct.unpack(
+        "<" + "I" * sub_count,
+        process.read(sub_table, sub_count * 4),
+    ) if sub_count else ()
+    if any(not 0x10000 <= address < 0x80000000 for address in addresses):
+        raise RuntimeError("invalid ECL subroutine pointer")
+    return tuple(addresses)
 
 
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
@@ -534,6 +561,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     if process.ecl_cache_stage != stage:
         process.ecl_instruction_cache.clear()
         process.ecl_cache_stage = stage
+        process.ecl_subroutines = _read_ecl_subroutines(process)
     difficulty = struct.unpack(
         "<i", process.read(ADDR_GAME_MANAGER + GAME_DIFFICULTY_OFFSET, 4)
     )[0]
@@ -1011,6 +1039,8 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             bool(flags1 & 0x01),
             bool(flags1 & 0x02),
             bool(flags2 & 0x08),
+            bool(flags2 & 0x04),
+            process.ecl_subroutines,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

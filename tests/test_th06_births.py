@@ -557,6 +557,55 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(len(forecast.births[0]), 1)
         self.assertEqual(forecast.births[0][0].speed, 3.5)
 
+    def test_conditional_call_uses_the_immutable_subroutine_table(self):
+        call = self.instruction(
+            0x1000,
+            0,
+            39,
+            struct.pack("<iifii", 0, 7, 2.5, -10001, 0),
+            0x20,
+        )
+        caller_sentinel = EclInstruction(
+            0x1020, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        bullet = self.instruction(
+            0x2000,
+            0,
+            68,
+            struct.pack(
+                "<hhii ffff I",
+                0,
+                0,
+                1,
+                1,
+                -10005.0,
+                0.0,
+                0.0,
+                0.0,
+                4,
+            ),
+            0x30,
+        )
+        return_instruction = self.instruction(0x2030, 0, 36, b"", 0x0C)
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=call,
+            ecl_program=(call, caller_sentinel, bullet, return_instruction),
+            ecl_subroutines=(0x2000,),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+        self.assertEqual(forecast.covered_frames, 1)
+        self.assertEqual(len(forecast.births[0]), 1)
+        self.assertEqual(forecast.births[0][0].speed, 2.0)
+
     def test_interactable_opcode_activates_future_enemy_body_hazard(self):
         interactable = self.instruction(
             0x1000,

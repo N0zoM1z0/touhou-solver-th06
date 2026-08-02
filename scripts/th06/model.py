@@ -214,6 +214,8 @@ class EnemySpawner:
     interactable: bool = False
     collidable: bool = False
     invisible: bool = False
+    call_stack_disabled: bool = False
+    ecl_subroutines: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
