@@ -382,6 +382,85 @@ def _set_float_var(
     return False
 
 
+def _set_source_value(
+    identifier: int,
+    integers: list[int],
+    floats: list[float | FloatInterval],
+    difficulty: int,
+    rank: int,
+    life: int,
+    boss_timer: int,
+    enemy: tuple[float, float],
+    player: tuple[float, float] | None,
+) -> tuple[int | float | FloatInterval, bool]:
+    """Resolve the raw 32-bit RHS used by source ``SetVar``.
+
+    The boolean distinguishes a resolved float variable from integer/literal
+    bits.  SETINT and SETFLOAT both call this same source function; their names
+    do not constrain either operand's type.
+    """
+    if -10008 <= identifier <= -10005:
+        return floats[-10005 - identifier], True
+    if -10004 <= identifier <= -10001 or -10012 <= identifier <= -10009:
+        return _int_var(identifier, integers, difficulty, rank, life), False
+    if identifier == -10013:
+        return difficulty, False
+    if identifier == -10014:
+        return rank, False
+    if identifier == -10015:
+        return enemy[0], True
+    if identifier == -10016:
+        return enemy[1], True
+    if identifier in (-10017, -10020):
+        raise UnsupportedBirthModel("SET reads an uncaptured z coordinate")
+    if identifier == -10018:
+        if player is None:
+            raise UnsupportedBirthModel("SET reads future player x")
+        return player[0], True
+    if identifier == -10019:
+        if player is None:
+            raise UnsupportedBirthModel("SET reads future player y")
+        return player[1], True
+    if identifier == -10021:
+        if player is None:
+            return FloatInterval(-math.pi, math.pi), True
+        return math.atan2(player[1] - enemy[1], player[0] - enemy[0]), True
+    if identifier == -10022:
+        return boss_timer, False
+    if identifier == -10023:
+        if player is None:
+            raise UnsupportedBirthModel("SET reads future player distance")
+        return math.hypot(player[0] - enemy[0], player[1] - enemy[1]), True
+    if identifier == -10024:
+        return life, False
+    if identifier == -10025:
+        raise UnsupportedBirthModel("SET reads the uncaptured player shot type")
+    return identifier, False
+
+
+def _set_local_from_source_bits(
+    target: int,
+    value: int | float | FloatInterval,
+    source_is_float: bool,
+    integers: list[int],
+    floats: list[float | FloatInterval],
+) -> bool:
+    if -10008 <= target <= -10005:
+        if source_is_float:
+            return _set_float_var(target, value, floats)
+        resolved = struct.unpack("<f", struct.pack("<i", value))[0]
+        return _set_float_var(target, resolved, floats)
+    if -10004 <= target <= -10001 or -10012 <= target <= -10009:
+        if source_is_float:
+            if isinstance(value, FloatInterval):
+                raise UnsupportedBirthModel(
+                    "SET cannot bit-copy an uncertain float into an integer"
+                )
+            value = struct.unpack("<i", struct.pack("<f", value))[0]
+        return _set_int_var(target, value, integers)
+    return False
+
+
 def _resolved_pattern(
     instruction: EclInstruction,
     spawner: EnemySpawner,
@@ -707,22 +786,35 @@ def _forecast_ecl_births_single(
                 else:
                     instruction_address = next_address
                 continue
-            if instruction.opcode == OPCODE_SET_INT:
+            if instruction.opcode in (OPCODE_SET_INT, OPCODE_SET_FLOAT):
                 result, argument = struct.unpack_from("<ii", raw, 0x0C)
-                value = _int_var(argument, integers, difficulty, rank, life)
-                if not _set_int_var(result, value, integers):
-                    return EclForecast(
-                        tuple(map(tuple, births)), frame_index, "unsupported SETINT target"
+                try:
+                    value, source_is_float = _set_source_value(
+                        argument,
+                        integers,
+                        floats,
+                        difficulty,
+                        rank,
+                        life,
+                        boss_timer,
+                        enemy,
+                        variable_player,
                     )
-            elif instruction.opcode == OPCODE_SET_FLOAT:
-                result = struct.unpack_from("<i", raw, 0x0C)[0]
-                value = _float_var(
-                    raw[0x10:0x14], integers, floats, difficulty, rank,
-                    life, enemy, variable_player,
-                )
-                if not _set_float_var(result, value, floats):
+                    assigned = _set_local_from_source_bits(
+                        result,
+                        value,
+                        source_is_float,
+                        integers,
+                        floats,
+                    )
+                except UnsupportedBirthModel as error:
                     return EclForecast(
-                        tuple(map(tuple, births)), frame_index, "unsupported SETFLOAT target"
+                        tuple(map(tuple, births)), frame_index, str(error)
+                    )
+                if not assigned:
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index,
+                        "SET writes an unsupported world variable",
                     )
             elif instruction.opcode in (OPCODE_SET_SELF_X, OPCODE_SET_SELF_Y):
                 target = struct.unpack_from("<i", raw, 0x0C)[0]

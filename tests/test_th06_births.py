@@ -685,8 +685,8 @@ class EclBirthTests(unittest.TestCase):
         set_angle = self.instruction(
             0x1000,
             0,
-            5,
-            struct.pack("<if", -10005, -10021.0),
+            4,
+            struct.pack("<ii", -10005, -10021),
             0x14,
         )
         move = self.instruction(

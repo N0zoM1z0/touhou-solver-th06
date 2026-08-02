@@ -234,6 +234,50 @@ class EclOpcodeCoverageTests(unittest.TestCase):
 
         self.assertEqual(forecast.covered_frames, 1, forecast.reason)
 
+    def test_set_opcodes_use_source_target_type_not_opcode_name(self):
+        set_float_literal = instruction(
+            0x1000,
+            5,
+            struct.pack("<if", -10006, 1.25),
+            0x14,
+        )
+        setint_float_copy = instruction(
+            0x1014,
+            4,
+            struct.pack("<ii", -10005, -10006),
+            0x14,
+        )
+        setfloat_int_copy = instruction(
+            0x1028,
+            5,
+            struct.pack("<ii", -10001, -10002),
+            0x14,
+        )
+        sentinel = EclInstruction(0x103C, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(set_float_literal, sentinel),
+            ecl_ints=(0, 7, 0, 0, 0, 0, 0, 0),
+            ecl_program=(
+                set_float_literal,
+                setint_float_copy,
+                setfloat_int_copy,
+                sentinel,
+            ),
+        )
+
+        forecast = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertIsNotNone(forecast.next_spawner)
+        self.assertEqual(forecast.next_spawner.ecl_floats[0], 1.25)
+        self.assertEqual(forecast.next_spawner.ecl_ints[0], 7)
+
     def test_move_time_accelerate_matches_source_interpolation(self):
         # Opcode 63 calls MoveTime and selects easing type 3.  The source
         # displacement is cos(angle) * speed * duration / 2.
