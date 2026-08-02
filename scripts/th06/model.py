@@ -221,6 +221,15 @@ class EnemySpawner:
     upper_move_x: float = 0.0
     upper_move_y: float = 0.0
     should_clamp_position: bool = False
+    boss_timer: int = 0
+    boss_timer_float: float = 0.0
+    death_callback_sub: int = -1
+    life_callback_threshold: int = -1
+    life_callback_sub: int = -1
+    timer_callback_threshold: int = -1
+    timer_callback_sub: int = -1
+    is_boss: bool = False
+    timeout_spell: bool = False
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,7 @@
 import math
 import struct
 import unittest
+from dataclasses import replace
 
 from th06.hazards.ecl import (
     ECL_OPCODE_COUNT,
@@ -140,6 +141,30 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 0)
         self.assertIn("laser creation", forecast.reason)
         self.assertNotIn("unsupported ECL opcode", forecast.reason)
+
+    def test_boss_timer_setup_remains_covered_before_its_callback(self):
+        timer = instruction(0x1000, 112, struct.pack("<i", 0), 0x10)
+        threshold = instruction(0x1010, 115, struct.pack("<i", 1200), 0x10)
+        callback = instruction(0x1020, 116, struct.pack("<i", 16), 0x10)
+        sentinel = EclInstruction(0x1030, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(timer, sentinel),
+            ecl_program=(timer, threshold, callback, sentinel),
+        )
+
+        forecast = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        self.assertEqual(forecast.covered_frames, 4)
+        self.assertEqual(forecast.reason, "")
+        self.assertEqual(forecast.next_spawner.timer_callback_threshold, 1200)
+        self.assertEqual(forecast.next_spawner.timer_callback_sub, 16)
+        self.assertEqual(forecast.next_spawner.boss_timer, 4)
 
 
 if __name__ == "__main__":

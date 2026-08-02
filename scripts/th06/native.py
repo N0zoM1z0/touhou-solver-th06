@@ -140,6 +140,8 @@ ENEMY_BULLET_RANK_AMOUNT1_HIGH_OFFSET = 0xCDE
 ENEMY_BULLET_RANK_AMOUNT2_LOW_OFFSET = 0xCE0
 ENEMY_BULLET_RANK_AMOUNT2_HIGH_OFFSET = 0xCE2
 ENEMY_LIFE_OFFSET = 0xCE4
+ENEMY_BOSS_TIMER_SUBFRAME_OFFSET = 0xCF4
+ENEMY_BOSS_TIMER_OFFSET = 0xCF8
 ENEMY_BULLET_PROPS_OFFSET = 0xD00
 ENEMY_SHOOT_INTERVAL_OFFSET = 0xD54
 ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET = 0xD5C
@@ -147,6 +149,11 @@ ENEMY_SHOOT_TIMER_OFFSET = 0xD60
 ENEMY_FLAGS_OFFSET = 0xE50
 ENEMY_LOWER_MOVE_LIMIT_OFFSET = 0xE60
 ENEMY_UPPER_MOVE_LIMIT_OFFSET = 0xE68
+ENEMY_LIFE_CALLBACK_THRESHOLD_OFFSET = 0xEA8
+ENEMY_LIFE_CALLBACK_SUB_OFFSET = 0xEAC
+ENEMY_TIMER_CALLBACK_THRESHOLD_OFFSET = 0xEB0
+ENEMY_TIMER_CALLBACK_SUB_OFFSET = 0xEB4
+ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 96
 ECL_SUBROUTINE_LIMIT = 512
@@ -449,6 +456,12 @@ def _read_ecl_program(
             sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
             if not 0 <= sub_id < len(process.ecl_subroutines):
                 raise RuntimeError(f"invalid ECL subroutine id {sub_id}")
+            pending.append(process.ecl_subroutines[sub_id])
+        if instruction.opcode in (108, 109, 114, 116):
+            raw = bytes.fromhex(instruction.raw_hex)
+            sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
+            if not 0 <= sub_id < len(process.ecl_subroutines):
+                raise RuntimeError(f"invalid ECL callback subroutine id {sub_id}")
             pending.append(process.ecl_subroutines[sub_id])
     return tuple(found[address] for address in sorted(found))
 
@@ -853,6 +866,23 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             ))
 
         life = struct.unpack_from("<i", enemy_pool, base + ENEMY_LIFE_OFFSET)[0]
+        boss_timer_subframe = struct.unpack_from(
+            "<f", enemy_pool, base + ENEMY_BOSS_TIMER_SUBFRAME_OFFSET
+        )[0]
+        boss_timer = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_BOSS_TIMER_OFFSET
+        )[0]
+        death_callback_sub = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_DEATH_CALLBACK_SUB_OFFSET
+        )[0]
+        (
+            life_callback_threshold,
+            life_callback_sub,
+            timer_callback_threshold,
+            timer_callback_sub,
+        ) = struct.unpack_from(
+            "<iiii", enemy_pool, base + ENEMY_LIFE_CALLBACK_THRESHOLD_OFFSET
+        )
         bullet_rank_speed_low, bullet_rank_speed_high = struct.unpack_from(
             "<ff", enemy_pool, base + ENEMY_BULLET_RANK_SPEED_LOW_OFFSET
         )
@@ -1064,6 +1094,15 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             upper_move_x,
             upper_move_y,
             bool(flags2 & 0x01),
+            boss_timer,
+            boss_timer + boss_timer_subframe,
+            death_callback_sub,
+            life_callback_threshold,
+            life_callback_sub,
+            timer_callback_threshold,
+            timer_callback_sub,
+            bool(flags1 & 0x08),
+            bool(flags2 & 0x10),
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

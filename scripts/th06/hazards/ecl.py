@@ -185,13 +185,9 @@ FAIL_CLOSED_ECL_OPCODES = {
     OPCODE_ENEMY_CREATE: "future ECL enemy creation needs a world-emitter insertion",
     OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
     OPCODE_INTERRUPT: "ECL interrupt table is not captured",
-    OPCODE_BOSS_TIMER_SET: "boss timer callback state is not captured",
     OPCODE_LIFE_CALLBACK_THRESHOLD: "life callback state is not captured",
     OPCODE_LIFE_CALLBACK_SUB: "life callback state is not captured",
-    OPCODE_TIMER_CALLBACK_THRESHOLD: "timer callback state is not captured",
-    OPCODE_TIMER_CALLBACK_SUB: "timer callback state is not captured",
     OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
-    OPCODE_BOSS_TIMER_CLEAR: "boss timer callback state is not captured",
 }
 
 MODELLED_ECL_OPCODES = frozenset(
@@ -199,9 +195,11 @@ MODELLED_ECL_OPCODES = frozenset(
      *range(OPCODE_MATH_INT_ADD, OPCODE_MOVE_BOUNDS_DISABLE + 1),
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
-     OPCODE_LIFE_SET, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
+     OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
+     OPCODE_TIMER_CALLBACK_SUB, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
      OPCODE_EX_REPEAT, OPCODE_TIME_SET, OPCODE_CALL_STACK_DISABLED,
-     OPCODE_BULLET_RANK_INFLUENCE, OPCODE_INVISIBLE_FLAG}
+     OPCODE_BULLET_RANK_INFLUENCE, OPCODE_INVISIBLE_FLAG,
+     OPCODE_BOSS_TIMER_CLEAR}
 )
 
 assert (
@@ -510,6 +508,13 @@ def forecast_ecl_births(
     rank_amount1_high = spawner.bullet_rank_amount1_high
     rank_amount2_low = spawner.bullet_rank_amount2_low
     rank_amount2_high = spawner.bullet_rank_amount2_high
+    boss_timer = spawner.boss_timer
+    boss_timer_subframe = spawner.boss_timer_float - spawner.boss_timer
+    death_callback_sub = spawner.death_callback_sub
+    life_callback_threshold = spawner.life_callback_threshold
+    life_callback_sub = spawner.life_callback_sub
+    timer_callback_threshold = spawner.timer_callback_threshold
+    timer_callback_sub = spawner.timer_callback_sub
     pattern = spawner.pattern
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
@@ -613,6 +618,41 @@ def forecast_ecl_births(
                 move_timer_float=move_timer_float,
             ))
             enemy_x, enemy_y = clamp_position(positioned.x, positioned.y)
+        if life_callback_threshold >= 0:
+            return EclForecast(
+                tuple(map(tuple, births)),
+                frame_index,
+                "active life callback needs player-shot damage bounds",
+            )
+        if (
+            timer_callback_threshold >= 0
+            and boss_timer >= timer_callback_threshold
+        ):
+            if not 0 <= timer_callback_sub < len(spawner.ecl_subroutines):
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    frame_index,
+                    f"timer callback subroutine {timer_callback_sub} is unavailable",
+                )
+            callback_address = spawner.ecl_subroutines[timer_callback_sub]
+            if callback_address not in program:
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    frame_index,
+                    "timer callback instruction graph is not captured",
+                )
+            instruction_address = callback_address
+            current_time = 0
+            time_subframe = 0.0
+            timer_callback_threshold = -1
+            timer_callback_sub = death_callback_sub
+            boss_timer = 0
+            boss_timer_subframe = 0.0
+            rank_speed_low = -0.5
+            rank_speed_high = 0.5
+            rank_amount1_low = rank_amount1_high = 0
+            rank_amount2_low = rank_amount2_high = 0
+            call_stack.clear()
         enemy = (enemy_x, enemy_y)
         stop_after_frame = ""
         for _instruction_count in range(256):
@@ -1378,6 +1418,15 @@ def forecast_ecl_births(
                 rank_amount2_low = rank_amount2_high = 0
             elif instruction.opcode == OPCODE_LIFE_SET:
                 life = struct.unpack_from("<i", raw, 0x0C)[0]
+            elif instruction.opcode == OPCODE_BOSS_TIMER_SET:
+                boss_timer = struct.unpack_from("<i", raw, 0x0C)[0]
+                boss_timer_subframe = 0.0
+            elif instruction.opcode == OPCODE_TIMER_CALLBACK_THRESHOLD:
+                timer_callback_threshold = struct.unpack_from("<i", raw, 0x0C)[0]
+                boss_timer = 0
+                boss_timer_subframe = 0.0
+            elif instruction.opcode == OPCODE_TIMER_CALLBACK_SUB:
+                timer_callback_sub = struct.unpack_from("<i", raw, 0x0C)[0]
             elif instruction.opcode == OPCODE_DROP_ITEMS:
                 count = struct.unpack_from("<i", raw, 0x0C)[0]
                 if count < 0:
@@ -1409,6 +1458,10 @@ def forecast_ecl_births(
                     rank_amount2_low,
                     rank_amount2_high,
                 ) = struct.unpack_from("<iiii", raw, 0x14)
+            elif instruction.opcode == OPCODE_BOSS_TIMER_CLEAR:
+                timer_callback_sub = death_callback_sub
+                boss_timer = 0
+                boss_timer_subframe = 0.0
             elif instruction.opcode in HAZARD_NEUTRAL_ECL_OPCODES:
                 pass
             elif instruction.opcode in FAIL_CLOSED_ECL_OPCODES:
@@ -1514,6 +1567,10 @@ def forecast_ecl_births(
         while time_subframe >= 1.0:
             current_time += 1
             time_subframe -= 1.0
+        boss_timer_subframe += frame_multiplier
+        while boss_timer_subframe >= 1.0:
+            boss_timer += 1
+            boss_timer_subframe -= 1.0
         if stop_after_frame:
             return EclForecast(
                 tuple(map(tuple, births)), frame_index + 1, stop_after_frame
@@ -1573,6 +1630,13 @@ def forecast_ecl_births(
             upper_move_x=upper_move_x,
             upper_move_y=upper_move_y,
             should_clamp_position=should_clamp_position,
+            boss_timer=boss_timer,
+            boss_timer_float=boss_timer + boss_timer_subframe,
+            death_callback_sub=death_callback_sub,
+            life_callback_threshold=life_callback_threshold,
+            life_callback_sub=life_callback_sub,
+            timer_callback_threshold=timer_callback_threshold,
+            timer_callback_sub=timer_callback_sub,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
     )
