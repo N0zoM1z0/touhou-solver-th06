@@ -347,12 +347,12 @@ class EclBirthTests(unittest.TestCase):
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
 
-    def test_hard_world_still_fails_closed_on_ecl_rng_control(self):
-        random_float = self.instruction(
+    def test_hard_world_still_fails_closed_on_discrete_rng_control(self):
+        random_int = self.instruction(
             0x1000,
             0,
-            8,
-            struct.pack("<if", -10005, 1.0),
+            6,
+            struct.pack("<ii", -10001, 10),
             0x14,
         )
         sentinel = EclInstruction(
@@ -361,13 +361,13 @@ class EclBirthTests(unittest.TestCase):
         emitter = spawner(
             pattern(count1=1, count2=1),
             interval=0,
-            next_instruction=random_float,
-            ecl_program=(random_float, sentinel),
+            next_instruction=random_int,
+            ecl_program=(random_int, sentinel),
         )
         state = snapshot(10, spawners=(emitter,))
         hard = forecast_world_births(state, ((100.0, 400.0),))
         self.assertEqual(hard.covered_frames, 0)
-        self.assertIn("requires RNG state", hard.reason)
+        self.assertIn("discrete uncertainty", hard.reason)
         nominal = forecast_world_births(
             state,
             ((100.0, 400.0),),
@@ -375,7 +375,7 @@ class EclBirthTests(unittest.TestCase):
         )
         self.assertEqual(nominal.covered_frames, 1)
 
-    def test_hard_world_taint_rejects_player_angle_used_for_motion(self):
+    def test_hard_world_carries_player_angle_as_position_uncertainty(self):
         set_angle = self.instruction(
             0x1000,
             0,
@@ -395,14 +395,17 @@ class EclBirthTests(unittest.TestCase):
         )
         emitter = spawner(
             pattern(count1=1, count2=1),
-            interval=0,
+            interval=2,
+            timer=0,
+            timer_float=0.0,
             next_instruction=set_angle,
             ecl_program=(set_angle, move, sentinel),
         )
         state = snapshot(10, spawners=(emitter,))
-        hard = forecast_world_births(state, ((100.0, 400.0),))
-        self.assertEqual(hard.covered_frames, 0)
-        self.assertIn("emitter motion", hard.reason)
+        hard = forecast_world_births(state, ((100.0, 400.0),) * 2)
+        self.assertEqual(hard.covered_frames, 2)
+        self.assertEqual([len(items) for items in hard.births], [0, 1])
+        self.assertEqual(hard.births[1][0].half_width, 4.0)
 
     def test_world_retains_accelerating_emitter_motion_between_frames(self):
         sentinel = EclInstruction(

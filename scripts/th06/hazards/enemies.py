@@ -59,10 +59,27 @@ def _ease(value: float, mode: int) -> float:
     raise ValueError(f"unsupported enemy movement ease {mode}")
 
 
-def advance_motion(enemy: MovingEnemy) -> MotionState:
-    """Advance one EnemyManager update and retain its mutable motion state."""
+def advance_position(enemy: MovingEnemy) -> MotionState:
+    """Apply Enemy::Move before this frame's ECL instructions."""
     x = enemy.x + (-enemy.velocity_x if enemy.invert_x else enemy.velocity_x)
     y = enemy.y + enemy.velocity_y
+    return MotionState(
+        x,
+        y,
+        enemy.velocity_x,
+        enemy.velocity_y,
+        enemy.angle,
+        enemy.speed,
+        enemy.movement_mode,
+        enemy.move_timer,
+        enemy.move_timer_float,
+    )
+
+
+def finish_motion(enemy: MovingEnemy) -> MotionState:
+    """Apply RunEcl's post-instruction movement-mode update."""
+    x = enemy.x
+    y = enemy.y
     velocity_x = enemy.velocity_x
     velocity_y = enemy.velocity_y
     angle = enemy.angle
@@ -102,6 +119,12 @@ def advance_motion(enemy: MovingEnemy) -> MotionState:
         move_timer,
         move_timer_float,
     )
+
+
+def advance_motion(enemy: MovingEnemy) -> MotionState:
+    """Advance a frame with no intervening ECL movement instruction."""
+    positioned = advance_position(enemy)
+    return finish_motion(_MotionView(enemy, positioned))
 
 
 def future_positions(

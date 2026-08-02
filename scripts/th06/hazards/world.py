@@ -53,12 +53,46 @@ def forecast_world_births(
         raise ValueError(f"unknown RNG mode {rng_mode}")
     births: list[list[Bullet]] = [[] for _ in player_positions]
     emitters = tuple(sorted(snapshot.spawners, key=lambda item: item.slot))
+    if rng_mode == "fail-closed":
+        covered_frames = len(player_positions)
+        reason = ""
+        for emitter in emitters:
+            try:
+                forecast = forecast_ecl_births(
+                    emitter,
+                    player_positions,
+                    snapshot.difficulty,
+                    snapshot.rank,
+                    snapshot.bullet_sizes,
+                    snapshot.frame_multiplier,
+                    allow_player_variables=False,
+                    radial_births=True,
+                    abstract_rng=True,
+                )
+            except UnsupportedBirthModel as error:
+                forecast = None
+                emitter_coverage = 0
+                emitter_reason = str(error)
+            else:
+                emitter_coverage = forecast.covered_frames
+                emitter_reason = forecast.reason
+                for frame_index, frame_births in enumerate(forecast.births):
+                    births[frame_index].extend(frame_births)
+            if emitter_coverage < covered_frames:
+                covered_frames = emitter_coverage
+                reason = f"emitter {emitter.slot}: {emitter_reason}"
+        return WorldBirthForecast(
+            tuple(tuple(frame) for frame in births),
+            _project_hazards(births, True),
+            covered_frames,
+            reason,
+        )
     rng = (
         RngState(snapshot.rng_seed, snapshot.rng_generation)
         if rng_mode == "nominal"
         else None
     )
-    radial = rng_mode == "fail-closed"
+    radial = False
 
     for frame_index, player in enumerate(player_positions):
         next_emitters: list[EnemySpawner] = []

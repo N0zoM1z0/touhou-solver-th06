@@ -14,7 +14,7 @@ import struct
 
 from ..model import Bullet, BulletPattern, EnemySpawner, EclInstruction
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
-from .enemies import advance_motion
+from .enemies import advance_position, finish_motion
 from .rng import RngState
 
 
@@ -242,6 +242,7 @@ def forecast_ecl_births(
     rng: RngState | None = None,
     allow_player_variables: bool = True,
     radial_births: bool = False,
+    abstract_rng: bool = False,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -273,6 +274,9 @@ def forecast_ecl_births(
     movement_mode = spawner.movement_mode
     move_timer = spawner.move_timer
     move_timer_float = spawner.move_timer_float
+    position_uncertainty = 0.0
+    velocity_uncertainty = 0.0
+    uncertain_heading = False
 
     def emit(
         resolved: BulletPattern,
@@ -280,30 +284,36 @@ def forecast_ecl_births(
         player: tuple[float, float],
     ) -> tuple[Bullet, ...]:
         if radial_births:
-            return spawn_pattern_envelope(resolved, origin)
+            return tuple(
+                replace(
+                    bullet,
+                    half_width=bullet.half_width + position_uncertainty,
+                    half_height=bullet.half_height + position_uncertainty,
+                )
+                for bullet in spawn_pattern_envelope(resolved, origin)
+            )
         return spawn_pattern(resolved, origin, player, rng)
 
     for frame_index, player in enumerate(player_positions):
         variable_player = player if allow_player_variables else None
-        motion = advance_motion(replace(
-            spawner,
-            x=enemy_x,
-            y=enemy_y,
-            velocity_x=velocity_x,
-            velocity_y=velocity_y,
-            angle=angle,
-            angular_velocity=angular_velocity,
-            speed=speed,
-            acceleration=acceleration,
-            movement_mode=movement_mode,
-            move_timer=move_timer,
-            move_timer_float=move_timer_float,
-        ))
-        enemy_x, enemy_y = motion.x, motion.y
-        velocity_x, velocity_y = motion.velocity_x, motion.velocity_y
-        angle, speed = motion.angle, motion.speed
-        movement_mode = motion.movement_mode
-        move_timer, move_timer_float = motion.move_timer, motion.move_timer_float
+        if velocity_uncertainty > 0.0:
+            position_uncertainty += velocity_uncertainty
+        else:
+            positioned = advance_position(replace(
+                spawner,
+                x=enemy_x,
+                y=enemy_y,
+                velocity_x=velocity_x,
+                velocity_y=velocity_y,
+                angle=angle,
+                angular_velocity=angular_velocity,
+                speed=speed,
+                acceleration=acceleration,
+                movement_mode=movement_mode,
+                move_timer=move_timer,
+                move_timer_float=move_timer_float,
+            ))
+            enemy_x, enemy_y = positioned.x, positioned.y
         enemy = (enemy_x, enemy_y)
         stop_after_frame = ""
         for _instruction_count in range(256):
@@ -359,15 +369,17 @@ def forecast_ecl_births(
                 OPCODE_SET_FLOAT_RANDOM,
                 OPCODE_SET_FLOAT_RANDOM_MIN,
             ):
-                if rng is None:
-                    return EclForecast(
-                        tuple(map(tuple, births)), frame_index, "ECL random variable requires RNG state"
-                    )
                 result = struct.unpack_from("<i", raw, 0x0C)[0]
                 if instruction.opcode in (
                     OPCODE_SET_INT_RANDOM,
                     OPCODE_SET_INT_RANDOM_MIN,
                 ):
+                    if rng is None:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "integer RNG requires a discrete uncertainty domain",
+                        )
                     extent_raw = struct.unpack_from("<i", raw, 0x10)[0]
                     extent = _int_var(
                         extent_raw, integers, difficulty, rank, spawner.life
@@ -387,12 +399,21 @@ def forecast_ecl_births(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         spawner.life, enemy, variable_player,
                     )
-                    value = rng.f32_in_range(extent)
-                    if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
-                        value += _float_var(
-                            raw[0x14:0x18], integers, floats, difficulty, rank,
-                            spawner.life, enemy, variable_player,
-                        )
+                    if rng is None:
+                        if not abstract_rng:
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index,
+                                "ECL random variable requires RNG state",
+                            )
+                        value = math.nan
+                    else:
+                        value = rng.f32_in_range(extent)
+                        if instruction.opcode == OPCODE_SET_FLOAT_RANDOM_MIN:
+                            value += _float_var(
+                                raw[0x14:0x18], integers, floats, difficulty, rank,
+                                spawner.life, enemy, variable_player,
+                            )
                     if not _set_float_var(result, value, floats):
                         return EclForecast(
                             tuple(map(tuple, births)), frame_index, "unsupported random-float target"
@@ -509,6 +530,8 @@ def forecast_ecl_births(
                             spawner.life, enemy, variable_player,
                     )
                     movement_mode = 0
+                    uncertain_heading = False
+                    velocity_uncertainty = 0.0
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 2:
                     angle = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
@@ -519,6 +542,12 @@ def forecast_ecl_births(
                         spawner.life, enemy, variable_player,
                     )
                     movement_mode = 1
+                    if not math.isfinite(angle) and radial_births:
+                        angle = 0.0
+                        uncertain_heading = True
+                    else:
+                        uncertain_heading = False
+                        velocity_uncertainty = 0.0
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 3:
                     angular_velocity = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
@@ -539,24 +568,30 @@ def forecast_ecl_births(
                     movement_mode = 1
                 elif instruction.opcode in (OPCODE_MOVE_RANDOM, OPCODE_MOVE_RANDOM_IN_BOUNDS):
                     if rng is None:
-                        return EclForecast(
-                            tuple(map(tuple, births)), frame_index, "random movement requires RNG state"
-                        )
-                    low, high = struct.unpack_from("<ff", raw, 0x0C)
-                    angle = rng.f32_in_range(high - low) + low
+                        if not abstract_rng:
+                            return EclForecast(
+                                tuple(map(tuple, births)), frame_index, "random movement requires RNG state"
+                            )
+                        angle = 0.0
+                        uncertain_heading = True
+                    else:
+                        low, high = struct.unpack_from("<ff", raw, 0x0C)
+                        angle = rng.f32_in_range(high - low) + low
+                        uncertain_heading = False
+                        velocity_uncertainty = 0.0
                     if instruction.opcode == OPCODE_MOVE_RANDOM_IN_BOUNDS:
                         stop_after_frame = "MOVERANDINBOUND needs uncaptured clamp bounds"
                 else:
                     if not allow_player_variables:
-                        return EclForecast(
-                            tuple(map(tuple, births)),
-                            frame_index,
-                            "MOVEATPLAYER depends on a future action",
-                        )
-                    angle_offset = struct.unpack_from("<f", raw, 0x0C)[0]
-                    angle = math.atan2(
-                        player[1] - enemy_y, player[0] - enemy_x
-                    ) + angle_offset
+                        angle = 0.0
+                        uncertain_heading = True
+                    else:
+                        angle_offset = struct.unpack_from("<f", raw, 0x0C)[0]
+                        angle = math.atan2(
+                            player[1] - enemy_y, player[0] - enemy_x
+                        ) + angle_offset
+                        uncertain_heading = False
+                        velocity_uncertainty = 0.0
                     speed = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         spawner.life, enemy, variable_player,
@@ -650,6 +685,33 @@ def forecast_ecl_births(
             return EclForecast(
                 tuple(map(tuple, births)), frame_index, "ECL instruction budget exhausted"
             )
+
+        motion = finish_motion(replace(
+            spawner,
+            x=enemy_x,
+            y=enemy_y,
+            velocity_x=velocity_x,
+            velocity_y=velocity_y,
+            angle=angle,
+            angular_velocity=angular_velocity,
+            speed=speed,
+            acceleration=acceleration,
+            movement_mode=movement_mode,
+            move_timer=move_timer,
+            move_timer_float=move_timer_float,
+        ))
+        enemy_x, enemy_y = motion.x, motion.y
+        velocity_x, velocity_y = motion.velocity_x, motion.velocity_y
+        angle, speed = motion.angle, motion.speed
+        movement_mode = motion.movement_mode
+        move_timer, move_timer_float = motion.move_timer, motion.move_timer_float
+        if uncertain_heading:
+            velocity_uncertainty = abs(speed)
+            velocity_x = 0.0
+            velocity_y = 0.0
+        else:
+            velocity_uncertainty = 0.0
+        enemy = (enemy_x, enemy_y)
 
         if spawner.life > 0 and interval > 0:
             interval_subframe += frame_multiplier
