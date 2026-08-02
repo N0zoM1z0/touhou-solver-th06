@@ -43,7 +43,7 @@ class MotionState:
     move_timer_float: float
 
 
-def _ease(value: float, mode: int) -> float:
+def interpolation_progress(value: float, mode: int) -> float:
     if mode == 0:
         return 1.0 - value
     if mode == 1:
@@ -131,7 +131,7 @@ def finish_motion_values(
         if move_start_time <= 0:
             raise ValueError("invalid active enemy interpolation time")
         interpolation = min(1.0, move_timer_float / move_start_time)
-        interpolation = _ease(interpolation, movement_ease)
+        interpolation = interpolation_progress(interpolation, movement_ease)
         velocity_x = interpolation * move_interp_x + move_start_x - x
         velocity_y = interpolation * move_interp_y + move_start_y - y
         if move_timer <= 0:

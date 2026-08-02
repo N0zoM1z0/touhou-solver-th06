@@ -812,6 +812,81 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual([len(items) for items in hard.births], [0, 1])
         self.assertEqual(hard.births[1][0].half_width, 4.0)
 
+    def test_random_timed_body_envelope_follows_easing_progress(self):
+        random_heading = self.instruction(
+            0x1000,
+            0,
+            50,
+            struct.pack("<ff", -math.pi, math.pi),
+            0x14,
+        )
+        speed = self.instruction(
+            0x1014,
+            0,
+            47,
+            struct.pack("<f", 2.0),
+            0x10,
+        )
+        timed_move = self.instruction(
+            0x1024,
+            0,
+            61,
+            struct.pack("<i", 120),
+            0x10,
+        )
+        sentinel = EclInstruction(
+            0x1034, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(),
+            x=100.0,
+            y=144.0,
+            velocity_x=0.0,
+            speed=2.0,
+            interval=0,
+            next_instruction=random_heading,
+            ecl_program=(random_heading, speed, timed_move, sentinel),
+            hitbox_half_width=16.0,
+            hitbox_half_height=18.0,
+            interactable=True,
+            collidable=True,
+            lower_move_x=0.0,
+            lower_move_y=0.0,
+            upper_move_x=384.0,
+            upper_move_y=448.0,
+            should_clamp_position=True,
+        )
+        state = snapshot(10, spawners=(emitter,))
+        positions = ((100.0, 400.0),) * 8
+
+        hard = forecast_world_births(state, positions)
+        radii = tuple(
+            (frame[0][2] - frame[0][0]) / 2.0 - 16.0
+            for frame in hard.body_hazards
+        )
+
+        self.assertAlmostEqual(radii[0], 0.0)
+        self.assertGreater(radii[1], 0.0)
+        self.assertLess(radii[1], 3.0)
+        self.assertEqual(radii, tuple(sorted(radii)))
+
+        for seed in range(32):
+            exact = forecast_world_births(
+                replace(state, rng_seed=seed),
+                positions,
+                rng_mode="nominal",
+            )
+            for outer_frame, exact_frame in zip(
+                hard.body_hazards,
+                exact.body_hazards,
+            ):
+                outer = outer_frame[0]
+                inner = exact_frame[0]
+                self.assertLessEqual(outer[0], inner[0])
+                self.assertLessEqual(outer[1], inner[1])
+                self.assertGreaterEqual(outer[2], inner[2])
+                self.assertGreaterEqual(outer[3], inner[3])
+
     def test_hard_world_propagates_rng_interval_into_bullet_speed(self):
         random_speed = self.instruction(
             0x1000,

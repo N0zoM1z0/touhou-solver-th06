@@ -394,3 +394,20 @@ that effective recent rate instead of relabeling the stale EMA as fresh. The
 focused physical corpus reduces the policy witness to one bullet and two
 lasers. Hard-4 eligibility is unchanged; a new Practice Stage 1 run is still
 required for physical validation.
+
+## Random timed-body envelope checkpoint (2026-08-02)
+
+The next Practice Stage 1 trial stopped without a HIT at f8609. Ablation left
+the authority empty only while its ECL spawner was present. Source and decoded
+instructions showed `MOVERANDINBOUND`, `MOVESPEED(2)`, then `MOVETIME(120)` at
+the edge of Hard-4. The old abstract-RNG model applied the full 120-pixel
+unknown endpoint radius immediately, producing a false 272-pixel-wide body box
+although source position had not moved on the setup frame.
+
+Unknown-direction timed motion now retains a separate endpoint radius and
+advances its body envelope by the exact source easing progress each frame. The
+saved f8609 Hard-4 set returns from empty to all nine actions, while longer
+unknown callback reach still fails closed. A focused unit test also confirms
+that the envelope contains 32 exact RNG trajectories through h8. This is a
+source-semantics correction, not a stage, position, enemy, or direction rule;
+physical Stage 1 validation remains next.

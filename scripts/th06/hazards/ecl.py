@@ -21,7 +21,7 @@ from ..model import (
     EclInstruction,
 )
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
-from .enemies import finish_motion_values
+from .enemies import finish_motion_values, interpolation_progress
 from .rng import RngState
 
 
@@ -645,6 +645,9 @@ def _forecast_ecl_births_single(
     position_uncertainty = 0.0
     velocity_uncertainty = 0.0
     uncertain_heading = False
+    timed_move_radius = 0.0
+    timed_move_progress = 0.0
+    timed_move_next_progress = 0.0
     shoot_offset_x: float | FloatInterval = spawner.shoot_offset_x
     shoot_offset_y: float | FloatInterval = spawner.shoot_offset_y
     abstract_int_cursor = 0
@@ -701,6 +704,8 @@ def _forecast_ecl_births_single(
         variable_player = player if allow_player_variables else None
         if velocity_uncertainty > 0.0:
             position_uncertainty += velocity_uncertainty
+            if timed_move_radius > 0.0 and movement_mode == 2:
+                timed_move_progress = timed_move_next_progress
         else:
             enemy_x += -velocity_x if spawner.invert_x else velocity_x
             enemy_y += velocity_y
@@ -1181,6 +1186,9 @@ def _forecast_ecl_births_single(
                 hitbox_half_width = hitbox_x / 3.0
                 hitbox_half_height = hitbox_y / 3.0
             elif OPCODE_MOVE_POSITION <= instruction.opcode <= OPCODE_MOVE_AT_PLAYER:
+                timed_move_radius = 0.0
+                timed_move_progress = 0.0
+                timed_move_next_progress = 0.0
                 if instruction.opcode == OPCODE_MOVE_POSITION:
                     enemy_x = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
@@ -1360,6 +1368,10 @@ def _forecast_ecl_births_single(
                         frame_index,
                         "timed ECL movement has a non-positive duration",
                     )
+                timed_move_radius = 0.0
+                timed_move_progress = 0.0
+                timed_move_next_progress = 0.0
+                timed_heading_uncertain = False
                 if instruction.opcode < OPCODE_MOVE_POSITION_TIME_FIRST:
                     timed_angle = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
@@ -1373,8 +1385,9 @@ def _forecast_ecl_births_single(
                                 frame_index,
                                 "uncertain timed-movement angle",
                             )
-                        position_uncertainty += abs(timed_speed) * duration / 2.0
+                        timed_move_radius = abs(timed_speed) * duration / 2.0
                         move_interp_x = move_interp_y = 0.0
+                        timed_heading_uncertain = True
                     else:
                         move_interp_x = math.cos(timed_angle) * timed_speed * duration / 2.0
                         move_interp_y = math.sin(timed_angle) * timed_speed * duration / 2.0
@@ -1408,8 +1421,9 @@ def _forecast_ecl_births_single(
                                 frame_index,
                                 "uncertain heading reaches timed movement",
                             )
-                        position_uncertainty += abs(speed) * duration / 2.0
+                        timed_move_radius = abs(speed) * duration / 2.0
                         move_interp_x = move_interp_y = 0.0
+                        timed_heading_uncertain = True
                     else:
                         move_interp_x = math.cos(angle) * speed * duration / 2.0
                         move_interp_y = math.sin(angle) * speed * duration / 2.0
@@ -1420,7 +1434,7 @@ def _forecast_ecl_births_single(
                 move_timer = duration
                 move_timer_float = float(duration)
                 movement_mode = 2
-                uncertain_heading = False
+                uncertain_heading = timed_heading_uncertain
                 velocity_uncertainty = 0.0
             elif instruction.opcode == OPCODE_MOVE_BOUNDS_SET:
                 (
@@ -1717,7 +1731,28 @@ def _forecast_ecl_births_single(
         angle, speed = motion.angle, motion.speed
         movement_mode = motion.movement_mode
         move_timer, move_timer_float = motion.move_timer, motion.move_timer_float
-        if uncertain_heading:
+        if timed_move_radius > 0.0:
+            if movement_mode == 0:
+                position_uncertainty += (
+                    1.0 - timed_move_progress
+                ) * timed_move_radius
+                timed_move_progress = 1.0
+                timed_move_next_progress = 1.0
+                timed_move_radius = 0.0
+                velocity_uncertainty = 0.0
+            else:
+                remaining = min(1.0, move_timer_float / move_start_time)
+                timed_move_next_progress = interpolation_progress(
+                    remaining,
+                    movement_ease,
+                )
+                velocity_uncertainty = max(
+                    0.0,
+                    timed_move_next_progress - timed_move_progress,
+                ) * timed_move_radius
+            velocity_x = 0.0
+            velocity_y = 0.0
+        elif uncertain_heading and movement_mode == 1:
             velocity_uncertainty = abs(speed)
             velocity_x = 0.0
             velocity_y = 0.0

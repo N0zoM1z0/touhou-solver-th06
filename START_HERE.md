@@ -66,6 +66,11 @@ This separation is the idea; the algorithms are intentionally not fixed.
   prediction from the freshly measured lower rung, so a past expensive scene
   cannot disable that rung indefinitely. Earlier stage clears do not physically
   validate this replacement, so validation restarts at Stage 1.
+- The first restarted Stage 1 trial then stopped safely at f8609 on an ECL
+  `MOVERANDINBOUND` followed by a 120-frame timed move. The hard envelope had
+  applied the entire unknown endpoint radius on the setup frame. It now grows
+  by source easing progress and encloses sampled exact RNG paths; the focused
+  corpus is fixed, but the integrated change still awaits physical rerun.
 
 Known gaps include future ECL births/instructions, a guaranteed command lease
 beyond the observed two-frame pickup bound, and physical coverage of Stages 5--6.
