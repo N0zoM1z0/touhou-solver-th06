@@ -295,6 +295,8 @@ def forecast_ecl_births(
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
     interval_timer = spawner.timer
+    interval_timer_low = interval_timer
+    interval_timer_high = interval_timer
     interval_subframe = spawner.timer_float - spawner.timer
     enemy_x = spawner.x
     enemy_y = spawner.y
@@ -740,11 +742,31 @@ def forecast_ecl_births(
                 high = _trunc_div(-base_interval, 5)
                 interval = base_interval + _rank_int(low, high, rank)
                 interval_timer = 0
+                interval_timer_low = 0
+                interval_timer_high = 0
                 interval_subframe = 0.0
             elif instruction.opcode == OPCODE_SHOOT_INTERVAL_DELAYED:
-                return EclForecast(
-                    tuple(map(tuple, births)), frame_index, "delayed interval requires future RNG"
-                )
+                base_interval = struct.unpack_from("<i", raw, 0x0C)[0]
+                low = _trunc_div(base_interval, 5)
+                high = _trunc_div(-base_interval, 5)
+                interval = base_interval + _rank_int(low, high, rank)
+                if rng is not None:
+                    interval_timer = rng.u32_in_range(interval & 0xFFFFFFFF)
+                    interval_timer_low = interval_timer
+                    interval_timer_high = interval_timer
+                elif abstract_rng and interval > 0:
+                    # Randomness selects only the phase of this known periodic
+                    # source. Keep every possible phase instead of sampling.
+                    interval_timer = 0
+                    interval_timer_low = 0
+                    interval_timer_high = interval - 1
+                elif not abstract_rng:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "delayed interval requires RNG state",
+                    )
+                interval_subframe = 0.0
             elif instruction.opcode == OPCODE_SHOOT_DISABLED:
                 shooting_disabled = True
             elif instruction.opcode == OPCODE_SHOOT_ENABLED:
@@ -810,8 +832,10 @@ def forecast_ecl_births(
             interval_subframe += frame_multiplier
             while interval_subframe >= 1.0:
                 interval_timer += 1
+                interval_timer_low += 1
+                interval_timer_high += 1
                 interval_subframe -= 1.0
-            if interval_timer >= interval:
+            if interval_timer_high >= interval:
                 if pattern is None:
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index, "periodic shooter has no resolved pattern"
@@ -827,7 +851,15 @@ def forecast_ecl_births(
                     ))
                 except UnsupportedBirthModel as error:
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
-                interval_timer = 0
+                if interval_timer_low >= interval:
+                    interval_timer_low = 0
+                    interval_timer_high = 0
+                else:
+                    # Union the fired phase (timer 0) with every phase that
+                    # has not fired. This compact interval remains sound.
+                    interval_timer_low = 0
+                    interval_timer_high = min(interval_timer_high, interval - 1)
+                interval_timer = interval_timer_low
                 interval_subframe = 0.0
         time_subframe += frame_multiplier
         while time_subframe >= 1.0:

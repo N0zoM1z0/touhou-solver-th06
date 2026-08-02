@@ -375,6 +375,48 @@ class EclBirthTests(unittest.TestCase):
         )
         self.assertEqual(nominal.covered_frames, 1)
 
+    def test_delayed_interval_uses_exact_rng_or_all_hard_phases(self):
+        delayed = self.instruction(
+            0x1000,
+            0,
+            77,
+            struct.pack("<i", 5),
+            0x10,
+        )
+        sentinel = EclInstruction(
+            0x1010, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            timer=0,
+            timer_float=0.0,
+            next_instruction=delayed,
+            ecl_program=(delayed, sentinel),
+        )
+        state = snapshot(
+            10,
+            spawners=(emitter,),
+            bullet_sizes=((3.0, 3.0),),
+            rng_seed=0,
+            rng_generation=0,
+        )
+
+        hard = forecast_world_births(
+            state,
+            ((100.0, 400.0),) * 3,
+        )
+        self.assertEqual(hard.covered_frames, 3)
+        self.assertEqual([len(items) for items in hard.births], [1, 1, 1])
+
+        nominal = forecast_world_births(
+            state,
+            ((100.0, 400.0),) * 3,
+            rng_mode="nominal",
+        )
+        self.assertEqual(nominal.covered_frames, 3)
+        self.assertEqual([len(items) for items in nominal.births], [1, 0, 0])
+
     def test_hard_world_carries_player_angle_as_position_uncertainty(self):
         set_angle = self.instruction(
             0x1000,
