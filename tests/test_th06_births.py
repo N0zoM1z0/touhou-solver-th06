@@ -338,6 +338,40 @@ class EclBirthTests(unittest.TestCase):
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
 
+    def test_world_retains_accelerating_emitter_motion_between_frames(self):
+        sentinel = EclInstruction(
+            0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            x=0.0,
+            y=0.0,
+            velocity_x=1.0,
+            velocity_y=0.0,
+            angle=0.0,
+            speed=1.0,
+            acceleration=1.0,
+            movement_mode=1,
+            shoot_offset_x=0.0,
+            shoot_offset_y=0.0,
+            interval=3,
+            timer=0,
+            timer_float=0.0,
+            next_instruction=sentinel,
+            ecl_program=(sentinel,),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),) * 3,
+        )
+        self.assertEqual(forecast.covered_frames, 3)
+        self.assertEqual([len(items) for items in forecast.births], [0, 0, 1])
+        self.assertAlmostEqual(forecast.births[2][0].x, 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()

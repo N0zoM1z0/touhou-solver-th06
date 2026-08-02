@@ -14,7 +14,7 @@ import struct
 
 from ..model import Bullet, BulletPattern, EnemySpawner, EclInstruction
 from .births import UnsupportedBirthModel, spawn_pattern
-from .enemies import future_positions
+from .enemies import advance_motion
 from .rng import RngState
 
 
@@ -235,9 +235,39 @@ def forecast_ecl_births(
     interval = spawner.interval
     interval_timer = spawner.timer
     interval_subframe = spawner.timer_float - spawner.timer
-    enemy_positions = future_positions(spawner, horizon)
+    enemy_x = spawner.x
+    enemy_y = spawner.y
+    velocity_x = spawner.velocity_x
+    velocity_y = spawner.velocity_y
+    angle = spawner.angle
+    angular_velocity = spawner.angular_velocity
+    speed = spawner.speed
+    acceleration = spawner.acceleration
+    movement_mode = spawner.movement_mode
+    move_timer = spawner.move_timer
+    move_timer_float = spawner.move_timer_float
 
-    for frame_index, (enemy, player) in enumerate(zip(enemy_positions, player_positions)):
+    for frame_index, player in enumerate(player_positions):
+        motion = advance_motion(replace(
+            spawner,
+            x=enemy_x,
+            y=enemy_y,
+            velocity_x=velocity_x,
+            velocity_y=velocity_y,
+            angle=angle,
+            angular_velocity=angular_velocity,
+            speed=speed,
+            acceleration=acceleration,
+            movement_mode=movement_mode,
+            move_timer=move_timer,
+            move_timer_float=move_timer_float,
+        ))
+        enemy_x, enemy_y = motion.x, motion.y
+        velocity_x, velocity_y = motion.velocity_x, motion.velocity_y
+        angle, speed = motion.angle, motion.speed
+        movement_mode = motion.movement_mode
+        move_timer, move_timer_float = motion.move_timer, motion.move_timer_float
+        enemy = (enemy_x, enemy_y)
         stop_after_frame = ""
         for _instruction_count in range(256):
             instruction = program.get(instruction_address)
@@ -388,36 +418,73 @@ def forecast_ecl_births(
                     continue
             elif OPCODE_MOVE_POSITION <= instruction.opcode <= OPCODE_MOVE_AT_PLAYER:
                 if instruction.opcode == OPCODE_MOVE_POSITION:
-                    enemy = (
-                        _float_var(
-                            raw[0x0C:0x10], integers, floats, difficulty, rank,
-                            spawner.life, enemy, player,
-                        ),
-                        _float_var(
-                            raw[0x10:0x14], integers, floats, difficulty, rank,
-                            spawner.life, enemy, player,
-                        ),
+                    enemy_x = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
                     )
-                elif instruction.opcode in (
-                    OPCODE_MOVE_RANDOM,
-                    OPCODE_MOVE_RANDOM_IN_BOUNDS,
-                ):
+                    enemy_y = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    enemy = (enemy_x, enemy_y)
+                    stop_after_frame = "MOVEPOSITION needs uncaptured clamp bounds"
+                elif instruction.opcode == OPCODE_MOVE_POSITION + 1:
+                    velocity_x = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    velocity_y = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    movement_mode = 0
+                elif instruction.opcode == OPCODE_MOVE_POSITION + 2:
+                    angle = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    speed = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    movement_mode = 1
+                elif instruction.opcode == OPCODE_MOVE_POSITION + 3:
+                    angular_velocity = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    movement_mode = 1
+                elif instruction.opcode == OPCODE_MOVE_POSITION + 4:
+                    speed = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    movement_mode = 1
+                elif instruction.opcode == OPCODE_MOVE_POSITION + 5:
+                    acceleration = _float_var(
+                        raw[0x0C:0x10], integers, floats, difficulty, rank,
+                        spawner.life, enemy, player,
+                    )
+                    movement_mode = 1
+                elif instruction.opcode in (OPCODE_MOVE_RANDOM, OPCODE_MOVE_RANDOM_IN_BOUNDS):
                     if rng is None:
                         return EclForecast(
                             tuple(map(tuple, births)), frame_index, "random movement requires RNG state"
                         )
-                    low = _float_var(
-                        raw[0x0C:0x10], integers, floats, difficulty, rank,
-                        spawner.life, enemy, player,
-                    )
-                    high = _float_var(
+                    low, high = struct.unpack_from("<ff", raw, 0x0C)
+                    angle = rng.f32_in_range(high - low) + low
+                    if instruction.opcode == OPCODE_MOVE_RANDOM_IN_BOUNDS:
+                        stop_after_frame = "MOVERANDINBOUND needs uncaptured clamp bounds"
+                else:
+                    angle_offset = struct.unpack_from("<f", raw, 0x0C)[0]
+                    angle = math.atan2(
+                        player[1] - enemy_y, player[0] - enemy_x
+                    ) + angle_offset
+                    speed = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         spawner.life, enemy, player,
                     )
-                    rng.f32_in_range(high - low)
-                # This changes axis motion beginning on the next EnemyManager
-                # update. Finish births on this source frame, then end coverage.
-                stop_after_frame = "ECL movement changed after covered frame"
+                    movement_mode = 1
             elif OPCODE_BULLET_FIRST <= instruction.opcode <= OPCODE_BULLET_LAST:
                 try:
                     pattern = _resolved_pattern(
@@ -531,8 +598,17 @@ def forecast_ecl_births(
         horizon,
         next_spawner=replace(
             spawner,
-            x=enemy[0],
-            y=enemy[1],
+            x=enemy_x,
+            y=enemy_y,
+            velocity_x=velocity_x,
+            velocity_y=velocity_y,
+            angle=angle,
+            angular_velocity=angular_velocity,
+            speed=speed,
+            acceleration=acceleration,
+            movement_mode=movement_mode,
+            move_timer=move_timer,
+            move_timer_float=move_timer_float,
             shooting_disabled=shooting_disabled,
             interval=interval,
             timer=interval_timer,
