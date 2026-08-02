@@ -43,6 +43,7 @@ OPCODE_JUMP_EQUAL = 31
 OPCODE_JUMP_GREATER = 32
 OPCODE_JUMP_GREATER_EQUAL = 33
 OPCODE_JUMP_NOT_EQUAL = 34
+OPCODE_RETURN = 36
 OPCODE_MOVE_POSITION = 43
 OPCODE_MOVE_AT_PLAYER = 51
 OPCODE_MOVE_RANDOM = 49
@@ -57,8 +58,11 @@ OPCODE_SHOOT_NOW = 80
 OPCODE_SHOOT_OFFSET = 81
 OPCODE_BULLET_EFFECTS = 82
 OPCODE_BULLET_SOUND = 84
+OPCODE_ANIMATION_MAIN = 97
+OPCODE_ANIMATION_SLOT = 99
 OPCODE_EFFECT_SOUND = 106
 OPCODE_EFFECT_PARTICLE = 118
+OPCODE_ANIMATION_ROTATION = 120
 
 
 @dataclass(frozen=True)
@@ -292,6 +296,7 @@ def forecast_ecl_births(
     integers = list(spawner.ecl_ints)
     floats = list(spawner.ecl_floats)
     compare_register = spawner.ecl_compare
+    call_stack = list(spawner.ecl_stack)
     pattern = spawner.pattern
     shooting_disabled = spawner.shooting_disabled
     interval = spawner.interval
@@ -561,6 +566,27 @@ def forecast_ecl_births(
                     current_time = jump_time
                     instruction_address = instruction.address + jump_offset
                     continue
+            elif instruction.opcode == OPCODE_RETURN:
+                if not call_stack:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "ECL return has no captured caller context",
+                    )
+                caller = call_stack.pop()
+                if caller.repeat_ex_index is not None:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "ECL caller has a repeating callback",
+                    )
+                instruction_address = caller.instruction_address
+                current_time = caller.time
+                time_subframe = caller.time_float - caller.time
+                integers = list(caller.ints)
+                floats = list(caller.floats)
+                compare_register = caller.compare
+                continue
             elif OPCODE_MOVE_POSITION <= instruction.opcode <= OPCODE_MOVE_AT_PLAYER:
                 if instruction.opcode == OPCODE_MOVE_POSITION:
                     enemy_x = _float_var(
@@ -790,8 +816,11 @@ def forecast_ecl_births(
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
             elif instruction.opcode in (
                 OPCODE_BULLET_SOUND,
+                OPCODE_ANIMATION_MAIN,
+                OPCODE_ANIMATION_SLOT,
                 OPCODE_EFFECT_SOUND,
                 OPCODE_EFFECT_PARTICLE,
+                OPCODE_ANIMATION_ROTATION,
             ):
                 pass
             else:
@@ -902,5 +931,6 @@ def forecast_ecl_births(
             ecl_floats=tuple(floats),
             ecl_compare=compare_register,
             next_instruction=next_instruction,
+            ecl_stack=tuple(call_stack),
         ),
     )

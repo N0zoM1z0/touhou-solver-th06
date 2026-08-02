@@ -16,6 +16,7 @@ from .model import (
     Bullet,
     BulletPattern,
     EnemyBody,
+    EnemyEclContext,
     EnemySpawner,
     EclInstruction,
     Laser,
@@ -115,6 +116,9 @@ ENEMY_ARRAY_OFFSET = 0xED0
 ENEMY_COUNT = 256
 ENEMY_STRIDE = 0xEC8
 ENEMY_ECL_CONTEXT_OFFSET = 0x990
+ENEMY_ECL_CONTEXT_SIZE = 0x4C
+ENEMY_ECL_STACK_CAPACITY = 8
+ENEMY_ECL_STACK_DEPTH_OFFSET = 0xC3C
 ENEMY_POSITION_OFFSET = 0xC6C
 ENEMY_HITBOX_OFFSET = 0xC78
 ENEMY_AXIS_SPEED_OFFSET = 0xC84
@@ -898,29 +902,62 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
                     bullet_half_height,
                 )
 
+        def decode_ecl_context(offset: int) -> EnemyEclContext:
+            instruction_address = struct.unpack_from(
+                "<I", enemy_pool, offset
+            )[0]
+            subframe = struct.unpack_from("<f", enemy_pool, offset + 0x08)[0]
+            current_time = struct.unpack_from("<i", enemy_pool, offset + 0x0C)[0]
+            repeat_function = struct.unpack_from(
+                "<I", enemy_pool, offset + 0x10
+            )[0]
+            integers = (
+                *struct.unpack_from("<iiii", enemy_pool, offset + 0x14),
+                *struct.unpack_from("<iiii", enemy_pool, offset + 0x34),
+            )
+            floats = struct.unpack_from("<ffff", enemy_pool, offset + 0x24)
+            compare = struct.unpack_from("<i", enemy_pool, offset + 0x44)[0]
+            if (
+                not math.isfinite(subframe)
+                or not 0.0 <= subframe < 1.0
+                or not all(math.isfinite(value) for value in floats)
+            ):
+                raise RuntimeError(f"invalid ECL context at enemy slot {index}")
+            repeat_index = (
+                ex_index_by_address.get(repeat_function, -1)
+                if repeat_function
+                else None
+            )
+            return EnemyEclContext(
+                instruction_address,
+                current_time,
+                current_time + subframe,
+                tuple(integers),
+                tuple(floats),
+                compare,
+                repeat_index,
+            )
+
         context = base + ENEMY_ECL_CONTEXT_OFFSET
-        current_instruction_address = struct.unpack_from(
-            "<I", enemy_pool, context
+        current_context = decode_ecl_context(context)
+        stack_depth = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_ECL_STACK_DEPTH_OFFSET
         )[0]
-        ecl_subframe = struct.unpack_from("<f", enemy_pool, context + 0x08)[0]
-        ecl_time = struct.unpack_from("<i", enemy_pool, context + 0x0C)[0]
-        repeat_function = struct.unpack_from("<I", enemy_pool, context + 0x10)[0]
-        ecl_ints = (
-            *struct.unpack_from("<iiii", enemy_pool, context + 0x14),
-            *struct.unpack_from("<iiii", enemy_pool, context + 0x34),
+        if not 0 <= stack_depth <= ENEMY_ECL_STACK_CAPACITY:
+            raise RuntimeError(f"invalid ECL stack depth at enemy slot {index}")
+        ecl_stack = tuple(
+            decode_ecl_context(
+                context + ENEMY_ECL_CONTEXT_SIZE * (stack_index + 1)
+            )
+            for stack_index in range(stack_depth)
         )
-        ecl_floats = struct.unpack_from("<ffff", enemy_pool, context + 0x24)
-        ecl_compare = struct.unpack_from("<i", enemy_pool, context + 0x44)[0]
-        if (
-            not math.isfinite(ecl_subframe)
-            or not 0.0 <= ecl_subframe < 1.0
-            or not all(math.isfinite(value) for value in ecl_floats)
-        ):
-            raise RuntimeError(f"invalid ECL context at enemy slot {index}")
-        if repeat_function:
-            repeat_ex_index = ex_index_by_address.get(repeat_function, -1)
-        else:
-            repeat_ex_index = None
+        current_instruction_address = current_context.instruction_address
+        ecl_time = current_context.time
+        ecl_subframe = current_context.time_float - current_context.time
+        ecl_ints = current_context.ints
+        ecl_floats = current_context.floats
+        ecl_compare = current_context.compare
+        repeat_ex_index = current_context.repeat_ex_index
         next_instruction = None
         ecl_program = ()
         if current_instruction_address:
@@ -930,6 +967,18 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             ecl_program = _read_ecl_program(
                 process, current_instruction_address
             )
+        program_by_address = {
+            instruction.address: instruction for instruction in ecl_program
+        }
+        for saved_context in ecl_stack:
+            if saved_context.instruction_address:
+                for instruction in _read_ecl_program(
+                    process, saved_context.instruction_address
+                ):
+                    program_by_address.setdefault(
+                        instruction.address, instruction
+                    )
+        ecl_program = tuple(program_by_address.values())
 
         spawners.append(EnemySpawner(
             index,
@@ -956,6 +1005,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             repeat_ex_index,
             next_instruction,
             ecl_program,
+            ecl_stack,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

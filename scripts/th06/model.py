@@ -153,6 +153,17 @@ class EclInstruction:
 
 
 @dataclass(frozen=True)
+class EnemyEclContext:
+    instruction_address: int
+    time: int
+    time_float: float
+    ints: tuple[int, int, int, int, int, int, int, int]
+    floats: tuple[float, float, float, float]
+    compare: int
+    repeat_ex_index: int | None
+
+
+@dataclass(frozen=True)
 class EnemySpawner:
     """An occupied enemy's observable periodic and ECL emission state."""
 
@@ -197,6 +208,7 @@ class EnemySpawner:
     repeat_ex_index: int | None
     next_instruction: EclInstruction | None
     ecl_program: tuple[EclInstruction, ...]
+    ecl_stack: tuple[EnemyEclContext, ...] = ()
 
 
 @dataclass(frozen=True)

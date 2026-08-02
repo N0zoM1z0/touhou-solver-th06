@@ -14,7 +14,13 @@ from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
 from th06.hazards.world import forecast_world_births
 from th06.birth_parity import compare_periodic_births
-from th06.model import BulletPattern, EnemySpawner, EclInstruction, Snapshot
+from th06.model import (
+    BulletPattern,
+    EnemyEclContext,
+    EnemySpawner,
+    EclInstruction,
+    Snapshot,
+)
 from th06.safety import certify_actions
 
 
@@ -440,6 +446,92 @@ class EclBirthTests(unittest.TestCase):
         )
         self.assertEqual(forecast.covered_frames, 4)
         self.assertEqual(forecast.births, ((), (), (), ()))
+
+    def test_source_animation_opcodes_are_hazard_neutral(self):
+        animation_slot = self.instruction(
+            0x1000,
+            0,
+            99,
+            struct.pack("<ii", 4, 66),
+            0x14,
+        )
+        animation_rotation = self.instruction(
+            0x1014,
+            0,
+            120,
+            struct.pack("<i", 0),
+            0x10,
+        )
+        animation_main = self.instruction(
+            0x1024,
+            0,
+            97,
+            struct.pack("<i", 66),
+            0x10,
+        )
+        sentinel = EclInstruction(
+            0x1034, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=animation_slot,
+            ecl_program=(
+                animation_slot,
+                animation_rotation,
+                animation_main,
+                sentinel,
+            ),
+        )
+        forecast = forecast_world_births(
+            snapshot(10, spawners=(emitter,)),
+            ((100.0, 400.0),) * 4,
+        )
+        self.assertEqual(forecast.covered_frames, 4)
+        self.assertEqual(forecast.births, ((), (), (), ()))
+
+    def test_return_restores_the_captured_source_context(self):
+        returned_bullet = self.instruction(
+            0x1000,
+            5,
+            68,
+            struct.pack(
+                "<hhii ffff I", 0, 0, 1, 1, 4.0, 2.0, 0.0, 0.0, 4
+            ),
+            0x30,
+        )
+        sentinel = EclInstruction(
+            0x1030, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        return_instruction = self.instruction(0x2000, 0, 36, b"", 0x0C)
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            ecl_time=0,
+            ecl_time_float=0.0,
+            next_instruction=return_instruction,
+            ecl_program=(return_instruction, returned_bullet, sentinel),
+            ecl_stack=(EnemyEclContext(
+                0x1000,
+                5,
+                5.0,
+                (0, 0, 0, 0, 0, 0, 0, 0),
+                (0.0, 0.0, 0.0, 0.0),
+                0,
+                None,
+            ),),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+        self.assertEqual(forecast.covered_frames, 1)
+        self.assertEqual(len(forecast.births[0]), 1)
+        self.assertEqual(forecast.births[0][0].speed, 3.5)
 
     def test_hard_world_carries_player_angle_as_position_uncertainty(self):
         set_angle = self.instruction(
