@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..model import Bullet, EnemySpawner, Snapshot
+from .births import UnsupportedBirthModel
 from .bullets import hazard_box, radial_hazard_box
 from .ecl import forecast_ecl_births
 from .rng import RngState
@@ -63,17 +64,25 @@ def forecast_world_births(
         next_emitters: list[EnemySpawner] = []
         stop_reason = ""
         for emitter in emitters:
-            forecast = forecast_ecl_births(
-                emitter,
-                (player,),
-                snapshot.difficulty,
-                snapshot.rank,
-                snapshot.bullet_sizes,
-                snapshot.frame_multiplier,
-                rng,
-                allow_player_variables=rng_mode == "nominal",
-                radial_births=radial,
-            )
+            try:
+                forecast = forecast_ecl_births(
+                    emitter,
+                    (player,),
+                    snapshot.difficulty,
+                    snapshot.rank,
+                    snapshot.bullet_sizes,
+                    snapshot.frame_multiplier,
+                    rng,
+                    allow_player_variables=rng_mode == "nominal",
+                    radial_births=radial,
+                )
+            except UnsupportedBirthModel as error:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, radial),
+                    frame_index,
+                    f"emitter {emitter.slot}: {error}",
+                )
             if forecast.covered_frames < 1:
                 return WorldBirthForecast(
                     tuple(tuple(frame) for frame in births),

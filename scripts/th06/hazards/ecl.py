@@ -27,6 +27,11 @@ OPCODE_SET_INT_RANDOM = 6
 OPCODE_SET_INT_RANDOM_MIN = 7
 OPCODE_SET_FLOAT_RANDOM = 8
 OPCODE_SET_FLOAT_RANDOM_MIN = 9
+OPCODE_MATH_INT_ADD = 13
+OPCODE_MATH_INT_SUBTRACT = 14
+OPCODE_MATH_INT_MULTIPLY = 15
+OPCODE_MATH_INT_DIVIDE = 16
+OPCODE_MATH_INT_MODULO = 17
 OPCODE_MATH_INCREMENT = 18
 OPCODE_MATH_DECREMENT = 19
 OPCODE_MATH_FLOAT_ADD = 20
@@ -52,6 +57,7 @@ OPCODE_SHOOT_NOW = 80
 OPCODE_SHOOT_OFFSET = 81
 OPCODE_BULLET_EFFECTS = 82
 OPCODE_BULLET_SOUND = 84
+OPCODE_EFFECT_SOUND = 106
 
 
 @dataclass(frozen=True)
@@ -116,7 +122,9 @@ def _float_var(
         return player[1]
     if value == -10021:
         if player is None:
-            raise UnsupportedBirthModel("ECL reads future player angle")
+            # Hard radial birth envelopes deliberately erase angle. NaN is a
+            # taint value: only a bullet-angle consumer may absorb it.
+            return math.nan
         return math.atan2(player[1] - enemy[1], player[0] - enemy[0])
     if value == -10023:
         if player is None:
@@ -157,6 +165,7 @@ def _resolved_pattern(
     enemy: tuple[float, float],
     player: tuple[float, float] | None,
     bullet_sizes: tuple[tuple[float, float], ...],
+    radial_births: bool,
 ) -> BulletPattern:
     raw = bytes.fromhex(instruction.raw_hex)
     sprite = struct.unpack_from("<h", raw, 0x0C)[0]
@@ -186,17 +195,25 @@ def _resolved_pattern(
     speed1 = _float_var(
         raw[0x18:0x1C], integers, floats, difficulty, rank, life, enemy, player
     )
+    speed2_value = _float_var(
+        raw[0x1C:0x20], integers, floats, difficulty, rank, life, enemy, player
+    )
+    if not math.isfinite(speed1) or not math.isfinite(speed2_value):
+        raise UnsupportedBirthModel("future player dependency reaches bullet speed")
     if speed1 != 0.0:
         speed1 = max(0.3, speed1 + speed_rank)
-    speed2 = max(0.3, _float_var(
-        raw[0x1C:0x20], integers, floats, difficulty, rank, life, enemy, player
-    ) + speed_rank / 2.0)
-    angle1 = math.remainder(_float_var(
+    speed2 = max(0.3, speed2_value + speed_rank / 2.0)
+    angle1 = _float_var(
         raw[0x20:0x24], integers, floats, difficulty, rank, life, enemy, player
-    ), math.tau)
+    )
     angle2 = _float_var(
         raw[0x24:0x28], integers, floats, difficulty, rank, life, enemy, player
     )
+    if not math.isfinite(angle1) or not math.isfinite(angle2):
+        if not radial_births:
+            raise UnsupportedBirthModel("future player dependency reaches bullet angle")
+        angle1 = angle2 = 0.0
+    angle1 = math.remainder(angle1, math.tau)
     flags = struct.unpack_from("<I", raw, 0x28)[0]
     return BulletPattern(
         sprite,
@@ -381,6 +398,34 @@ def forecast_ecl_births(
                             tuple(map(tuple, births)), frame_index, "unsupported random-float target"
                         )
             elif instruction.opcode in (
+                OPCODE_MATH_INT_ADD,
+                OPCODE_MATH_INT_SUBTRACT,
+                OPCODE_MATH_INT_MULTIPLY,
+                OPCODE_MATH_INT_DIVIDE,
+                OPCODE_MATH_INT_MODULO,
+            ):
+                target, lhs_raw, rhs_raw = struct.unpack_from("<iii", raw, 0x0C)
+                lhs = _int_var(lhs_raw, integers, difficulty, rank, spawner.life)
+                rhs = _int_var(rhs_raw, integers, difficulty, rank, spawner.life)
+                if instruction.opcode == OPCODE_MATH_INT_ADD:
+                    value = lhs + rhs
+                elif instruction.opcode == OPCODE_MATH_INT_SUBTRACT:
+                    value = lhs - rhs
+                elif instruction.opcode == OPCODE_MATH_INT_MULTIPLY:
+                    value = lhs * rhs
+                elif rhs == 0:
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "ECL integer division by zero"
+                    )
+                elif instruction.opcode == OPCODE_MATH_INT_DIVIDE:
+                    value = _trunc_div(lhs, rhs)
+                else:
+                    value = lhs - _trunc_div(lhs, rhs) * rhs
+                if not _set_int_var(target, value, integers):
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, "unsupported integer-math target"
+                    )
+            elif instruction.opcode in (
                 OPCODE_MATH_INCREMENT,
                 OPCODE_MATH_DECREMENT,
             ):
@@ -421,6 +466,12 @@ def forecast_ecl_births(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         spawner.life, enemy, variable_player,
                     )
+                    if not math.isfinite(lhs) or not math.isfinite(rhs):
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "future player dependency reaches ECL comparison",
+                        )
                 compare_register = 0 if lhs == rhs else -1 if lhs < rhs else 1
             elif OPCODE_JUMP_LESS <= instruction.opcode <= OPCODE_JUMP_NOT_EQUAL:
                 take_jump = (
@@ -511,6 +562,21 @@ def forecast_ecl_births(
                         spawner.life, enemy, variable_player,
                     )
                     movement_mode = 1
+                if not all(math.isfinite(value) for value in (
+                    enemy_x,
+                    enemy_y,
+                    velocity_x,
+                    velocity_y,
+                    angle,
+                    angular_velocity,
+                    speed,
+                    acceleration,
+                )):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "future player dependency reaches emitter motion",
+                    )
             elif OPCODE_BULLET_FIRST <= instruction.opcode <= OPCODE_BULLET_LAST:
                 try:
                     pattern = _resolved_pattern(
@@ -525,6 +591,7 @@ def forecast_ecl_births(
                         enemy,
                         variable_player,
                         bullet_sizes,
+                        radial_births,
                     )
                     if not shooting_disabled:
                         births[frame_index].extend(emit(
@@ -570,7 +637,7 @@ def forecast_ecl_births(
                     ))
                 except UnsupportedBirthModel as error:
                     return EclForecast(tuple(map(tuple, births)), frame_index, str(error))
-            elif instruction.opcode == OPCODE_BULLET_SOUND:
+            elif instruction.opcode in (OPCODE_BULLET_SOUND, OPCODE_EFFECT_SOUND):
                 pass
             else:
                 return EclForecast(

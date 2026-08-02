@@ -375,6 +375,35 @@ class EclBirthTests(unittest.TestCase):
         )
         self.assertEqual(nominal.covered_frames, 1)
 
+    def test_hard_world_taint_rejects_player_angle_used_for_motion(self):
+        set_angle = self.instruction(
+            0x1000,
+            0,
+            5,
+            struct.pack("<if", -10005, -10021.0),
+            0x14,
+        )
+        move = self.instruction(
+            0x1014,
+            0,
+            45,
+            struct.pack("<fff", -10005.0, 1.0, 0.0),
+            0x18,
+        )
+        sentinel = EclInstruction(
+            0x102C, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=set_angle,
+            ecl_program=(set_angle, move, sentinel),
+        )
+        state = snapshot(10, spawners=(emitter,))
+        hard = forecast_world_births(state, ((100.0, 400.0),))
+        self.assertEqual(hard.covered_frames, 0)
+        self.assertIn("emitter motion", hard.reason)
+
     def test_world_retains_accelerating_emitter_motion_between_frames(self):
         sentinel = EclInstruction(
             0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex()
