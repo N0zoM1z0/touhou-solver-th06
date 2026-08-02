@@ -20,7 +20,7 @@ from ..model import (
     EclInstruction,
 )
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
-from .enemies import advance_position, finish_motion
+from .enemies import finish_motion_values
 from .rng import RngState
 
 
@@ -286,6 +286,14 @@ def _maximum_magnitude(value: float | FloatInterval) -> float:
     if isinstance(value, FloatInterval):
         return max(abs(value.low), abs(value.high))
     return abs(value)
+
+
+def _copy_spawner(spawner: EnemySpawner, **changes) -> EnemySpawner:
+    """Clone forecast state without reflecting over the large dataclass."""
+    clone = object.__new__(EnemySpawner)
+    clone.__dict__.update(spawner.__dict__)
+    clone.__dict__.update(changes)
+    return clone
 
 
 def _trunc_div(numerator: int, denominator: int) -> int:
@@ -606,21 +614,9 @@ def forecast_ecl_births(
         if velocity_uncertainty > 0.0:
             position_uncertainty += velocity_uncertainty
         else:
-            positioned = advance_position(replace(
-                spawner,
-                x=enemy_x,
-                y=enemy_y,
-                velocity_x=velocity_x,
-                velocity_y=velocity_y,
-                angle=angle,
-                angular_velocity=angular_velocity,
-                speed=speed,
-                acceleration=acceleration,
-                movement_mode=movement_mode,
-                move_timer=move_timer,
-                move_timer_float=move_timer_float,
-            ))
-            enemy_x, enemy_y = clamp_position(positioned.x, positioned.y)
+            enemy_x += -velocity_x if spawner.invert_x else velocity_x
+            enemy_y += velocity_y
+            enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
         if (
             life_callback_threshold >= 0
             and life_lower_bound < life_callback_threshold
@@ -1317,7 +1313,7 @@ def forecast_ecl_births(
                 try:
                     pattern = _resolved_pattern(
                         instruction,
-                        replace(
+                        _copy_spawner(
                             spawner,
                             bullet_rank_speed_low=rank_speed_low,
                             bullet_rank_speed_high=rank_speed_high,
@@ -1491,26 +1487,25 @@ def forecast_ecl_births(
                 tuple(map(tuple, births)), frame_index, "ECL instruction budget exhausted"
             )
 
-        motion = finish_motion(replace(
-            spawner,
-            x=enemy_x,
-            y=enemy_y,
-            velocity_x=velocity_x,
-            velocity_y=velocity_y,
-            angle=angle,
-            angular_velocity=angular_velocity,
-            speed=speed,
-            acceleration=acceleration,
-            movement_mode=movement_mode,
-            movement_ease=movement_ease,
-            move_interp_x=move_interp_x,
-            move_interp_y=move_interp_y,
-            move_start_x=move_start_x,
-            move_start_y=move_start_y,
-            move_timer=move_timer,
-            move_timer_float=move_timer_float,
-            move_start_time=move_start_time,
-        ))
+        motion = finish_motion_values(
+            enemy_x,
+            enemy_y,
+            velocity_x,
+            velocity_y,
+            angle,
+            speed,
+            angular_velocity,
+            acceleration,
+            movement_mode,
+            movement_ease,
+            move_interp_x,
+            move_interp_y,
+            move_start_x,
+            move_start_y,
+            move_timer,
+            move_timer_float,
+            move_start_time,
+        )
         enemy_x, enemy_y = motion.x, motion.y
         enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
         velocity_x, velocity_y = motion.velocity_x, motion.velocity_y
@@ -1596,7 +1591,7 @@ def forecast_ecl_births(
     return EclForecast(
         tuple(map(tuple, births)),
         horizon,
-        next_spawner=replace(
+        next_spawner=_copy_spawner(
             spawner,
             x=enemy_x,
             y=enemy_y,

@@ -13,6 +13,10 @@ change merely to save time.
 - **Minimize physical counterexamples before keeping them.** The f1341 future
   frontier reduced from 356 bullets to 2 while preserving the exact h4/h8
   sets.  Smaller corpus cases make both regressions and model errors clearer.
+- **Keep decoded state scalar inside frame-by-entity loops.** The Stage 3
+  f2511 latency CE exposed reflective copies and proxy objects in ECL/enemy
+  projection.  Removing those allocations cut the saved f2500 cold decision
+  median from about 25.6 ms to 9.5 ms without changing safety or planning.
 
 ## Candidates to measure
 
