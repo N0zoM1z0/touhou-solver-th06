@@ -8,12 +8,14 @@ from th06.hazards.births import (
     periodic_births,
     periodic_hazards_by_frame,
     spawn_pattern,
+    spawn_pattern_envelope,
 )
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
 from th06.hazards.world import forecast_world_births
 from th06.birth_parity import compare_periodic_births
 from th06.model import BulletPattern, EnemySpawner, EclInstruction, Snapshot
+from th06.safety import certify_actions
 
 
 def pattern(**changes) -> BulletPattern:
@@ -185,6 +187,13 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertEqual(rng.generation_count, 2)
         self.assertEqual(rng.seed, 0xBFC7)
 
+        envelope = spawn_pattern_envelope(
+            pattern(aim_mode=8, count1=4, count2=2),
+            (0.0, 0.0),
+        )
+        self.assertEqual(len(envelope), 1)
+        self.assertEqual(envelope[0].speed, 4.0)
+
     def test_adjacent_snapshot_parity_uses_native_slots(self):
         sentinel = EclInstruction(0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex())
         shooter = spawner(
@@ -311,8 +320,8 @@ class EclBirthTests(unittest.TestCase):
         )
 
         hard = forecast_world_births(state, ((100.0, 400.0),))
-        self.assertEqual(hard.covered_frames, 0)
-        self.assertIn("emitter 2", hard.reason)
+        self.assertEqual(hard.covered_frames, 1)
+        self.assertEqual([bullet.x for bullet in hard.births[0]], [23.0, 93.0])
 
         nominal = forecast_world_births(
             state,
@@ -337,6 +346,34 @@ class EclBirthTests(unittest.TestCase):
         )[0]
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
+
+    def test_hard_world_still_fails_closed_on_ecl_rng_control(self):
+        random_float = self.instruction(
+            0x1000,
+            0,
+            8,
+            struct.pack("<if", -10005, 1.0),
+            0x14,
+        )
+        sentinel = EclInstruction(
+            0x1014, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=random_float,
+            ecl_program=(random_float, sentinel),
+        )
+        state = snapshot(10, spawners=(emitter,))
+        hard = forecast_world_births(state, ((100.0, 400.0),))
+        self.assertEqual(hard.covered_frames, 0)
+        self.assertIn("requires RNG state", hard.reason)
+        nominal = forecast_world_births(
+            state,
+            ((100.0, 400.0),),
+            rng_mode="nominal",
+        )
+        self.assertEqual(nominal.covered_frames, 1)
 
     def test_world_retains_accelerating_emitter_motion_between_frames(self):
         sentinel = EclInstruction(
@@ -371,6 +408,31 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 3)
         self.assertEqual([len(items) for items in forecast.births], [0, 0, 1])
         self.assertAlmostEqual(forecast.births[2][0].x, 6.0)
+
+    def test_hard_authority_rejects_a_source_defined_unborn_hazard(self):
+        sentinel = EclInstruction(
+            0x2000, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1, aim_mode=0),
+            x=100.0,
+            y=0.0,
+            velocity_x=0.0,
+            velocity_y=0.0,
+            shoot_offset_x=0.0,
+            shoot_offset_y=0.0,
+            interval=1,
+            timer=0,
+            timer_float=0.0,
+            next_instruction=sentinel,
+            ecl_program=(sentinel,),
+        )
+        state = snapshot(
+            10,
+            spawners=(emitter,),
+            bullet_sizes=((3.0, 3.0),),
+        )
+        self.assertEqual(certify_actions(state, 4), ())
 
 
 if __name__ == "__main__":

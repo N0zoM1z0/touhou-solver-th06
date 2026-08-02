@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..model import Bullet, EnemySpawner, Snapshot
-from .bullets import hazard_box
+from .bullets import hazard_box, radial_hazard_box
 from .ecl import forecast_ecl_births
 from .rng import RngState
 
@@ -21,6 +21,7 @@ class WorldBirthForecast:
 
 def _project_hazards(
     births: list[list[Bullet]],
+    radial: bool,
 ) -> tuple[tuple[tuple[float, float, float, float], ...], ...]:
     frames: list[list[tuple[float, float, float, float]]] = [
         [] for _ in births
@@ -29,7 +30,8 @@ def _project_hazards(
         for frame_index in range(birth_frame, len(frames)):
             age = frame_index - birth_frame + 1
             frames[frame_index].extend(
-                hazard_box(bullet, age) for bullet in bullets
+                (radial_hazard_box if radial else hazard_box)(bullet, age)
+                for bullet in bullets
             )
     return tuple(tuple(frame) for frame in frames)
 
@@ -55,6 +57,7 @@ def forecast_world_births(
         if rng_mode == "nominal"
         else None
     )
+    radial = rng_mode == "fail-closed"
 
     for frame_index, player in enumerate(player_positions):
         next_emitters: list[EnemySpawner] = []
@@ -68,11 +71,13 @@ def forecast_world_births(
                 snapshot.bullet_sizes,
                 snapshot.frame_multiplier,
                 rng,
+                allow_player_variables=rng_mode == "nominal",
+                radial_births=radial,
             )
             if forecast.covered_frames < 1:
                 return WorldBirthForecast(
                     tuple(tuple(frame) for frame in births),
-                    _project_hazards(births),
+                    _project_hazards(births, radial),
                     frame_index,
                     f"emitter {emitter.slot}: {forecast.reason}",
                 )
@@ -86,7 +91,7 @@ def forecast_world_births(
         if stop_reason:
             return WorldBirthForecast(
                 tuple(tuple(frame) for frame in births),
-                _project_hazards(births),
+                _project_hazards(births, radial),
                 frame_index + 1,
                 stop_reason,
             )
@@ -94,6 +99,6 @@ def forecast_world_births(
 
     return WorldBirthForecast(
         tuple(tuple(frame) for frame in births),
-        _project_hazards(births),
+        _project_hazards(births, radial),
         len(player_positions),
     )

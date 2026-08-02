@@ -149,6 +149,36 @@ def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
     )
 
 
+def radial_hazard_box(
+    bullet: Bullet,
+    frame: int,
+) -> tuple[float, float, float, float]:
+    """Enclose a newborn bullet without assuming its future aim angle."""
+    base_speed = max(
+        math.hypot(bullet.vx, bullet.vy),
+        abs(bullet.speed),
+        abs(bullet.turn_speed),
+    )
+    acceleration = max(
+        abs(bullet.acceleration),
+        math.hypot(bullet.acceleration_x, bullet.acceleration_y),
+        abs(bullet.curve_speed_acceleration),
+    )
+    reach = base_speed * frame + acceleration * frame * (frame + 1) / 2.0
+    if bullet.ex_flags & (DYNAMIC_EX_FLAGS & ~(
+        ACCELERATION_FLAG | CURVE_ACCELERATION_FLAG | DIRECTION_ROTATION_FLAG
+    )):
+        # Source-visible extended modes may turn, home, or bounce. The existing
+        # hard model bounds those modes by five extra pixels per update.
+        reach += 5.0 * frame
+    return (
+        bullet.x - bullet.half_width - reach,
+        bullet.y - bullet.half_height - reach,
+        bullet.x + bullet.half_width + reach,
+        bullet.y + bullet.half_height + reach,
+    )
+
+
 def hazards_by_frame(snapshot: Snapshot, horizon: int) -> list[tuple[tuple[float, float, float, float], ...]]:
     return [
         tuple(hazard_box(bullet, frame) for bullet in snapshot.bullets)

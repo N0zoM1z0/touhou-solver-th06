@@ -188,6 +188,21 @@ def spawn_pattern(
     return tuple(bullets)
 
 
+def spawn_pattern_envelope(
+    pattern: BulletPattern,
+    origin: tuple[float, float],
+) -> tuple[Bullet, ...]:
+    """Represent every possible aimed/random spawn by one radial hazard.
+
+    Counts and angles cannot enlarge the union once the origin, collision size,
+    extended flags, and maximum possible speed are fixed.
+    """
+    if pattern.count1 <= 0 or pattern.count2 <= 0:
+        raise ValueError("resolved bullet counts must be positive")
+    speed = max(abs(pattern.speed1), abs(pattern.speed2))
+    return (_spawned_bullet(pattern, origin[0], origin[1], 0.0, speed),)
+
+
 def periodic_births(
     spawner: EnemySpawner,
     player_positions: tuple[tuple[float, float], ...],
