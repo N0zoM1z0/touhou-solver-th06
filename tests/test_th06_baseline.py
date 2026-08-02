@@ -38,7 +38,11 @@ from th06.solver import (
 )
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
-from th06.input_lease import InputLease, bounded_delivery_age, covered_current_retry
+from th06.input_lease import (
+    InputLease,
+    bounded_delivery_age,
+    covered_current_retry,
+)
 from th06.agent import authority_unavailable
 from th06.menu import _select_unlocked_practice_stage
 from th06 import dialogue, menu, native
@@ -1301,9 +1305,9 @@ class BaselineTests(unittest.TestCase):
         kernel._prepared_hazards = None
         kernel._prepare = mock.Mock(return_value=prepared)
         kernel._certify_prepared = mock.Mock(side_effect=(
-            (hard, hard),
-            (held_effort, ()),
-            (hard, ()),
+            (hard, hard, ()),
+            (held_effort, (), ()),
+            (hard, (), ()),
         ))
 
         combined = kernel.certify_delivery_sets_with_selected(
@@ -1334,8 +1338,8 @@ class BaselineTests(unittest.TestCase):
         kernel._prepared_hazards = None
         kernel._prepare = mock.Mock(return_value=prepared)
         kernel._certify_prepared = mock.Mock(side_effect=(
-            (fast_hard, ()),
-            (fast_long, ()),
+            (fast_hard, (), ()),
+            (fast_long, (), ()),
         ))
 
         actual = kernel.certify_selected_pair(
@@ -1360,9 +1364,9 @@ class BaselineTests(unittest.TestCase):
         kernel._prepared_hazards = prepared
         kernel._prepare = mock.Mock()
         kernel._certify_prepared = mock.Mock(side_effect=(
-            ((), ()),
-            ((), ()),
-            ((SafeAction(held, 1.0, state.x, state.y),), ()),
+            ((), (), ()),
+            ((), (), ()),
+            ((SafeAction(held, 1.0, state.x, state.y),), (), ()),
         ))
 
         horizon = kernel.longest_selected_horizon(
@@ -2850,12 +2854,19 @@ class BaselineTests(unittest.TestCase):
         )
         self.assertEqual(chosen.action, right)
 
-        continued_state = Snapshot(**{**state.__dict__, "frame": state.frame + 1})
+        continued_state = Snapshot(**{
+            **state.__dict__,
+            "frame": state.frame + 1,
+            "input_mask": BUTTON_FOCUS | BUTTON_RIGHT,
+        })
         chosen = ranker.choose(continued_state, (right_candidate, down_candidate))
         self.assertEqual(chosen.action, right)
 
         expired_state = Snapshot(
-            **{**state.__dict__, "frame": state.frame + HARD_SAFETY_HORIZON}
+            **{
+                **continued_state.__dict__,
+                "frame": continued_state.frame + HARD_SAFETY_HORIZON,
+            }
         )
         chosen = ranker.choose(expired_state, (right_candidate, down_candidate))
         self.assertEqual(chosen.action, down)
@@ -2867,6 +2878,46 @@ class BaselineTests(unittest.TestCase):
             repairable_actions=frozenset((right,)),
         )
         chosen = veto_ranker.choose(continued_state, (down_candidate,))
+        self.assertEqual(chosen.action, down)
+
+    def test_selective_durable_proposal_holds_from_native_pickup(self):
+        ranker = ProposalRanker()
+        left = ACTION_BY_VECTOR[(-1, 0)]
+        down = ACTION_BY_VECTOR[(0, 1)]
+        left_candidate = SafeAction(left, 1.0, 190.0, 380.0)
+        down_candidate = SafeAction(down, 10.0, 192.0, 382.0)
+        state = snapshot()
+
+        chosen = ranker.choose(
+            state,
+            (left_candidate, down_candidate),
+            durable_actions=frozenset((left,)),
+            repair_span=HARD_SAFETY_HORIZON,
+        )
+        self.assertEqual(chosen.action, left)
+        self.assertIsNone(ranker.repair_started_frame)
+
+        picked_up = Snapshot(**{
+            **state.__dict__,
+            "frame": state.frame + 2,
+            "input_mask": BUTTON_FOCUS | BUTTON_LEFT,
+        })
+        chosen = ranker.choose(picked_up, (left_candidate, down_candidate))
+        self.assertEqual(chosen.action, left)
+        self.assertEqual(ranker.repair_started_frame, picked_up.frame)
+
+        before_expiry = Snapshot(**{
+            **picked_up.__dict__,
+            "frame": picked_up.frame + HARD_SAFETY_HORIZON - 1,
+        })
+        chosen = ranker.choose(before_expiry, (left_candidate, down_candidate))
+        self.assertEqual(chosen.action, left)
+
+        expired = Snapshot(**{
+            **picked_up.__dict__,
+            "frame": picked_up.frame + HARD_SAFETY_HORIZON,
+        })
+        chosen = ranker.choose(expired, (left_candidate, down_candidate))
         self.assertEqual(chosen.action, down)
 
     def test_adaptive_effort_cannot_remove_hard_allowed_actions(self):

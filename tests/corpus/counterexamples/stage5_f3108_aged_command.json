@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "runner": "delivery_publication",
+  "id": "stage5-f3108-aged-command-crossed-hard-bound",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 5,
+    "failure_frame": 3112
+  },
+  "summary": "The f3108 left decision was observed at age one, SendInput crossed to age two, and two-frame pickup sampled left at combined delay four.",
+  "contract": "An age-one changed movement may publish only with a selected delay-four proof; an unchanged current action may remain held.",
+  "input": {
+    "snapshot_frame": 3108,
+    "observed_frame": 3109,
+    "command_issue_frame": 3110,
+    "current_action": "down_left",
+    "proposed_action": "left",
+    "certified_max_delay": 3
+  },
+  "expect": {
+    "publish": false,
+    "required_max_delay": 4
+  }
+}

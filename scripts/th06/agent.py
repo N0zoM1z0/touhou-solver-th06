@@ -17,10 +17,12 @@ from .actuator import Keyboard
 from .dialogue import DialogueSkipper, DialogueState
 from .hazards.lasers import track_motion as track_laser_motion
 from .input_lease import (
-    INPUT_PICKUP_MAX_FRAMES,
+    BASE_CERTIFIED_DELIVERY_MAX_FRAMES,
     InputLease,
     bounded_delivery_age,
+    changed_action_delivery_supported,
     covered_current_retry,
+    required_changed_action_delivery_delay,
 )
 from .menu import start_hard_reimu_a, start_hard_reimu_a_practice
 from .model import Decision, PLAYER_ALIVE, PLAYER_DEAD, Snapshot, action_from_input
@@ -39,6 +41,23 @@ from .trial import PracticeTrial, physical_hit, stop_trial_now
 
 
 PASSIVE_NO_ACTION_REASONS = frozenset(("menu", "player-not-active", "time-stopped"))
+
+
+def _emitter_trace(snapshot: Snapshot) -> str:
+    """Compact mutable ECL state; immutable instructions are dumped once."""
+    fields = []
+    for emitter in snapshot.spawners:
+        instruction = emitter.next_instruction
+        fields.append(":".join((
+            str(emitter.slot),
+            f"0x{instruction.address:08X}" if instruction is not None else "none",
+            str(emitter.ecl_time),
+            str(emitter.interval),
+            str(emitter.timer),
+            str(emitter.repeat_ex_index),
+            "/".join(map(str, emitter.ecl_ints)),
+        )))
+    return "|".join(fields)
 
 
 def _prioritize_control_loop() -> None:
@@ -154,7 +173,7 @@ def run(args: argparse.Namespace) -> int:
             writer = csv.writer(output)
             writer.writerow((
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
-                "enemies", "despawning",
+                "enemies", "spawners", "emitter_state", "despawning",
                 "bullet_retries",
                 "replay", "native_input", "held_desired_input", "input_transitions",
                 "decision_age", "command_issue_age",
@@ -314,6 +333,7 @@ def run(args: argparse.Namespace) -> int:
                             delivery_age = bounded_delivery_age(
                                 snapshot.frame, observed_frame
                             )
+                            current_action = action_from_input(snapshot.input_mask)
                             if delivery_age is None:
                                 # Never issue an aged proposal. A separately
                                 # recorded constant-action certificate may keep
@@ -324,7 +344,7 @@ def run(args: argparse.Namespace) -> int:
                                     snapshot.frame,
                                     observed_frame,
                                     max(decision.horizon, decision.held_horizon),
-                                    action_from_input(snapshot.input_mask),
+                                    current_action,
                                     decision.safe_actions,
                                 ):
                                     stale_retry = True
@@ -340,14 +360,55 @@ def run(args: argparse.Namespace) -> int:
                                         decision.repairable_count,
                                         decision.held_horizon,
                                     )
-                            elif delivery_age == INPUT_PICKUP_MAX_FRAMES:
-                                # One frame of compute age plus the measured
-                                # two-frame native pickup is covered by hard
-                                # delivery delay 3.  At age 2, keep the current
-                                # input for this covered frame and retry fresh.
-                                stale_retry = True
-                            elif (
-                                decision.reason == "same-frame-delivery-only"
+                            else:
+                                certified_max_delay = (
+                                    BASE_CERTIFIED_DELIVERY_MAX_FRAMES
+                                )
+                                required_max_delay = (
+                                    required_changed_action_delivery_delay(
+                                        delivery_age
+                                    )
+                                )
+                                if (
+                                    decision.action != current_action
+                                    and decision.reason != "same-frame-delivery-only"
+                                    and required_max_delay > certified_max_delay
+                                    and required_max_delay <= HARD_SAFETY_HORIZON
+                                ):
+                                    # Normal Hard-4 authority covers combined
+                                    # solve age, the possible SendInput frame
+                                    # crossing, and native pickup. Prove only
+                                    # the selected changed action when the
+                                    # measured publication bound is longer.
+                                    if solver.selected_delivery_safe(
+                                        snapshot,
+                                        decision.action,
+                                        required_max_delay,
+                                    ):
+                                        certified_max_delay = required_max_delay
+                                    if (
+                                        certified_max_delay >= required_max_delay
+                                        and read_game_frame(process) - snapshot.frame
+                                        != delivery_age
+                                    ):
+                                        # The measured age changed during the
+                                        # extra proof, so its bound is obsolete.
+                                        certified_max_delay = (
+                                            BASE_CERTIFIED_DELIVERY_MAX_FRAMES
+                                        )
+                                if not changed_action_delivery_supported(
+                                    delivery_age,
+                                    current_action,
+                                    decision.action,
+                                    certified_max_delay,
+                                ):
+                                    # Retaining current input cannot publish an
+                                    # uncertified transition; retry from a fresh
+                                    # snapshot when the timing bound is too old.
+                                    stale_retry = True
+                            if (
+                                not stale_retry
+                                and decision.reason == "same-frame-delivery-only"
                                 and delivery_age != 0
                             ):
                                 # This fallback deliberately omits delay 3;
@@ -382,6 +443,8 @@ def run(args: argparse.Namespace) -> int:
                     f"{time.monotonic() - started:.3f}", snapshot.frame, snapshot.stage,
                     snapshot.player_state, f"{snapshot.x:.3f}", f"{snapshot.y:.3f}",
                     len(snapshot.bullets), snapshot.laser_count, len(snapshot.enemies),
+                    len(snapshot.spawners),
+                    _emitter_trace(snapshot),
                     len(snapshot.despawning_bullets), snapshot.bullet_read_retries,
                     int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
@@ -393,7 +456,8 @@ def run(args: argparse.Namespace) -> int:
                     decision.effort_horizon,
                     decision.effort_safe_count, decision.repairable_count,
                     f"{decision.clearance:.3f}",
-                    f"{solve_ms:.3f}", int(dialogue.active),
+                    f"{solve_ms:.3f}",
+                    int(dialogue.active),
                     int(dialogue.active and dialogue.skippable), int(dialogue.pulsed_shoot),
                     int(authority_stop), row_reason,
                 ))
@@ -402,6 +466,7 @@ def run(args: argparse.Namespace) -> int:
                     print(
                         f"f={snapshot.frame} stage={snapshot.stage} state={snapshot.player_state} "
                         f"bullets={len(snapshot.bullets)} enemies={len(snapshot.enemies)} "
+                        f"spawners={len(snapshot.spawners)} "
                         f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
                         f"repairable={decision.repairable_count} "
@@ -429,6 +494,10 @@ def run(args: argparse.Namespace) -> int:
                                 "input_lease": (
                                     asdict(leased_action) if leased_action is not None else None
                                 ),
+                                "ecl_instruction_cache": [
+                                    asdict(instruction)
+                                    for instruction in process.ecl_instruction_cache.values()
+                                ],
                             },
                             indent=2,
                             sort_keys=True,

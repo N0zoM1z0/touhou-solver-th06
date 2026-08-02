@@ -174,6 +174,38 @@ class Solver:
             )
         return certify_actions(snapshot, horizon, actions=actions)
 
+    def selected_delivery_safe(
+        self,
+        snapshot: Snapshot,
+        action: Action,
+        maximum_delay: int,
+    ) -> bool:
+        """Prove one selected action through a requested delivery bound."""
+        if maximum_delay <= DELIVERY_DELAYS[-1]:
+            return bool(self._certify_selected(
+                snapshot, HARD_SAFETY_HORIZON, (action,)
+            ))
+        if maximum_delay != DELIVERY_DELAYS[-1] + 1:
+            return False
+        native_method = (
+            getattr(type(self.kernel), "certify_selected_extended_delivery", None)
+            if self.kernel is not None
+            else None
+        )
+        if native_method is not None:
+            return bool(self.kernel.certify_selected_extended_delivery(
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                (action,),
+                collision_margin=0.35,
+            ))
+        return bool(certify_actions(
+            snapshot,
+            HARD_SAFETY_HORIZON,
+            delivery_delays=DELIVERY_DELAYS + (maximum_delay,),
+            actions=(action,),
+        ))
+
     def _certify_dense_subset(
         self,
         snapshot: Snapshot,
@@ -265,6 +297,45 @@ class Solver:
 
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
+
+    def _multisegment_durable(
+        self,
+        snapshot: Snapshot,
+        certified,
+        effort_horizon: int,
+    ) -> frozenset[Action]:
+        """Rank Hard-4 actions by general three-segment policy volume."""
+        planner = (
+            getattr(type(self.kernel), "nominal_policy_counts", None)
+            if self.kernel is not None
+            else None
+        )
+        policy_horizon = HARD_SAFETY_HORIZON * 3
+        if (
+            planner is None
+            or effort_horizon < policy_horizon
+            or len(certified) < 2
+        ):
+            return frozenset()
+        scores = planner(
+            self.kernel,
+            snapshot,
+            certified,
+            HARD_SAFETY_HORIZON,
+            policy_horizon,
+            collision_margin=0.35,
+        )
+        allowed = frozenset(candidate.action for candidate in certified)
+        best_score = max(
+            (score for action, score in scores.items() if action in allowed),
+            default=0,
+        )
+        if best_score <= 0:
+            return frozenset()
+        return frozenset(
+            action for action, score in scores.items()
+            if action in allowed and score == best_score
+        )
 
     def decide(self, snapshot: Snapshot, required_action: Action | None = None) -> Decision:
         if snapshot.in_menu:
@@ -635,6 +706,11 @@ class Solver:
         durable = frozenset(
             candidate.action
             for candidate in effort_certified
+        )
+        multisegment_durable = self._multisegment_durable(
+            snapshot,
+            certified,
+            effort_horizon,
         )
         if (
             extreme_dense_corner_replanning
@@ -1057,6 +1133,13 @@ class Solver:
                     preview.action, 0
                 ):
                     durable = frozenset((held_action,))
+        if multisegment_durable:
+            # This proposal is computed over three complete Hard-4 segments,
+            # including every physical delivery branch for the first one.
+            # It may rank a turn-capable path that no single constant action
+            # can represent, but it can never add to Hard-4 eligibility.
+            durable = multisegment_durable
+            repairable = frozenset()
         chosen = self.ranker.choose(
             snapshot,
             certified,

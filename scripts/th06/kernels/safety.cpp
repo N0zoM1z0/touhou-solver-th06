@@ -3,7 +3,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <unordered_map>
+#include <vector>
 
 #ifdef _WIN32
 #define TH06_EXPORT extern "C" __declspec(dllexport)
@@ -66,6 +68,7 @@ constexpr std::uint16_t kControlBits[5] = {
     0x20U, 0x04U, 0x40U, 0x80U, 0x10U,
 };
 constexpr std::int32_t kDelays[4] = {0, 1, 2, 3};
+constexpr std::int32_t kExtendedDelays[5] = {0, 1, 2, 3, 4};
 
 ControlAction actionFromInput(std::uint16_t mask) {
     ControlAction result{{0, 0}, (mask & 0x04U) != 0U};
@@ -372,7 +375,8 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     const LaserHazard* lasers,
     float collisionMargin,
     SafeResult* output,
-    SafeResult* ageZeroOutput
+    SafeResult* ageZeroOutput,
+    SafeResult* extendedOutput
 ) {
     if (
         horizon <= 0 || horizon > 64 || bulletOffsets == nullptr ||
@@ -386,15 +390,21 @@ TH06_EXPORT std::int32_t th06_certify_actions(
         if ((candidateMask & (1U << actionIndex)) == 0U) {
             output[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
             ageZeroOutput[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
+            if (extendedOutput != nullptr) {
+                extendedOutput[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
+            }
             continue;
         }
         SafeResult result{1, 999.0F, playerX, playerY};
         SafeResult ageZeroResult{0, 0.0F, playerX, playerY};
+        SafeResult hardResult{0, 0.0F, playerX, playerY};
         ControlAction transitions[5];
         const std::int32_t transitionCount = transitionActions(
             inputMask, kActionMasks[actionIndex], transitions
         );
-        for (const std::int32_t delay : kDelays) {
+        const std::int32_t delayCount = extendedOutput == nullptr ? 4 : 5;
+        for (std::int32_t delayIndex = 0; delayIndex < delayCount; ++delayIndex) {
+            const std::int32_t delay = kExtendedDelays[delayIndex];
             float normalFinalX = playerX;
             float normalFinalY = playerY;
             const std::int32_t branchCount = 1 + (delay > 0 ? transitionCount : 0);
@@ -446,12 +456,20 @@ TH06_EXPORT std::int32_t th06_certify_actions(
             }
             if (result.safe == 0) break;
             if (delay == kDelays[3]) {
+                hardResult = result;
+                hardResult.finalX = normalFinalX;
+                hardResult.finalY = normalFinalY;
+            }
+            if (delay == kExtendedDelays[4]) {
                 result.finalX = normalFinalX;
                 result.finalY = normalFinalY;
             }
         }
-        output[actionIndex] = result;
+        output[actionIndex] = hardResult;
         ageZeroOutput[actionIndex] = ageZeroResult;
+        if (extendedOutput != nullptr) {
+            extendedOutput[actionIndex] = result;
+        }
     }
     return 0;
 }
@@ -596,6 +614,235 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
             }
         }
         output[firstIndex] = worstBranchCount;
+    }
+    return 0;
+}
+
+// Proposal-only nominal policy volume. The first segment retains every
+// physical delivery branch. Later segments count safe MPC policies under
+// nominal pickup; actual execution is still re-certified by Hard-4.
+TH06_EXPORT std::int32_t th06_nominal_policy_counts(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    std::int32_t* output
+) {
+    if (
+        segmentLength <= 0 || horizon <= segmentLength || horizon > 64 ||
+        bulletOffsets == nullptr || laserOffsets == nullptr || output == nullptr
+    ) {
+        return -1;
+    }
+    std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
+    constexpr std::int32_t kCellSize = 32;
+    constexpr std::int32_t kGridWidth = 12;
+    constexpr std::int32_t kGridHeight = 14;
+    constexpr std::int32_t kGridCells = kGridWidth * kGridHeight;
+    std::array<std::array<std::vector<std::uint32_t>, kGridCells>, 64>
+        bulletGrid;
+    const auto clampCellX = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridWidth - 1);
+    };
+    const auto clampCellY = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridHeight - 1);
+    };
+    for (std::int32_t frame = 0; frame < horizon; ++frame) {
+        for (
+            std::uint32_t index = bulletOffsets[frame];
+            index < bulletOffsets[frame + 1];
+            ++index
+        ) {
+            const Aabb& hazard = bullets[index];
+            const std::int32_t left = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.left - playerHalfWidth - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t right = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.right + playerHalfWidth + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t top = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.top - playerHalfHeight - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t bottom = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.bottom + playerHalfHeight + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            for (std::int32_t cellY = top; cellY <= bottom; ++cellY) {
+                for (std::int32_t cellX = left; cellX <= right; ++cellX) {
+                    bulletGrid[frame][cellY * kGridWidth + cellX].push_back(index);
+                }
+            }
+        }
+    }
+    const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        auto& frameCache = safetyCache[frame];
+        const std::uint64_t key = positionKey(x, y);
+        const auto found = frameCache.find(key);
+        if (found != frameCache.end()) return found->second;
+        const std::int32_t cellX = clampCellX(static_cast<std::int32_t>(
+            std::floor(x / static_cast<float>(kCellSize))
+        ));
+        const std::int32_t cellY = clampCellY(static_cast<std::int32_t>(
+            std::floor(y / static_cast<float>(kCellSize))
+        ));
+        bool safe = true;
+        for (const std::uint32_t index : bulletGrid[frame][
+            cellY * kGridWidth + cellX
+        ]) {
+            if (withinMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                bullets[index],
+                collisionMargin
+            )) {
+                safe = false;
+                break;
+            }
+        }
+        if (safe) {
+            for (
+                std::uint32_t index = laserOffsets[frame];
+                index < laserOffsets[frame + 1];
+                ++index
+            ) {
+                if (withinLaserMargin(
+                    x,
+                    y,
+                    playerHalfWidth,
+                    playerHalfHeight,
+                    lasers[index],
+                    collisionMargin
+                )) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        frameCache.emplace(key, safe);
+        return safe;
+    };
+    std::array<std::unordered_map<std::uint64_t, std::int32_t>, 65>
+        viabilityCache;
+
+    std::function<std::int32_t(float, float, std::int32_t)> bestFrom;
+    bestFrom = [&](float startX, float startY,
+                   std::int32_t startFrame) -> std::int32_t {
+        if (startFrame >= horizon) return 1;
+        auto& memo = viabilityCache[startFrame];
+        const std::uint64_t key = positionKey(startX, startY);
+        const auto found = memo.find(key);
+        if (found != memo.end()) return found->second;
+
+        const std::int32_t endFrame = std::min(
+            horizon, startFrame + segmentLength
+        );
+        std::int32_t total = 0;
+        for (std::int32_t nextIndex = 0; nextIndex < kFocusedActionCount; ++nextIndex) {
+            float x = startX;
+            float y = startY;
+            bool survived = true;
+            for (
+                std::int32_t frame = startFrame + 1;
+                frame <= endFrame;
+                ++frame
+            ) {
+                stepPlayer(
+                    x,
+                    y,
+                    kActions[nextIndex],
+                    normalSpeed,
+                    focusSpeed,
+                    normalDiagonalSpeed,
+                    focusDiagonalSpeed
+                );
+                if (!spatialSafeAtFrame(x, y, frame - 1)) {
+                    survived = false;
+                    break;
+                }
+            }
+            if (survived) {
+                const std::int32_t branchCount = endFrame == horizon
+                    ? 1
+                    : bestFrom(x, y, endFrame);
+                total = branchCount > INT32_MAX - total
+                    ? INT32_MAX
+                    : total + branchCount;
+            }
+        }
+        memo.emplace(key, total);
+        return total;
+    };
+
+    const ControlAction current = actionFromInput(inputMask);
+    for (std::int32_t firstIndex = 0; firstIndex < kControlActionCount; ++firstIndex) {
+        output[firstIndex] = 0;
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+        ControlAction transitions[5];
+        const std::int32_t transitionCount = transitionActions(
+            inputMask, kActionMasks[firstIndex], transitions
+        );
+        std::int32_t worst = INT32_MAX;
+        for (const std::int32_t delay : kDelays) {
+            const std::int32_t branchCount = 1 + (
+                delay > 0 ? transitionCount : 0
+            );
+            for (std::int32_t branch = 0; branch < branchCount; ++branch) {
+                const ControlAction* transition = branch == 0
+                    ? nullptr
+                    : &transitions[branch - 1];
+                float x = playerX;
+                float y = playerY;
+                bool survived = true;
+                for (std::int32_t frame = 1; frame <= segmentLength; ++frame) {
+                    stepPlayer(
+                        x,
+                        y,
+                        scheduledAction(
+                            frame, delay, current, kActions[firstIndex], transition
+                        ),
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
+                    );
+                    if (!spatialSafeAtFrame(x, y, frame - 1)) {
+                        survived = false;
+                        break;
+                    }
+                }
+                const std::int32_t branchValue = survived
+                    ? bestFrom(x, y, segmentLength)
+                    : 0;
+                worst = std::min(worst, branchValue);
+            }
+        }
+        output[firstIndex] = worst == INT32_MAX ? 0 : worst;
     }
     return 0;
 }

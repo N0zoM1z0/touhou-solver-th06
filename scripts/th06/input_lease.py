@@ -17,6 +17,10 @@ from .model import (
 
 _CONTROL_MASK = BUTTON_FOCUS | BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT
 INPUT_PICKUP_MAX_FRAMES = 2
+SEND_INPUT_CROSSING_MAX_FRAMES = 1
+BASE_CERTIFIED_DELIVERY_MAX_FRAMES = (
+    INPUT_PICKUP_MAX_FRAMES + SEND_INPUT_CROSSING_MAX_FRAMES
+)
 
 
 def bounded_delivery_age(snapshot_frame: int, issue_frame: int) -> int | None:
@@ -25,6 +29,30 @@ def bounded_delivery_age(snapshot_frame: int, issue_frame: int) -> int | None:
     if 0 <= age <= INPUT_PICKUP_MAX_FRAMES:
         return age
     return None
+
+
+def changed_action_delivery_supported(
+    delivery_age: int,
+    current: Action,
+    proposed: Action,
+    certified_max_delay: int = BASE_CERTIFIED_DELIVERY_MAX_FRAMES,
+) -> bool:
+    """Whether publication is covered by the available pickup proof."""
+    return proposed == current or (
+        required_changed_action_delivery_delay(delivery_age)
+        <= certified_max_delay
+    )
+
+
+def required_changed_action_delivery_delay(delivery_age: int) -> int:
+    """Worst snapshot-relative pickup delay for a command sent at this age."""
+    if delivery_age < 0:
+        raise ValueError("delivery age cannot be negative")
+    return (
+        delivery_age
+        + SEND_INPUT_CROSSING_MAX_FRAMES
+        + INPUT_PICKUP_MAX_FRAMES
+    )
 
 
 def covered_current_retry(

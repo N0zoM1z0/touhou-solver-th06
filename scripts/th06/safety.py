@@ -8,6 +8,7 @@ from .hazards.geometry import signed_clearance
 from .hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
+from .hazards.world import forecast_world_births
 from .model import (
     ACTIONS,
     BUTTON_DOWN,
@@ -26,9 +27,9 @@ MOVEMENT_LEFT = 8.0
 MOVEMENT_RIGHT = 376.0
 MOVEMENT_TOP = 16.0
 MOVEMENT_BOTTOM = 432.0
-# Native pickup remains bounded to 0/1/2 frames after SendInput.  A command
-# computed for a snapshot one frame old is also permitted, so hard authority
-# must cover the combined 0..3-frame delivery window.
+# Native pickup remains bounded to 0/1/2 frames after SendInput. A new command
+# is published only from an age-zero snapshot, but SendInput may cross one game
+# frame, so hard authority covers the combined 0..3-frame delivery window.
 DELIVERY_DELAYS = (0, 1, 2, 3)
 COLLISION_MARGIN = 0.35
 _CONTROL_KEYS = (
@@ -150,6 +151,12 @@ def certify_actions(
     bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
     enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
+    birth_forecast = forecast_world_births(
+        snapshot,
+        ((snapshot.x, snapshot.y),) * horizon,
+    )
+    if birth_forecast.covered_frames < horizon:
+        return ()
     certified: list[SafeAction] = []
     for action in actions:
         action_clearance = 999.0
@@ -169,6 +176,24 @@ def certify_actions(
                         if clearance <= COLLISION_MARGIN:
                             valid = False
                             break
+                    if valid:
+                        for hazard in birth_forecast.hazards[frame_index]:
+                            clearance = signed_clearance(
+                                x, y, snapshot.half_width, snapshot.half_height, hazard
+                            )
+                            action_clearance = min(action_clearance, clearance)
+                            if clearance <= COLLISION_MARGIN:
+                                valid = False
+                                break
+                    if valid and birth_forecast.body_hazards:
+                        for hazard in birth_forecast.body_hazards[frame_index]:
+                            clearance = signed_clearance(
+                                x, y, snapshot.half_width, snapshot.half_height, hazard
+                            )
+                            action_clearance = min(action_clearance, clearance)
+                            if clearance <= COLLISION_MARGIN:
+                                valid = False
+                                break
                     if valid:
                         for hazard in enemy_frames[frame_index]:
                             clearance = signed_clearance(
