@@ -155,7 +155,6 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_ANIMATION_DEATH,
     OPCODE_BOSS_SET,
     OPCODE_SPELL_EFFECT,
-    OPCODE_DAMAGEABLE_FLAG,
     OPCODE_EFFECT_SOUND,
     OPCODE_DEATH_FLAG,
     OPCODE_DEATH_CALLBACK,
@@ -195,6 +194,7 @@ MODELLED_ECL_OPCODES = frozenset(
      *range(OPCODE_MATH_INT_ADD, OPCODE_MOVE_BOUNDS_DISABLE + 1),
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
+     OPCODE_DAMAGEABLE_FLAG,
      OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
      OPCODE_TIMER_CALLBACK_SUB, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
      OPCODE_EX_REPEAT, OPCODE_TIME_SET, OPCODE_CALL_STACK_DISABLED,
@@ -502,6 +502,9 @@ def forecast_ecl_births(
     hitbox_half_height = spawner.hitbox_half_height
     call_stack_disabled = spawner.call_stack_disabled
     life = spawner.life
+    life_lower_bound = spawner.life
+    damageable = spawner.damageable
+    is_boss = spawner.is_boss
     rank_speed_low = spawner.bullet_rank_speed_low
     rank_speed_high = spawner.bullet_rank_speed_high
     rank_amount1_low = spawner.bullet_rank_amount1_low
@@ -618,11 +621,14 @@ def forecast_ecl_births(
                 move_timer_float=move_timer_float,
             ))
             enemy_x, enemy_y = clamp_position(positioned.x, positioned.y)
-        if life_callback_threshold >= 0:
+        if (
+            life_callback_threshold >= 0
+            and life_lower_bound < life_callback_threshold
+        ):
             return EclForecast(
                 tuple(map(tuple, births)),
                 frame_index,
-                "active life callback needs player-shot damage bounds",
+                "player damage can reach an active life callback",
             )
         if (
             timer_callback_threshold >= 0
@@ -1024,6 +1030,8 @@ def forecast_ecl_births(
                     continue
             elif instruction.opcode == OPCODE_COLLIDABLE_FLAG:
                 collidable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_DAMAGEABLE_FLAG:
+                damageable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_INTERACTABLE_FLAG:
                 interactable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_INVISIBLE_FLAG:
@@ -1418,6 +1426,7 @@ def forecast_ecl_births(
                 rank_amount2_low = rank_amount2_high = 0
             elif instruction.opcode == OPCODE_LIFE_SET:
                 life = struct.unpack_from("<i", raw, 0x0C)[0]
+                life_lower_bound = life
             elif instruction.opcode == OPCODE_BOSS_TIMER_SET:
                 boss_timer = struct.unpack_from("<i", raw, 0x0C)[0]
                 boss_timer_subframe = 0.0
@@ -1563,6 +1572,14 @@ def forecast_ecl_births(
                     interval_timer_high = min(interval_timer_high, interval - 1)
                 interval_timer = interval_timer_low
                 interval_subframe = 0.0
+        if interactable:
+            # EnemyManager caps player-shot damage at 70 per update. A
+            # collidable non-boss can additionally lose 10 from kill-box
+            # contact. This lower bound decides only whether an asynchronous
+            # life callback is reachable; it never removes a hazard.
+            life_lower_bound -= (70 if damageable else 0) + (
+                10 if collidable and not is_boss else 0
+            )
         time_subframe += frame_multiplier
         while time_subframe >= 1.0:
             current_time += 1
@@ -1637,6 +1654,7 @@ def forecast_ecl_births(
             life_callback_sub=life_callback_sub,
             timer_callback_threshold=timer_callback_threshold,
             timer_callback_sub=timer_callback_sub,
+            damageable=damageable,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
     )

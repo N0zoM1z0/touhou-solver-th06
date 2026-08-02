@@ -1103,6 +1103,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             timer_callback_sub,
             bool(flags1 & 0x08),
             bool(flags2 & 0x10),
+            bool(flags1 & 0x10),
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

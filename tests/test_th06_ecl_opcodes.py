@@ -166,6 +166,36 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(forecast.next_spawner.timer_callback_sub, 16)
         self.assertEqual(forecast.next_spawner.boss_timer, 4)
 
+    def test_life_callback_uses_the_source_damage_cap(self):
+        sentinel = EclInstruction(0x1000, -1, 0, 0, 0, bytes(12).hex())
+        far = replace(
+            emitter(sentinel, sentinel),
+            life=13000,
+            life_callback_threshold=1300,
+            interactable=True,
+            damageable=True,
+            is_boss=True,
+        )
+        covered = forecast_ecl_births(
+            far,
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+        self.assertEqual(covered.covered_frames, 4)
+
+        near = replace(far, life=1350)
+        uncertain = forecast_ecl_births(
+            near,
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+        self.assertEqual(uncertain.covered_frames, 1)
+        self.assertIn("life callback", uncertain.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

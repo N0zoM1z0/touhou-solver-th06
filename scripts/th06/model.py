@@ -230,6 +230,7 @@ class EnemySpawner:
     timer_callback_sub: int = -1
     is_boss: bool = False
     timeout_spell: bool = False
+    damageable: bool = True
 
 
 @dataclass(frozen=True)
