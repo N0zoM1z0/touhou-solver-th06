@@ -2146,6 +2146,61 @@ class BaselineTests(unittest.TestCase):
             collision_margin=0.35,
         )
 
+    def test_solver_ranks_a_dense_narrow_corridor_at_boundary(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(338)
+        )
+        state = snapshot(
+            *bullets,
+            x=307.255,
+            y=392.586,
+            input_mask=BUTTON_FOCUS | 0x10 | 0x80,
+        )
+        state = Snapshot(**{
+            **state.__dict__,
+            "enemies": (enemy_body(x=192.0, y=128.0),),
+        })
+        all_hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        hard = tuple(
+            candidate for candidate in all_hard
+            if candidate.action.name in (
+                "stay", "down", "right", "up_right", "down_left", "down_right"
+            )
+        )
+        effort = tuple(
+            candidate for candidate in hard
+            if candidate.action.name in ("down", "right", "down_right")
+        )
+        down = ACTION_BY_VECTOR[(0, 1)]
+        right = ACTION_BY_VECTOR[(1, 0)]
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        kernel = mock.Mock()
+        kernel.certify_pair_with_age_zero.return_value = (
+            hard,
+            effort,
+            hard,
+        )
+        kernel.replanning_scores.return_value = {
+            down: 3,
+            right: 4,
+            down_right: 5,
+        }
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 8)
+        self.assertEqual(decision.action, down_right)
+        kernel.replanning_scores.assert_called_once_with(
+            state,
+            effort,
+            HARD_SAFETY_HORIZON,
+            8,
+            collision_margin=0.35,
+        )
+
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(
             x=21.314,

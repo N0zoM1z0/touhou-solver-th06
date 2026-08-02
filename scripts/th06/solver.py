@@ -640,6 +640,49 @@ class Solver:
                     action for action, score in corridor_scores.items()
                     if score == best_corridor_score
                 )
+        dense_boundary_corridor = (
+            not snapshot.lasers
+            and 220 <= len(snapshot.bullets) < 400
+            and len(snapshot.enemies) <= 1
+            and len(certified) < len(ACTIONS)
+            and 0 < len(durable) <= 3
+            and effort_horizon == 8
+            and any(
+                boundary_relief(snapshot, action, 20) != 0
+                for action in ACTIONS
+            )
+        )
+        if dense_boundary_corridor:
+            # Stage 5 f3200 had down/right/down-right at h8. Ordinary wall
+            # relief preferred the tangent right path, but the already
+            # prepared h8 hazards gave it four second-segment continuations
+            # versus five for down-right; the tangent path had no h20 survivor
+            # and reached an empty Hard-4 set at f3235. Reuse the bounded h8
+            # two-segment score only after both hard and durable sets narrow.
+            # The saved 338-bullet state measured 1.65 ms median and 3.19 ms
+            # max, versus 9.43/21.83 ms for an extra constant h20 scan.
+            corridor_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    effort_certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    effort_certified,
+                    HARD_SAFETY_HORIZON,
+                    effort_horizon,
+                )
+            )
+            best_corridor_score = max(corridor_scores.values(), default=0)
+            if best_corridor_score:
+                durable = frozenset(
+                    action for action, score in corridor_scores.items()
+                    if score == best_corridor_score
+                )
         repairable = frozenset()
         single_wall_trap = durable and all(
             heads_toward_single_wall(snapshot, action)
