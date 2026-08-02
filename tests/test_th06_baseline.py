@@ -24,7 +24,7 @@ from th06.model import (
 )
 from th06.ranking import ProposalRanker, boundary_relief
 from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
-from th06.hazards.bullets import hazard_box
+from th06.hazards.bullets import hazard_box, hazards_by_frame as bullet_hazards_by_frame
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
 from th06.kernels.safety import NativeSafetyKernel
@@ -535,6 +535,10 @@ class BaselineTests(unittest.TestCase):
         self.assertAlmostEqual(right, -3.0)
         self.assertAlmostEqual(top, 0.5)
         self.assertAlmostEqual(bottom, 2.5)
+        self.assertEqual(
+            bullet_hazards_by_frame(snapshot(bullet), 3)[-1][0],
+            (left, top, right, bottom),
+        )
 
     def test_timed_direction_rotation_uses_source_deceleration(self):
         bullet = Bullet(
@@ -561,6 +565,10 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual((left, right), (189.5, 194.5))
         self.assertGreater(top, 207.3)
         self.assertLess(bottom, 212.5)
+        self.assertEqual(
+            bullet_hazards_by_frame(snapshot(bullet), 4)[-1][0],
+            (left, top, right, bottom),
+        )
 
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)
@@ -704,6 +712,29 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(len(actual), 1)
         self.assertEqual(actual[0].action, expected[0].action)
         self.assertAlmostEqual(actual[0].final_x, expected[0].final_x, places=5)
+
+    def test_native_spatial_replanning_matches_reference_scores(self):
+        if os.name != "nt":
+            self.skipTest("native kernel is loaded only by Windows Python")
+        state = snapshot(
+            Bullet(31.5, 376.0, 0.0, 0.8, 2.0, 2.0, 1),
+            Bullet(64.5, 380.0, -1.0, 0.0, 4.0, 3.0, 1),
+            x=34.0,
+            y=380.0,
+            input_mask=BUTTON_FOCUS | BUTTON_LEFT,
+        )
+        candidates = certify_actions(state, HARD_SAFETY_HORIZON)
+
+        expected = replanning_scores(state, candidates, split=4, horizon=8)
+        actual = NativeSafetyKernel().replanning_scores(
+            state,
+            candidates,
+            split=4,
+            horizon=8,
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(actual, expected)
 
     def test_dense_scene_reduces_effort_without_changing_hard_authority(self):
         bullets = tuple(

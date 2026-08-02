@@ -321,40 +321,6 @@ std::uint64_t positionKey(float x, float y) {
     return (static_cast<std::uint64_t>(xBits) << 32U) | yBits;
 }
 
-bool cachedSafeAtFrame(
-    float x,
-    float y,
-    float playerHalfWidth,
-    float playerHalfHeight,
-    std::int32_t frameIndex,
-    const std::uint32_t* bulletOffsets,
-    const Aabb* bullets,
-    const std::uint32_t* laserOffsets,
-    const LaserHazard* lasers,
-    float collisionMargin,
-    std::array<std::unordered_map<std::uint64_t, bool>, 64>& cache
-) {
-    auto& frameCache = cache[frameIndex];
-    const std::uint64_t key = positionKey(x, y);
-    const auto found = frameCache.find(key);
-    if (found != frameCache.end()) return found->second;
-    const bool safe = safeAtFrame(
-        x,
-        y,
-        playerHalfWidth,
-        playerHalfHeight,
-        frameIndex,
-        bulletOffsets,
-        bullets,
-        laserOffsets,
-        lasers,
-        collisionMargin,
-        nullptr
-    );
-    frameCache.emplace(key, safe);
-    return safe;
-}
-
 }  // namespace
 
 TH06_EXPORT std::int32_t th06_certify_actions(
@@ -508,6 +474,105 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
     // frame so each dense hazard slice is scanned once without changing the
     // conservative branch set or its scores.
     std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
+    constexpr std::int32_t kCellSize = 32;
+    constexpr std::int32_t kGridWidth = 12;
+    constexpr std::int32_t kGridHeight = 14;
+    constexpr std::int32_t kGridCells = kGridWidth * kGridHeight;
+    std::array<std::array<std::vector<std::uint32_t>, kGridCells>, 64>
+        bulletGrid;
+    const auto clampCellX = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridWidth - 1);
+    };
+    const auto clampCellY = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridHeight - 1);
+    };
+    for (std::int32_t frame = split; frame < horizon; ++frame) {
+        for (
+            std::uint32_t index = bulletOffsets[frame];
+            index < bulletOffsets[frame + 1];
+            ++index
+        ) {
+            const Aabb& hazard = bullets[index];
+            const std::int32_t left = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.left - playerHalfWidth - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t right = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.right + playerHalfWidth + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t top = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.top - playerHalfHeight - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t bottom = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.bottom + playerHalfHeight + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            for (std::int32_t cellY = top; cellY <= bottom; ++cellY) {
+                for (std::int32_t cellX = left; cellX <= right; ++cellX) {
+                    bulletGrid[frame][cellY * kGridWidth + cellX].push_back(index);
+                }
+            }
+        }
+    }
+    const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        auto& frameCache = safetyCache[frame];
+        const std::uint64_t key = positionKey(x, y);
+        const auto found = frameCache.find(key);
+        if (found != frameCache.end()) return found->second;
+        const std::int32_t cellX = clampCellX(static_cast<std::int32_t>(
+            std::floor(x / static_cast<float>(kCellSize))
+        ));
+        const std::int32_t cellY = clampCellY(static_cast<std::int32_t>(
+            std::floor(y / static_cast<float>(kCellSize))
+        ));
+        bool safe = true;
+        for (const std::uint32_t index : bulletGrid[frame][
+            cellY * kGridWidth + cellX
+        ]) {
+            if (withinMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                bullets[index],
+                collisionMargin
+            )) {
+                safe = false;
+                break;
+            }
+        }
+        if (safe) {
+            for (
+                std::uint32_t index = laserOffsets[frame];
+                index < laserOffsets[frame + 1];
+                ++index
+            ) {
+                if (withinLaserMargin(
+                    x,
+                    y,
+                    playerHalfWidth,
+                    playerHalfHeight,
+                    lasers[index],
+                    collisionMargin
+                )) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        frameCache.emplace(key, safe);
+        return safe;
+    };
     for (std::int32_t firstIndex = 0; firstIndex < kControlActionCount; ++firstIndex) {
         output[firstIndex] = 0;
         if ((candidateMask & (1U << firstIndex)) == 0U) continue;
@@ -587,19 +652,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                                     normalDiagonalSpeed,
                                     focusDiagonalSpeed
                                 );
-                                if (!cachedSafeAtFrame(
-                                    x,
-                                    y,
-                                    playerHalfWidth,
-                                    playerHalfHeight,
-                                    frame - 1,
-                                    bulletOffsets,
-                                    bullets,
-                                    laserOffsets,
-                                    lasers,
-                                    collisionMargin,
-                                    safetyCache
-                                )) {
+                                if (!spatialSafeAtFrame(x, y, frame - 1)) {
                                     survived = false;
                                     break;
                                 }
@@ -611,7 +664,9 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                     continuationCount += static_cast<std::int32_t>(survived);
                 }
                 worstBranchCount = std::min(worstBranchCount, continuationCount);
+                if (worstBranchCount == 0) break;
             }
+            if (worstBranchCount == 0) break;
         }
         output[firstIndex] = worstBranchCount;
     }

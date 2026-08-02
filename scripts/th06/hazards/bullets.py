@@ -15,7 +15,10 @@ COMPLEX_MOTION_FLAGS = 0xDE1
 DIRECTION_ROTATION_FLAG = 0x40
 
 
-def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+def _direction_rotation_positions(
+    bullet: Bullet,
+    horizon: int,
+) -> list[tuple[float, float]]:
     """Reproduce the source's timed 0x40 decelerate-and-rotate update."""
     x, y = bullet.x, bullet.y
     vx, vy = bullet.vx, bullet.vy
@@ -25,7 +28,8 @@ def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, flo
     timer_float = bullet.timer_float
     direction_num_times = bullet.direction_num_times
     flags = bullet.ex_flags
-    for _ in range(frame):
+    result = []
+    for _ in range(horizon):
         if flags & DIRECTION_ROTATION_FLAG:
             if timer >= bullet.direction_interval * (direction_num_times + 1):
                 direction_num_times += 1
@@ -43,10 +47,18 @@ def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, flo
         y += vy
         timer += 1
         timer_float += 1.0
-    return x, y
+        result.append((x, y))
+    return result
 
 
-def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+def _direction_rotation_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+    return _direction_rotation_positions(bullet, frame)[-1]
+
+
+def _curve_acceleration_positions(
+    bullet: Bullet,
+    horizon: int,
+) -> list[tuple[float, float]]:
     """Reproduce source flag 0x20 angular and speed acceleration."""
     x, y = bullet.x, bullet.y
     vx, vy = bullet.vx, bullet.vy
@@ -54,7 +66,8 @@ def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, flo
     speed = bullet.speed
     timer = bullet.timer
     active = True
-    for _ in range(frame):
+    result = []
+    for _ in range(horizon):
         if active:
             if timer >= bullet.acceleration_duration:
                 active = False
@@ -66,7 +79,12 @@ def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, flo
         x += vx
         y += vy
         timer += 1
-    return x, y
+        result.append((x, y))
+    return result
+
+
+def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+    return _curve_acceleration_positions(bullet, frame)[-1]
 
 
 def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
@@ -180,10 +198,40 @@ def radial_hazard_box(
 
 
 def hazards_by_frame(snapshot: Snapshot, horizon: int) -> list[tuple[tuple[float, float, float, float], ...]]:
-    return [
-        tuple(hazard_box(bullet, frame) for bullet in snapshot.bullets)
-        for frame in range(1, horizon + 1)
+    frames: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in range(horizon)
     ]
+    for bullet in snapshot.bullets:
+        if (
+            bullet.state == 1
+            and bullet.ex_flags & DIRECTION_ROTATION_FLAG
+            and not bullet.ex_flags & (
+                COMPLEX_MOTION_FLAGS & ~DIRECTION_ROTATION_FLAG
+            )
+        ):
+            positions = _direction_rotation_positions(bullet, horizon)
+        elif (
+            bullet.state == 1
+            and bullet.ex_flags & CURVE_ACCELERATION_FLAG
+            and not bullet.ex_flags & (
+                COMPLEX_MOTION_FLAGS & ~CURVE_ACCELERATION_FLAG
+            )
+        ):
+            positions = _curve_acceleration_positions(bullet, horizon)
+        else:
+            positions = None
+        if positions is None:
+            for index in range(horizon):
+                frames[index].append(hazard_box(bullet, index + 1))
+            continue
+        for index, (x, y) in enumerate(positions):
+            frames[index].append((
+                x - bullet.half_width,
+                y - bullet.half_height,
+                x + bullet.half_width,
+                y + bullet.half_height,
+            ))
+    return [tuple(frame) for frame in frames]
 
 
 def nearest_current_clearance(snapshot: Snapshot) -> float:
