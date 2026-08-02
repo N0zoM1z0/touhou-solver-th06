@@ -7,6 +7,7 @@ from th06.model import (
     ACTION_BY_VECTOR,
     ACTIONS,
     BUTTON_BOMB,
+    BUTTON_DOWN,
     BUTTON_FOCUS,
     BUTTON_LEFT,
     BUTTON_SHOOT,
@@ -26,7 +27,14 @@ from th06.hazards.bullets import hazard_box
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
 from th06.kernels.safety import NativeSafetyKernel
-from th06.solver import HARD_SAFETY_HORIZON, Solver, adaptive_horizon
+from th06.solver import (
+    DENSE_CORNER_REPLAN_HORIZON,
+    DENSE_PREBOUNDARY_REPLAN_HORIZON,
+    DENSE_SINGLE_WALL_REPLAN_HORIZON,
+    HARD_SAFETY_HORIZON,
+    Solver,
+    adaptive_horizon,
+)
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
 from th06.input_lease import InputLease, bounded_delivery_age, covered_current_retry
@@ -804,6 +812,255 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.safe_actions, hard)
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
+
+    def test_extreme_dense_corner_ranks_a_bounded_two_segment_plan(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(448)
+            ),
+            x=45.3,
+            y=426.4,
+            input_mask=BUTTON_FOCUS | BUTTON_DOWN | BUTTON_LEFT,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        self.assertEqual(len(hard), len(ACTIONS))
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        winners = frozenset(
+            action for action in ACTIONS
+            if action.name in ("stay", "down", "left", "up_left", "down_left")
+        )
+
+        class CornerKernel:
+            def __init__(self):
+                self.selected_horizon = None
+                self.replanning_call = None
+
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.selected_horizon = selected_horizon
+                self.assertEqual(actual_state, state)
+                self.assertEqual(hard_horizon, HARD_SAFETY_HORIZON)
+                self.assertEqual(collision_margin, 0.35)
+                return hard, hard, ()
+
+            def replanning_scores(
+                self,
+                actual_state,
+                candidates,
+                split,
+                horizon,
+                collision_margin,
+            ):
+                self.replanning_call = (
+                    actual_state, candidates, split, horizon, collision_margin
+                )
+                return {
+                    action: 9 if action in winners else 8
+                    for action in ACTIONS
+                }
+
+            assertEqual = self.assertEqual
+
+        solver = Solver()
+        solver.kernel = CornerKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            solver.kernel.selected_horizon,
+            DENSE_CORNER_REPLAN_HORIZON,
+        )
+        self.assertIn(decision.action, winners)
+        self.assertNotEqual(decision.action, down_right)
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_safe_count, len(winners))
+        self.assertEqual(
+            solver.kernel.replanning_call,
+            (
+                state,
+                hard,
+                HARD_SAFETY_HORIZON,
+                DENSE_CORNER_REPLAN_HORIZON,
+                0.35,
+            ),
+        )
+
+    def test_extreme_density_compares_a_pending_preboundary_turn(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(639)
+            ),
+            x=186.7,
+            y=370.7,
+            input_mask=BUTTON_FOCUS | BUTTON_DOWN | BUTTON_LEFT,
+        )
+        raw_hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        current = action_from_input(state.input_mask)
+        down = ACTION_BY_VECTOR[(0, 1)]
+        hard = tuple(
+            SafeAction(
+                candidate.action,
+                (
+                    100.0 if candidate.action == down
+                    else 90.0 if candidate.action == current
+                    else 80.0
+                ),
+                candidate.final_x,
+                candidate.final_y,
+            )
+            for candidate in raw_hard
+        )
+        held_long = tuple(
+            candidate for candidate in hard if candidate.action == current
+        )
+
+        class PreboundaryKernel:
+            def __init__(self):
+                self.selected_horizon = None
+                self.comparison = None
+
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.assertEqual(actual_state, state)
+                self.assertEqual(hard_horizon, HARD_SAFETY_HORIZON)
+                self.assertEqual(actions, (current,))
+                self.assertEqual(collision_margin, 0.35)
+                self.selected_horizon = selected_horizon
+                return hard, hard, held_long
+
+            def replanning_scores(
+                self,
+                actual_state,
+                candidates,
+                split,
+                horizon,
+                collision_margin,
+            ):
+                self.comparison = (
+                    actual_state, candidates, split, horizon, collision_margin
+                )
+                return {current: 9, down: 7}
+
+            assertEqual = self.assertEqual
+
+        solver = Solver()
+        solver.kernel = PreboundaryKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            solver.kernel.selected_horizon,
+            DENSE_PREBOUNDARY_REPLAN_HORIZON,
+        )
+        self.assertEqual(decision.action, current)
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.held_horizon, DENSE_PREBOUNDARY_REPLAN_HORIZON)
+        self.assertEqual(
+            solver.kernel.comparison,
+            (
+                state,
+                tuple(
+                    candidate for candidate in hard
+                    if candidate.action in (current, down)
+                ),
+                HARD_SAFETY_HORIZON,
+                DENSE_PREBOUNDARY_REPLAN_HORIZON,
+                0.35,
+            ),
+        )
+
+    def test_extreme_density_ranks_a_single_wall_branch(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(639)
+            ),
+            x=319.1,
+            y=426.3,
+            input_mask=BUTTON_FOCUS | BUTTON_DOWN | BUTTON_LEFT,
+        )
+        hard = tuple(
+            candidate for candidate in certify_actions(state, HARD_SAFETY_HORIZON)
+            if candidate.action.name not in ("up_left", "up_right")
+        )
+        current = action_from_input(state.input_mask)
+        up = ACTION_BY_VECTOR[(0, -1)]
+
+        class SingleWallKernel:
+            def __init__(self):
+                self.selected_horizon = None
+                self.replanning_call = None
+
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.assertEqual(actual_state, state)
+                self.assertEqual(hard_horizon, HARD_SAFETY_HORIZON)
+                self.assertEqual(actions, (current,))
+                self.assertEqual(collision_margin, 0.35)
+                self.selected_horizon = selected_horizon
+                return hard, hard, ()
+
+            def replanning_scores(
+                self,
+                actual_state,
+                candidates,
+                split,
+                horizon,
+                collision_margin,
+            ):
+                self.replanning_call = (
+                    actual_state, candidates, split, horizon, collision_margin
+                )
+                return {
+                    candidate.action: 3 if candidate.action == up else 2
+                    for candidate in candidates
+                }
+
+            assertEqual = self.assertEqual
+
+        solver = Solver()
+        solver.kernel = SingleWallKernel()
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            solver.kernel.selected_horizon,
+            DENSE_SINGLE_WALL_REPLAN_HORIZON,
+        )
+        self.assertEqual(decision.action, up)
+        self.assertEqual(decision.safe_actions, hard)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(
+            solver.kernel.replanning_call,
+            (
+                state,
+                hard,
+                HARD_SAFETY_HORIZON,
+                DENSE_SINGLE_WALL_REPLAN_HORIZON,
+                0.35,
+            ),
+        )
 
     def test_high_density_retains_effort_when_a_broad_path_is_close(self):
         state = snapshot(*(

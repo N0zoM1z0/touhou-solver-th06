@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 
 from .hazards.lasers import unknown_motion_may_reach_player
@@ -28,6 +29,7 @@ from .ranking import (
     ProposalRanker,
     boundary_relief,
     heads_toward_single_wall,
+    near_single_wall,
     near_two_walls,
 )
 from .safety import DELIVERY_DELAYS, certify_actions, nearest_current_clearance
@@ -39,6 +41,9 @@ from .viability import replanning_scores
 # allocate ranking effort; they must not turn constant-action rollout into a
 # hard eligibility requirement.
 HARD_SAFETY_HORIZON = 4
+DENSE_CORNER_REPLAN_HORIZON = 12
+DENSE_PREBOUNDARY_REPLAN_HORIZON = 15
+DENSE_SINGLE_WALL_REPLAN_HORIZON = 8
 
 
 def needs_dense_corner_planning(snapshot: Snapshot) -> bool:
@@ -48,6 +53,43 @@ def needs_dense_corner_planning(snapshot: Snapshot) -> bool:
         and not snapshot.lasers
         and len(snapshot.enemies) <= 1
         and near_two_walls(snapshot, 20)
+    )
+
+
+def needs_extreme_dense_corner_replanning(snapshot: Snapshot) -> bool:
+    """Use a bounded branch proposal where a cheap held probe is too myopic."""
+    return (
+        len(snapshot.bullets) >= 400
+        and not snapshot.lasers
+        and len(snapshot.enemies) <= 1
+        and near_two_walls(snapshot, 20)
+    )
+
+
+def needs_dense_preboundary_replanning(snapshot: Snapshot) -> bool:
+    """Compare a pending turn before an extreme-density path reaches a wall."""
+    outer_warning = any(
+        boundary_relief(snapshot, action, 32) != 0
+        for action in ACTIONS
+    )
+    inner_warning = any(
+        boundary_relief(snapshot, action, 20) != 0
+        for action in ACTIONS
+    )
+    return (
+        len(snapshot.bullets) >= 600
+        and not snapshot.lasers
+        and outer_warning
+        and not inner_warning
+    )
+
+
+def needs_extreme_dense_single_wall_replanning(snapshot: Snapshot) -> bool:
+    """Rank short branches after an extreme-density path reaches one wall."""
+    return (
+        len(snapshot.bullets) >= 600
+        and not snapshot.lasers
+        and near_single_wall(snapshot)
     )
 
 
@@ -280,6 +322,13 @@ class Solver:
             )
         effort_horizon = adaptive_horizon(snapshot)
         dense_corner_planning = needs_dense_corner_planning(snapshot)
+        extreme_dense_corner_replanning = (
+            needs_extreme_dense_corner_replanning(snapshot)
+        )
+        dense_preboundary_replanning = needs_dense_preboundary_replanning(snapshot)
+        extreme_dense_single_wall_replanning = (
+            needs_extreme_dense_single_wall_replanning(snapshot)
+        )
         age_zero_certified = ()
         discouraged = frozenset()
         precomputed_current_effort = None
@@ -314,7 +363,28 @@ class Solver:
                     # corrective up-left decision two frames too late for
                     # publication. Probe only the already-held action one
                     # ranking frame farther; Hard-4 eligibility is unchanged.
-                    precomputed_current_horizon = effort_horizon + 1
+                    # Stage 5 f5848 was already inside a two-wall warning
+                    # region with every Hard-4 action open. The ordinary h7
+                    # held probe survived, but bounded h12 replanning scored
+                    # the chosen down-right path below five alternatives; the
+                    # route later had no h12 continuation. A separate f2557
+                    # pre-wall comparison needs h15 for only current versus a
+                    # pending replacement. Prepare the applicable horizon
+                    # first so each branch score reuses one hazard build.
+                    # The hard authority remains h4.
+                    precomputed_current_horizon = (
+                        DENSE_PREBOUNDARY_REPLAN_HORIZON
+                        if dense_preboundary_replanning
+                        else (
+                            DENSE_CORNER_REPLAN_HORIZON
+                            if extreme_dense_corner_replanning
+                            else (
+                                DENSE_SINGLE_WALL_REPLAN_HORIZON
+                                if extreme_dense_single_wall_replanning
+                                else effort_horizon + 1
+                            )
+                        )
+                    )
                     (
                         certified,
                         age_zero_certified,
@@ -566,6 +636,67 @@ class Solver:
             candidate.action
             for candidate in effort_certified
         )
+        if (
+            extreme_dense_corner_replanning
+            and len(certified) == len(ACTIONS)
+        ):
+            # At f5848 the dense publication path intentionally skipped a
+            # full constant-action effort scan for timing, but the cached h12
+            # hazards made a two-segment score cheap enough to distinguish
+            # the first dead-end choice. This is a soft proposal only: score
+            # zero cannot remove an action from the unchanged Hard-4 set.
+            corner_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    DENSE_CORNER_REPLAN_HORIZON,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    DENSE_CORNER_REPLAN_HORIZON,
+                )
+            )
+            best_corner_score = max(corner_scores.values(), default=0)
+            if best_corner_score:
+                durable = frozenset(
+                    action for action, score in corner_scores.items()
+                    if score == best_corner_score
+                )
+        if extreme_dense_single_wall_replanning:
+            # At f3111 the held down-left path and seven Hard-4 actions were
+            # open, but the dense fast path reused only held h7 and continued
+            # down-left. Full two-segment h8 already ranked up alone; one frame
+            # later the required transition had reversed the longer frontier.
+            # The same bounded score leaves f3108--f3110 unchanged and excludes
+            # a later up-right turn at f3119. Reuse the prepared h8 hazards;
+            # this remains proposal ranking over the unchanged hard set.
+            wall_scores = (
+                self.kernel.replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    DENSE_SINGLE_WALL_REPLAN_HORIZON,
+                    collision_margin=0.35,
+                )
+                if self.kernel is not None
+                else replanning_scores(
+                    snapshot,
+                    certified,
+                    HARD_SAFETY_HORIZON,
+                    DENSE_SINGLE_WALL_REPLAN_HORIZON,
+                )
+            )
+            best_wall_score = max(wall_scores.values(), default=0)
+            if best_wall_score:
+                durable = frozenset(
+                    action for action, score in wall_scores.items()
+                    if score == best_wall_score
+                )
         laser_survivors = frozenset()
         mixed_laser_ranked = bool(fast_laser_long)
         if fast_laser_long:
@@ -880,6 +1011,52 @@ class Solver:
                 # Continuity only: do not steer into a new laser-only route
                 # after the mixed proposal and its repair have both failed.
                 durable = frozenset((retained,))
+        if (
+            dense_preboundary_replanning
+            and len(certified) == len(ACTIONS)
+            and any(candidate.action == held_action for candidate in certified)
+        ):
+            # At Stage 5 f2557 all short actions and the held down-left path
+            # were open, so dense clearance proposed turning straight down.
+            # A two-segment h15 comparison scored held down-left 9 versus 7
+            # for that replacement; after the turn, the path narrowed to down
+            # and emptied at f2587. Compare only the current input and the
+            # pending replacement inside this bounded pre-wall annulus. This
+            # avoids the 47 ms all-action search and cannot add either action
+            # to Hard-4 authority. Leaving the annulus ends the preference.
+            preview = copy.copy(self.ranker).choose(
+                snapshot,
+                certified,
+                durable,
+                repairable,
+                repair_span=HARD_SAFETY_HORIZON,
+                discouraged_actions=discouraged,
+            )
+            if preview.action != held_action:
+                comparison_candidates = tuple(
+                    candidate for candidate in certified
+                    if candidate.action in (held_action, preview.action)
+                )
+                comparison_scores = (
+                    self.kernel.replanning_scores(
+                        snapshot,
+                        comparison_candidates,
+                        HARD_SAFETY_HORIZON,
+                        DENSE_PREBOUNDARY_REPLAN_HORIZON,
+                        collision_margin=0.35,
+                    )
+                    if self.kernel is not None
+                    else replanning_scores(
+                        snapshot,
+                        comparison_candidates,
+                        HARD_SAFETY_HORIZON,
+                        DENSE_PREBOUNDARY_REPLAN_HORIZON,
+                    )
+                )
+                if comparison_scores.get(held_action, 0) > comparison_scores.get(
+                    preview.action, 0
+                ):
+                    durable = frozenset((held_action,))
         chosen = self.ranker.choose(
             snapshot,
             certified,
