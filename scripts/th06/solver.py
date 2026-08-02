@@ -390,6 +390,17 @@ class Solver:
                 and precomputed_current_effort is not None
                 and not precomputed_current_effort
             )
+            retained_dense_single_wall_held = (
+                broad_authority
+                and len(snapshot.bullets) >= 400
+                and bool(precomputed_current_effort)
+                and not near_two_walls(snapshot, 20)
+                and boundary_relief(
+                    snapshot,
+                    action_from_input(snapshot.input_mask),
+                    20,
+                ) < 0
+            )
             if narrow_combined_authority:
                 # Stage 4 f2652 had down/down-left/down-right at Hard-4 but
                 # only the first two at h6; f2665 had stay/up/down at Hard-4
@@ -413,6 +424,7 @@ class Solver:
                 or broad_expiring_held
                 or (
                     broad_authority
+                    and not retained_dense_single_wall_held
                     and (
                         comfortable_authority
                         or (
@@ -438,7 +450,12 @@ class Solver:
                 # but took 29 ms, so publication aged two frames and the held
                 # path reached an empty set. The broad-expiring-held case above
                 # now publishes from Hard-4 immediately; sets of six or fewer
-                # retain this longer replacement search.
+                # retain this longer replacement search. Stage 5 f2569 exposed
+                # the converse: held down still passed h7 near the sole bottom
+                # wall, but the comfortable broad-set path discarded that
+                # evidence and switched to down-right, which became the later
+                # dead end at f2583. Retain an already-proved held proposal in
+                # that single-wall case; the expiring path still replaces it.
                 effort_certified = (
                     precomputed_current_effort
                     if precomputed_current_effort
