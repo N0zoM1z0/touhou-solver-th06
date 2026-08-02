@@ -800,14 +800,15 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         kernel.certify.assert_not_called()
 
-    def test_high_density_publishes_open_hard_authority_first(self):
+    def test_high_density_reuses_one_window_for_hard_and_future_sets(self):
         state = snapshot(*(
             Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
             for _ in range(350)
         ))
         hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        effort = hard[:-1]
         kernel = mock.Mock()
-        kernel.certify_delivery_sets.return_value = (hard, hard)
+        kernel.certify_pair_with_age_zero.return_value = (hard, effort, hard)
         solver = Solver()
         solver.kernel = kernel
 
@@ -815,7 +816,14 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(adaptive_horizon(state), 8)
         self.assertEqual(decision.safe_actions, hard)
-        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(decision.effort_horizon, 8)
+        kernel.certify_pair_with_age_zero.assert_called_once_with(
+            state,
+            HARD_SAFETY_HORIZON,
+            8,
+            collision_margin=0.35,
+        )
+        kernel.certify_delivery_sets.assert_not_called()
         kernel.certify.assert_not_called()
 
     def test_extreme_dense_corner_ranks_a_bounded_two_segment_plan(self):
@@ -1151,8 +1159,7 @@ class BaselineTests(unittest.TestCase):
         ) + hard[1:]
         effort = close[:-1]
         kernel = mock.Mock()
-        kernel.certify_delivery_sets.return_value = (close, close)
-        kernel.certify.return_value = effort
+        kernel.certify_pair_with_age_zero.return_value = (close, effort, close)
         solver = Solver()
         solver.kernel = kernel
 
@@ -1160,11 +1167,13 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(len(close), len(ACTIONS))
         self.assertEqual(decision.effort_horizon, 8)
-        kernel.certify.assert_called_once_with(
+        kernel.certify_pair_with_age_zero.assert_called_once_with(
             state,
+            HARD_SAFETY_HORIZON,
             8,
             collision_margin=0.35,
         )
+        kernel.certify.assert_not_called()
 
     def test_extreme_density_skips_effort_while_hard_authority_is_broad(self):
         state = snapshot(*(
@@ -2692,8 +2701,7 @@ class BaselineTests(unittest.TestCase):
         down_left = ACTION_BY_VECTOR[(-1, 1)]
         down_right = ACTION_BY_VECTOR[(1, 1)]
         kernel = mock.Mock()
-        kernel.certify_delivery_sets.return_value = (hard, hard)
-        kernel.certify.return_value = effort
+        kernel.certify_pair_with_age_zero.return_value = (hard, effort, hard)
         kernel.replanning_scores.return_value = {
             down: 7,
             left: 4,
@@ -2718,6 +2726,8 @@ class BaselineTests(unittest.TestCase):
             8,
             collision_margin=0.35,
         )
+        kernel.certify_delivery_sets.assert_not_called()
+        kernel.certify.assert_not_called()
 
     def test_ranker_turns_inward_before_delivery_reaches_a_corner(self):
         state = snapshot(

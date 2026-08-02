@@ -1,0 +1,112 @@
+{
+  "id": "stage3-f1341-future-frontier",
+  "runner": "future_frontier",
+  "contract": "A fully open Hard-4 set must not suppress the selected future window when moving bullets close the corridor within eight frames.",
+  "input": {
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [],
+      "bullets": [
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.2862316370010376,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 4,
+          "half_height": 2.5,
+          "half_width": 2.5,
+          "slot": 347,
+          "speed": 6.3987507820129395,
+          "state": 1,
+          "timer": 41,
+          "timer_float": 41.0,
+          "turn_speed": 0.0,
+          "vx": 1.796383261680603,
+          "vy": 6.14141845703125,
+          "x": 181.148681640625,
+          "y": 340.85321044921875
+        },
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.856160044670105,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 4,
+          "half_height": 2.5,
+          "half_width": 2.5,
+          "slot": 350,
+          "speed": 6.608750820159912,
+          "state": 1,
+          "timer": 39,
+          "timer_float": 39.0,
+          "turn_speed": 0.0,
+          "vx": -1.8604061603546143,
+          "vy": 6.341488361358643,
+          "x": 203.53717041015625,
+          "y": 337.6537170410156
+        }
+      ],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 1341,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 37,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 17,
+      "replay_or_demo": false,
+      "rng_generation": 3698,
+      "rng_seed": 32849,
+      "spawners": [],
+      "stage": 3,
+      "time_stopped": false,
+      "x": 191.85784912109375,
+      "y": 393.46575927734375
+    }
+  },
+  "expect": {
+    "actions_by_horizon": {
+      "4": [
+        "stay",
+        "up",
+        "down",
+        "left",
+        "right",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right"
+      ],
+      "8": [
+        "down",
+        "left",
+        "right",
+        "down_left",
+        "down_right"
+      ]
+    }
+  }
+}

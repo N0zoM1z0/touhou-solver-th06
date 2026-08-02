@@ -65,6 +65,8 @@ Stage 4 checkpoint, not proof of a route clear. See `README.md` for compact
 details and the module map.
 Use `notes/TH08_CE_GUIDE.md` only as a warning list when a matching TH06
 counterexample appears; do not recreate the TH08 architecture from it.
+See `OPTIMIZATION_STRATEGY.md` for the short list of measured optimizations and
+unconfirmed candidates.
 
 ## How to continue
 

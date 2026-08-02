@@ -405,7 +405,7 @@ class Solver:
         precomputed_current_effort = None
         precomputed_current_horizon = 0
         if (
-            len(snapshot.bullets) >= 350
+            len(snapshot.bullets) >= 400
             and effort_horizon > HARD_SAFETY_HORIZON
             and not dense_corner_planning
         ):
@@ -414,20 +414,18 @@ class Solver:
             # otherwise open decision beyond its delivery authority. First
             # establish the unchanged hard set; spend h6 only when that set is
             # already constrained, as it was at the f10137 dead-end branch.
-            # f4091 repeated the same timing failure at 392 bullets: Hard-4
-            # and h8 both contained all nine actions, while the redundant h8
-            # solve reached 45.1 ms. Start this publication path at 350, but
-            # below 400 retain h8 unless every hard path still has a full
-            # focused Hard-4 segment of clearance. f2760 had nine hard actions
-            # but only 2.33 px on its weakest path; h8 correctly rejected the
-            # up-right dead end that Hard-4 alone selected.
+            # Keep this bounded publication path for the >=400-bullet regime.
+            # Below it, the shared-hazard pair kernel computes Hard-4 and the
+            # adaptive future set together.  Stage 3 f1341 falsified using a
+            # comfortable Hard-4 clearance to skip that future set: all nine
+            # actions were open at h4, but only five survived h8.
             if self.kernel is not None:
                 combined_method = getattr(
                     type(self.kernel),
                     "certify_delivery_sets_with_selected",
                     None,
                 )
-                if len(snapshot.bullets) >= 400 and combined_method is not None:
+                if combined_method is not None:
                     current = action_from_input(snapshot.input_mask)
                     # Stage 4 f10171's held up-right path survived h6 but not
                     # h7. Waiting for the ordinary h6 probe to fail left the

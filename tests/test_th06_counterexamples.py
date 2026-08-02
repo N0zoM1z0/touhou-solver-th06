@@ -14,9 +14,26 @@ from th06.input_lease import (
 from th06.model import SafeAction, Snapshot
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
+from th06.safety import certify_actions
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_future_frontier_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "future_frontier"
+        )
+        self.assertTrue(cases, "future frontier corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                for horizon, expected in case["expect"]["actions_by_horizon"].items():
+                    actual = certify_actions(state, int(horizon))
+                    self.assertEqual(
+                        sorted(candidate.action.name for candidate in actual),
+                        sorted(expected),
+                    )
+
     def test_physical_ranking_sequences(self):
         cases = tuple(
             case for case in load_cases()
