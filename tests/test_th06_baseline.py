@@ -570,6 +570,33 @@ class BaselineTests(unittest.TestCase):
             (left, top, right, bottom),
         )
 
+    def test_bulk_bullet_projection_matches_single_frame_reference(self):
+        bullets = (
+            Bullet(20.0, 30.0, 1.0, -0.5, 2.0, 3.0, 1),
+            Bullet(40.0, 50.0, -2.0, 1.0, 2.0, 2.0, 2),
+            Bullet(
+                80.0, 90.0, 1.0, 2.0, 2.0, 2.0, 1,
+                ex_flags=0x10,
+                acceleration_x=0.25,
+                acceleration_y=-0.5,
+                acceleration_duration=4,
+            ),
+            Bullet(
+                120.0, 140.0, -1.0, 0.5, 3.0, 3.0, 1,
+                ex_flags=0x100,
+                speed=2.0,
+                turn_speed=3.0,
+                acceleration=0.1,
+            ),
+        )
+
+        actual = bullet_hazards_by_frame(snapshot(*bullets), 6)
+
+        self.assertEqual(actual, [
+            tuple(hazard_box(bullet, frame) for bullet in bullets)
+            for frame in range(1, 7)
+        ])
+
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)
         safe = certify_actions(snapshot(bullet), horizon=5)
@@ -813,6 +840,88 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in decision.safe_actions},
             {item.action for item in certify_actions(state, HARD_SAFETY_HORIZON)},
         )
+
+    def test_bounded_dense_boundary_scene_uses_multisegment_policy(self):
+        state = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(410)
+            ),
+            x=150.0,
+            y=405.0,
+            input_mask=BUTTON_FOCUS | BUTTON_DOWN | BUTTON_LEFT,
+        )
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        held = action_from_input(state.input_mask)
+        held_long = tuple(
+            candidate for candidate in hard if candidate.action == held
+        )
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+
+        class BoundaryPolicyKernel:
+            def certify_delivery_sets_with_selected(
+                self,
+                actual_state,
+                hard_horizon,
+                selected_horizon,
+                actions,
+                collision_margin,
+            ):
+                self.combined_call = (
+                    actual_state,
+                    hard_horizon,
+                    selected_horizon,
+                    actions,
+                    collision_margin,
+                )
+                return hard, hard, held_long
+
+            def nominal_policy_counts(
+                self,
+                actual_state,
+                candidates,
+                segment_length,
+                horizon,
+                collision_margin,
+            ):
+                self.policy_call = (
+                    actual_state,
+                    candidates,
+                    segment_length,
+                    horizon,
+                    collision_margin,
+                )
+                return {
+                    candidate.action: (
+                        9 if candidate.action == down_right else 1
+                    )
+                    for candidate in candidates
+                }
+
+        kernel = BoundaryPolicyKernel()
+        solver = Solver()
+        solver.kernel = kernel
+
+        decision = solver.decide(state)
+
+        self.assertEqual(adaptive_horizon(state), 12)
+        self.assertEqual(decision.action, down_right)
+        self.assertEqual(
+            {candidate.action for candidate in decision.safe_actions},
+            {candidate.action for candidate in hard},
+        )
+        self.assertEqual(kernel.combined_call[2], 13)
+        self.assertEqual(kernel.policy_call[2:4], (4, 12))
+
+        over_budget = snapshot(
+            *(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(417)
+            ),
+            x=150.0,
+            y=405.0,
+        )
+        self.assertEqual(adaptive_horizon(over_budget), 6)
 
     def test_extreme_density_skips_open_native_effort(self):
         state = snapshot(*(

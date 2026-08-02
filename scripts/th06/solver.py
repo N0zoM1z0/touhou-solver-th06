@@ -44,6 +44,8 @@ HARD_SAFETY_HORIZON = 4
 DENSE_CORNER_REPLAN_HORIZON = 12
 DENSE_PREBOUNDARY_REPLAN_HORIZON = 15
 DENSE_SINGLE_WALL_REPLAN_HORIZON = 8
+DENSE_BOUNDARY_POLICY_HORIZON = HARD_SAFETY_HORIZON * 3
+DENSE_BOUNDARY_AABB_BUDGET = 5000
 
 
 def needs_dense_corner_planning(snapshot: Snapshot) -> bool:
@@ -93,6 +95,22 @@ def needs_extreme_dense_single_wall_replanning(snapshot: Snapshot) -> bool:
     )
 
 
+def needs_dense_boundary_policy(snapshot: Snapshot) -> bool:
+    """Allow a full three-segment plan when its measured work stays bounded."""
+    projected_aabbs = (
+        len(snapshot.bullets) + len(snapshot.enemies)
+    ) * DENSE_BOUNDARY_POLICY_HORIZON
+    return (
+        len(snapshot.bullets) >= 400
+        and not snapshot.lasers
+        and projected_aabbs <= DENSE_BOUNDARY_AABB_BUDGET
+        and any(
+            boundary_relief(snapshot, action, 20) != 0
+            for action in ACTIONS
+        )
+    )
+
+
 def adaptive_horizon(snapshot: Snapshot) -> int:
     # Long proposal rollouts are useful only if their result can arrive in
     # time.  A physical Stage 3 CE measured a 38.5 ms 16-frame solve at 284
@@ -104,6 +122,13 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
     # Hard-4 alone was timely, but a later 623-bullet branch needed h6 to reject
     # a rightward dead end two frames earlier. Keep this bounded compromise;
     # decide() skips the extra effort when all hard actions remain available.
+    if needs_dense_boundary_policy(snapshot):
+        # Stage 3 f1361 showed that reducing every >=400-bullet proposal to
+        # six frames disables the general turn-capable planner exactly when a
+        # path reaches a wall.  The current-bullet projector and native
+        # broad-phase make a 12-frame policy bounded below this explicit AABB
+        # work budget.  This changes soft compute only; Hard-4 is unchanged.
+        return DENSE_BOUNDARY_POLICY_HORIZON
     if len(snapshot.bullets) >= 400:
         return 6
     if needs_dense_corner_planning(snapshot):
@@ -400,6 +425,7 @@ class Solver:
         extreme_dense_single_wall_replanning = (
             needs_extreme_dense_single_wall_replanning(snapshot)
         )
+        dense_boundary_policy = needs_dense_boundary_policy(snapshot)
         age_zero_certified = ()
         discouraged = frozenset()
         precomputed_current_effort = None
@@ -559,15 +585,18 @@ class Solver:
                     )
                 )
             elif (
-                len(certified) <= 3
-                or broad_expiring_held
-                or (
-                    broad_authority
-                    and (
-                        comfortable_authority
-                        or (
-                            len(snapshot.bullets) >= 400
-                            and precomputed_current_effort is None
+                not dense_boundary_policy
+                and (
+                    len(certified) <= 3
+                    or broad_expiring_held
+                    or (
+                        broad_authority
+                        and (
+                            comfortable_authority
+                            or (
+                                len(snapshot.bullets) >= 400
+                                and precomputed_current_effort is None
+                            )
                         )
                     )
                 )
@@ -959,7 +988,8 @@ class Solver:
         # in this one bounded case; if it is empty, the ordinary repair and
         # last-frontier fallbacks below still run.
         if (
-            durable
+            not multisegment_durable
+            and durable
             and len(certified) == len(ACTIONS)
             and len(snapshot.enemies) <= 1
             and effort_horizon >= 8
