@@ -100,6 +100,25 @@ class GuidanceKernel:
         }
 
 
+class ConstantFrontierKernel(GuidanceKernel):
+    def certify_selected(self, _state, horizon, actions, collision_margin):
+        allowed = frozenset(actions)
+        candidates = tuple(
+            item for item in self.hard if item.action in allowed
+        )
+        if horizon >= 8:
+            return tuple(
+                item for item in candidates if item.action.name == "right"
+            )
+        return candidates
+
+    def nominal_policy_counts(
+        self, _state, candidates, _segment_length, horizon, collision_margin
+    ):
+        self.calls.append(("policy", horizon))
+        self.clock.advance_ms(0.2)
+        return {item.action: 0 for item in candidates}
+
 class TerminalGuidanceTests(unittest.TestCase):
     def replay_target_case(self, case, kernel=None):
         values = case["input"]
@@ -316,6 +335,26 @@ class TerminalGuidanceTests(unittest.TestCase):
 
         self.assertNotIn("acquire", {call[0] for call in kernel.calls})
         self.assertIsNone(solver.guidance_target)
+
+    def test_unique_constant_frontier_can_anchor_a_target(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = ConstantFrontierKernel(clock, hard)
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 6
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action.name, "right")
+        self.assertEqual(solver.pending_target_action.name, "right")
+        self.assertEqual(solver.pending_target_horizon, 8)
 
 
 if __name__ == "__main__":

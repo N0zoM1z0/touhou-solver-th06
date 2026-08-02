@@ -896,14 +896,29 @@ class Solver:
             commitment_frames=HARD_SAFETY_HORIZON,
         )
         held = action_from_input(snapshot.input_mask)
+        target_source_horizon = max(
+            (
+                policy_horizon
+                if chosen.action in policy_preferred
+                else HARD_SAFETY_HORIZON
+            ),
+            (
+                frontier_horizon
+                if any(
+                    candidate.action == chosen.action
+                    for candidate in frontier
+                )
+                else HARD_SAFETY_HORIZON
+            ),
+        )
         if (
             self.guidance_target is None
-            and len(policy_preferred) == 1
-            and policy_horizon > HARD_SAFETY_HORIZON
+            and len(preferred) == 1
+            and target_source_horizon > HARD_SAFETY_HORIZON
             and chosen.action != held
         ):
             self.pending_target_action = chosen.action
-            self.pending_target_horizon = policy_horizon
+            self.pending_target_horizon = target_source_horizon
         held_horizon = (
             frontier_horizon
             if any(candidate.action == held for candidate in frontier)
