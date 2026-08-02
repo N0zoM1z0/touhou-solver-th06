@@ -1664,6 +1664,37 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen, durable)
 
+    def test_ranker_leaves_exact_wall_while_dense_hard_set_is_open(self):
+        far_bullet = Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+        state = snapshot(
+            *(far_bullet for _ in range(400)),
+            x=232.5,
+            y=432.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        clearances = (
+            27.8, 23.7, 28.2, 25.8, 27.9,
+            23.3, 23.1, 27.3, 28.5,
+        )
+        allowed = tuple(
+            SafeAction(
+                action,
+                clearance,
+                state.x + action.dx * state.focus_speed,
+                state.y + action.dy * state.focus_speed,
+            )
+            for action, clearance in zip(ACTIONS, clearances)
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            allowed,
+            durable_actions=frozenset(ACTIONS),
+        )
+
+        self.assertEqual(chosen.action, ACTION_BY_VECTOR[(0, -1)])
+        self.assertLess(chosen.final_y, state.y)
+
     def test_ranker_keeps_the_current_corridor_along_one_wall(self):
         state = snapshot(
             x=184.885,
