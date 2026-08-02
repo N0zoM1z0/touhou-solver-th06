@@ -1094,7 +1094,7 @@ class BaselineTests(unittest.TestCase):
 
         class CombinedKernel:
             def __init__(self):
-                self.full_calls = []
+                self.selected_calls = []
 
             def certify_delivery_sets_with_selected(
                 self,
@@ -1107,9 +1107,23 @@ class BaselineTests(unittest.TestCase):
                 self.collision_margin = collision_margin
                 return narrow, narrow, ()
 
-            def certify(self, actual_state, horizon, collision_margin):
-                self.full_calls.append((actual_state, horizon, collision_margin))
+            def certify_selected(
+                self,
+                actual_state,
+                horizon,
+                actions,
+                collision_margin,
+            ):
+                self.selected_calls.append((
+                    actual_state,
+                    horizon,
+                    actions,
+                    collision_margin,
+                ))
                 return longer
+
+            def certify(self, *_args, **_kwargs):
+                raise AssertionError("dense h6 must scan only hard candidates")
 
         kernel = CombinedKernel()
         solver = Solver()
@@ -1121,7 +1135,12 @@ class BaselineTests(unittest.TestCase):
             candidate.action for candidate in longer
         })
         self.assertNotEqual(decision.action, narrow[-1].action)
-        self.assertEqual(kernel.full_calls, [(state, 6, 0.35)])
+        self.assertEqual(kernel.selected_calls, [(
+            state,
+            6,
+            tuple(candidate.action for candidate in narrow),
+            0.35,
+        )])
         self.assertEqual(decision.effort_horizon, 6)
 
     def test_mixed_hazard_density_bounds_adaptive_effort(self):

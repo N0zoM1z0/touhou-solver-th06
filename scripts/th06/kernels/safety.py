@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from array import array
 from pathlib import Path
 
 from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
@@ -95,12 +96,20 @@ class NativeSafetyKernel:
     @staticmethod
     def _flatten(frames, value_type, convert):
         offsets = [0]
-        values = []
+        coordinates = array("f")
+        count = 0
         for frame in frames:
-            values.extend(convert(value) for value in frame)
-            offsets.append(len(values))
+            count += len(frame)
+            offsets.append(count)
+            for value in frame:
+                coordinates.extend(convert(value))
         offset_array = (ctypes.c_uint32 * len(offsets))(*offsets)
-        value_array = (value_type * max(1, len(values)))(*values)
+        value_array_type = value_type * max(1, count)
+        value_array = (
+            value_array_type.from_buffer_copy(coordinates)
+            if count
+            else value_array_type()
+        )
         return offset_array, value_array
 
     def _prepare(self, snapshot: Snapshot, horizon: int):
@@ -113,12 +122,12 @@ class NativeSafetyKernel:
         bullet_offsets, bullets = self._flatten(
             aabb_frames,
             _Aabb,
-            lambda value: _Aabb(*value),
+            lambda value: value,
         )
         laser_offsets, lasers = self._flatten(
             laser_hazards_by_frame(snapshot.lasers, horizon),
             _LaserHazard,
-            lambda value: _LaserHazard(
+            lambda value: (
                 value.origin_x,
                 value.origin_y,
                 value.angle,

@@ -96,6 +96,21 @@ class Solver:
             )
         return certify_actions(snapshot, horizon, actions=actions)
 
+    def _certify_dense_subset(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+    ):
+        native_method = (
+            getattr(type(self.kernel), "certify_selected", None)
+            if self.kernel is not None
+            else None
+        )
+        if native_method is not None:
+            return self._certify_selected(snapshot, horizon, actions)
+        return self._certify(snapshot, horizon)
+
     def _certify_selected_pair(
         self,
         snapshot: Snapshot,
@@ -339,7 +354,11 @@ class Solver:
                 effort_certified = (
                     precomputed_current_effort
                     if precomputed_current_effort
-                    else self._certify(snapshot, effort_horizon)
+                    else self._certify_dense_subset(
+                        snapshot,
+                        effort_horizon,
+                        tuple(candidate.action for candidate in certified),
+                    )
                 )
             elif (
                 len(certified) <= 3
@@ -368,7 +387,11 @@ class Solver:
                 effort_certified = (
                     precomputed_current_effort
                     if precomputed_current_effort
-                    else self._certify(snapshot, effort_horizon)
+                    else self._certify_dense_subset(
+                        snapshot,
+                        effort_horizon,
+                        tuple(candidate.action for candidate in certified),
+                    )
                 )
             else:
                 effort_certified = ()
