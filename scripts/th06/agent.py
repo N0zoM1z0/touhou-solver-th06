@@ -202,6 +202,15 @@ def run(args: argparse.Namespace) -> int:
                     if replay_status == "active":
                         time.sleep(0.01)
                         continue
+                # A full coherent snapshot walks every active native pool.
+                # Poll the source stage-frame scalar first so an unchanged
+                # frame does not repeatedly decode identical world state.
+                if (
+                    last_frame is not None
+                    and read_game_frame(process) == last_frame
+                ):
+                    time.sleep(0.001)
+                    continue
                 try:
                     snapshot = read_snapshot(process)
                 except NativeDecodeError as error:
