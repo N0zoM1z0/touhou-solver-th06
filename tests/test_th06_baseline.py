@@ -1768,6 +1768,58 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(chosen.action, down_left)
 
+    def test_ranker_holds_open_exact_wall_egress_for_one_hard_segment(self):
+        far_bullet = Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+        state = snapshot(
+            *(far_bullet for _ in range(400)),
+            x=220.8,
+            y=432.0,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x40,
+        )
+        allowed = tuple(
+            SafeAction(
+                action,
+                20.0 if action.dy < 0 else 30.0,
+                state.x + action.dx * state.focus_speed,
+                min(432.0, state.y + action.dy * state.focus_speed),
+            )
+            for action in ACTIONS
+        )
+        ranker = ProposalRanker()
+
+        first = ranker.choose(
+            state,
+            allowed,
+            durable_actions=frozenset(ACTIONS),
+            repair_span=HARD_SAFETY_HORIZON,
+        )
+        continued_state = Snapshot(**{
+            **state.__dict__,
+            "frame": state.frame + 1,
+            "y": 430.0,
+            "input_mask": BUTTON_FOCUS | 0x10,
+        })
+        continued = ranker.choose(
+            continued_state,
+            allowed,
+            durable_actions=frozenset(ACTIONS),
+            repair_span=HARD_SAFETY_HORIZON,
+        )
+        down_left = ACTION_BY_VECTOR[(-1, 1)]
+        narrowed = ranker.choose(
+            Snapshot(**{
+                **continued_state.__dict__,
+                "frame": continued_state.frame + 1,
+            }),
+            allowed,
+            durable_actions=frozenset((down_left,)),
+            repair_span=HARD_SAFETY_HORIZON,
+        )
+
+        self.assertEqual(first.action.dy, -1)
+        self.assertEqual(continued.action, first.action)
+        self.assertEqual(narrowed.action, down_left)
+
     def test_ranker_keeps_the_current_corridor_along_one_wall(self):
         state = snapshot(
             x=184.885,

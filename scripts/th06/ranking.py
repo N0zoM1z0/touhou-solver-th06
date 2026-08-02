@@ -198,6 +198,7 @@ class ProposalRanker:
             )
 
         chosen = max(candidates, key=score)
+        started_boundary_egress = score(chosen)[0]
         # A Stage 1 physical CE selected the correct first repair segment, then
         # discarded it after one frame.  Preserve a selective repair proposal
         # for one hard horizon, while the freshly certified candidates retain
@@ -207,7 +208,16 @@ class ProposalRanker:
             and len(repairable_actions) < len(candidate_actions)
             and chosen.action in repairable_actions
         )
-        if selective_repair and continued_repair != chosen.action:
+        if started_boundary_egress and continued_repair != chosen.action:
+            # Stage 5 f2892 and f2930 correctly began leaving the exact bottom
+            # edge, then clearance reversed them after one decision and the
+            # same linear wave closed at f2946. Keep that egress proposal for
+            # one Hard-4 segment. Every following frame must still admit it,
+            # and a narrowed durable set ranks ahead of this continuation.
+            self.repair_action = chosen.action
+            self.repair_stage = snapshot.stage
+            self.repair_until_frame = snapshot.frame + max(1, repair_span)
+        elif selective_repair and continued_repair != chosen.action:
             self.repair_action = chosen.action
             self.repair_stage = snapshot.stage
             self.repair_until_frame = snapshot.frame + max(1, repair_span)
