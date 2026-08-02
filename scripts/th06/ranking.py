@@ -86,7 +86,9 @@ class ProposalRanker:
         self.previous_action: Action | None = None
         self.repair_action: Action | None = None
         self.repair_stage: int | None = None
+        self.repair_started_frame: int | None = None
         self.repair_until_frame: int | None = None
+        self.repair_hold_span = 0
 
     def observe(self, survived: bool) -> None:
         if self.previous_action is None:
@@ -110,16 +112,28 @@ class ProposalRanker:
         current = action_from_input(snapshot.input_mask)
         continued_repair: Action | None = self.repair_action
         candidate_actions = frozenset(candidate.action for candidate in candidates)
-        if (
+        invalid_repair = (
             continued_repair not in candidate_actions
             or self.repair_stage != snapshot.stage
-            or self.repair_until_frame is None
-            or snapshot.frame >= self.repair_until_frame
+        )
+        if (
+            not invalid_repair
+            and self.repair_started_frame is None
+            and current == continued_repair
         ):
+            self.repair_started_frame = snapshot.frame
+            self.repair_until_frame = snapshot.frame + self.repair_hold_span
+        expired_repair = (
+            self.repair_until_frame is not None
+            and snapshot.frame >= self.repair_until_frame
+        )
+        if invalid_repair or expired_repair:
             continued_repair = None
             self.repair_action = None
             self.repair_stage = None
+            self.repair_started_frame = None
             self.repair_until_frame = None
+            self.repair_hold_span = 0
 
         current_boundary_room = _boundary_room(snapshot.x, snapshot.y)
         best_clearance = max(candidate.clearance for candidate in candidates)
@@ -217,7 +231,15 @@ class ProposalRanker:
             and len(repairable_actions) < len(candidate_actions)
             and chosen.action in repairable_actions
         )
-        if started_boundary_egress and continued_repair != chosen.action:
+        selective_durable = (
+            bool(durable_actions)
+            and len(durable_actions) < len(candidate_actions)
+            and chosen.action in durable_actions
+        )
+        if (
+            (started_boundary_egress or selective_repair or selective_durable)
+            and continued_repair != chosen.action
+        ):
             # Stage 5 f2892 and f2930 correctly began leaving the exact bottom
             # edge, then clearance reversed them after one decision and the
             # same linear wave closed at f2946. Keep that egress proposal for
@@ -225,14 +247,20 @@ class ProposalRanker:
             # and a narrowed durable set ranks ahead of this continuation.
             self.repair_action = chosen.action
             self.repair_stage = snapshot.stage
-            self.repair_until_frame = snapshot.frame + max(1, repair_span)
-        elif selective_repair and continued_repair != chosen.action:
-            self.repair_action = chosen.action
-            self.repair_stage = snapshot.stage
-            self.repair_until_frame = snapshot.frame + max(1, repair_span)
+            self.repair_hold_span = max(1, repair_span)
+            self.repair_started_frame = (
+                snapshot.frame if current == chosen.action else None
+            )
+            self.repair_until_frame = (
+                snapshot.frame + self.repair_hold_span
+                if self.repair_started_frame is not None
+                else None
+            )
         elif continued_repair is not None and chosen.action != continued_repair:
             self.repair_action = None
             self.repair_stage = None
+            self.repair_started_frame = None
             self.repair_until_frame = None
+            self.repair_hold_span = 0
         self.previous_action = chosen.action
         return chosen

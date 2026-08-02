@@ -1,0 +1,57 @@
+{
+  "id": "stage3-f1309-soft-segment-chatter",
+  "runner": "ranking_sequence",
+  "source": "Hard Practice Stage 3 physical authority stop at f1309",
+  "input": {
+    "repair_span": 4,
+    "steps": [
+      {
+        "frame": 1284,
+        "x": 212.38479614257812,
+        "y": 391.4485778808594,
+        "input_mask": 85,
+        "durable_actions": ["left", "up_left", "down_left"],
+        "candidates": [
+          ["stay", 2.946948, 208.142156, 387.205937],
+          ["down", 4.834205, 208.142156, 389.205937],
+          ["left", 5.684391, 206.142156, 387.205937],
+          ["right", 2.67126, 210.142156, 387.205937],
+          ["up_left", 4.470466, 206.727942, 385.791724],
+          ["up_right", 1.257047, 209.556369, 385.791724],
+          ["down_left", 6.197556, 206.727942, 388.620151],
+          ["down_right", 4.085474, 209.556369, 388.620151]
+        ],
+        "expect_action": "down_left"
+      },
+      {
+        "frame": 1286,
+        "x": 209.55636596679688,
+        "y": 391.4485778808594,
+        "input_mask": 101,
+        "durable_actions": ["left", "up_left", "down_left"],
+        "candidates": [
+          ["down", 3.79078, 205.313725, 397.691218],
+          ["left", 4.265617, 203.313725, 395.691218],
+          ["up_left", 3.521603, 203.899512, 394.277005],
+          ["down_left", 4.356846, 203.899512, 397.105432],
+          ["down_right", 2.565233, 206.727939, 397.105432]
+        ],
+        "expect_action": "down_left"
+      },
+      {
+        "frame": 1287,
+        "x": 208.14215087890625,
+        "y": 392.86279296875,
+        "input_mask": 101,
+        "durable_actions": ["left", "up_left", "down_left"],
+        "candidates": [
+          ["down", 0.417495, 203.89951, 399.105434],
+          ["left", 3.831709, 201.89951, 397.105434],
+          ["up_left", 3.245922, 202.485297, 395.69122],
+          ["down_left", 3.245922, 202.485297, 398.519647]
+        ],
+        "expect_action": "down_left"
+      }
+    ]
+  }
+}
