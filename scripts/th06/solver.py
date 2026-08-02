@@ -55,6 +55,24 @@ def adaptive_horizon(snapshot: Snapshot) -> int:
         return 6
     if len(snapshot.bullets) >= 220:
         return 8
+    if (
+        len(snapshot.bullets) >= 100
+        and not snapshot.lasers
+        and len(snapshot.enemies) <= 1
+        and any(
+            boundary_relief(snapshot, action, 20) != 0
+            for action in ACTIONS
+        )
+    ):
+        # Stage 4 f16163 entered the ranker's 20-frame bottom warning band,
+        # but its ordinary 12-frame proposal still treated a tangent right
+        # path as durable.  The source-grounded rollout rejected that path at
+        # h17 and selected the surviving down-left corridor at h20.  Align the
+        # effort window only in this bounded, non-laser boundary case; the
+        # unchanged Hard-4 set remains the sole action authority.  A cold
+        # native pair-20 pass on the saved 182-bullet state took about 10 ms
+        # median, versus 16--18 ms for the unnecessary h24 extension.
+        return 20
     if len(snapshot.bullets) >= 100:
         # Stage 4 f6425 spent 49.5 ms on a 16-frame repair with 119
         # bullets and six lasers, although four constant actions survived 12

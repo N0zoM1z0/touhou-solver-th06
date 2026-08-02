@@ -634,6 +634,17 @@ class BaselineTests(unittest.TestCase):
         near = snapshot(Bullet(192.0, 390.0, 0.0, 0.0, 2.0, 2.0, 1))
         self.assertGreater(adaptive_horizon(near), adaptive_horizon(far))
 
+    def test_adaptive_horizon_matches_boundary_warning_in_moderate_density(self):
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(180)
+        )
+        far = snapshot(*bullets, y=360.0)
+        near_bottom = snapshot(*bullets, y=393.0)
+
+        self.assertEqual(adaptive_horizon(far), 12)
+        self.assertEqual(adaptive_horizon(near_bottom), 20)
+
     def test_fast_action_uses_source_normal_movement_speed(self):
         state = snapshot(x=192.0, y=380.0)
         focused = certify_actions(
