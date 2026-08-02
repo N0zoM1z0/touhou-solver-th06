@@ -12,7 +12,17 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import Bullet, EnemyBody, Laser, PLAYER_ALIVE, PLAYER_INVULNERABLE, Snapshot
+from .model import (
+    Bullet,
+    BulletPattern,
+    EnemyBody,
+    EnemySpawner,
+    EclInstruction,
+    Laser,
+    PLAYER_ALIVE,
+    PLAYER_INVULNERABLE,
+    Snapshot,
+)
 
 
 TARGET_EXE = "th06.exe"
@@ -23,12 +33,15 @@ IMAGE_BASE = 0x400000
 ADDR_LIFE_PATCH = 0x428DEC
 ADDR_GAME_MANAGER = 0x69BCA0
 ADDR_CURRENT_INPUT = 0x69D904
+ADDR_RNG = 0x69D8F8
 ADDR_CHAIN = 0x69D918
 ADDR_SUPERVISOR = 0x6C6D18
 ADDR_PLAYER = 0x6CA628
 ADDR_FRAME_MULTIPLIER = 0x6C6EC0
 ADDR_ENEMY_MANAGER = 0x4B79C8
+ADDR_ECL_EX_TABLE = 0x476220
 ADDR_ENEMY_CALC_CHAIN = 0x5A5FB4
+ADDR_BULLET_MANAGER = 0x5A5FF8
 ADDR_BULLET_ARRAY = 0x5AB5F8
 ADDR_LASER_ARRAY = 0x691FF8
 ADDR_MAIN_MENU = 0x6D46C0
@@ -44,9 +57,11 @@ RESULT_SCREEN_ON_UPDATE = 0x42D98E
 RESULT_SCREEN_STATE_SIZE = 0x34
 
 GAME_TIME_STOPPED_OFFSET = 0x2C
+GAME_DIFFICULTY_OFFSET = 0x10
 GAME_FLAGS_OFFSET = 0x181F
 GAME_FRAMES_OFFSET = 0x1A30
 GAME_STAGE_OFFSET = 0x1A34
+GAME_RANK_OFFSET = 0x1A70
 PLAYER_POSITION_OFFSET = 0x440
 PLAYER_HITBOX_TOP_LEFT_OFFSET = 0x458
 PLAYER_HITBOX_BOTTOM_RIGHT_OFFSET = 0x464
@@ -55,6 +70,9 @@ PLAYER_SPEEDS_OFFSET = 0x9F4
 
 BULLET_COUNT = 640
 BULLET_STRIDE = 0x5C4
+BULLET_TEMPLATE_COUNT = 16
+BULLET_TEMPLATE_STRIDE = 0x560
+BULLET_TEMPLATE_SIZE_OFFSET = 0x550
 BULLET_SIZE_OFFSET = 0x550
 BULLET_POSITION_OFFSET = 0x560
 BULLET_VELOCITY_OFFSET = 0x56C
@@ -96,6 +114,7 @@ ENEMY_MANAGER_SIZE = 0xEE5EC
 ENEMY_ARRAY_OFFSET = 0xED0
 ENEMY_COUNT = 256
 ENEMY_STRIDE = 0xEC8
+ENEMY_ECL_CONTEXT_OFFSET = 0x990
 ENEMY_POSITION_OFFSET = 0xC6C
 ENEMY_HITBOX_OFFSET = 0xC78
 ENEMY_AXIS_SPEED_OFFSET = 0xC84
@@ -103,12 +122,26 @@ ENEMY_ANGLE_OFFSET = 0xC90
 ENEMY_ANGULAR_VELOCITY_OFFSET = 0xC94
 ENEMY_SPEED_OFFSET = 0xC98
 ENEMY_ACCELERATION_OFFSET = 0xC9C
+ENEMY_SHOOT_OFFSET = 0xCA0
 ENEMY_MOVE_INTERP_OFFSET = 0xCAC
 ENEMY_MOVE_START_OFFSET = 0xCB8
 ENEMY_MOVE_TIMER_SUBFRAME_OFFSET = 0xCC8
 ENEMY_MOVE_TIMER_OFFSET = 0xCCC
 ENEMY_MOVE_START_TIME_OFFSET = 0xCD0
+ENEMY_BULLET_RANK_SPEED_LOW_OFFSET = 0xCD4
+ENEMY_BULLET_RANK_SPEED_HIGH_OFFSET = 0xCD8
+ENEMY_BULLET_RANK_AMOUNT1_LOW_OFFSET = 0xCDC
+ENEMY_BULLET_RANK_AMOUNT1_HIGH_OFFSET = 0xCDE
+ENEMY_BULLET_RANK_AMOUNT2_LOW_OFFSET = 0xCE0
+ENEMY_BULLET_RANK_AMOUNT2_HIGH_OFFSET = 0xCE2
+ENEMY_LIFE_OFFSET = 0xCE4
+ENEMY_BULLET_PROPS_OFFSET = 0xD00
+ENEMY_SHOOT_INTERVAL_OFFSET = 0xD54
+ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET = 0xD5C
+ENEMY_SHOOT_TIMER_OFFSET = 0xD60
 ENEMY_FLAGS_OFFSET = 0xE50
+ECL_EX_COUNT = 17
+ECL_PROGRAM_INSTRUCTION_LIMIT = 96
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -251,6 +284,7 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         direction_max_times=direction_max_times,
         curve_speed_acceleration=accel_speed,
         curve_angular_velocity=curve_angular_velocity,
+        slot=slot,
     )
 
 
@@ -298,6 +332,8 @@ class NativeProcess:
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
         self.pid = pid
+        self.ecl_instruction_cache: dict[int, EclInstruction] = {}
+        self.ecl_cache_stage: int | None = None
 
     def close(self) -> None:
         if self.handle:
@@ -350,6 +386,56 @@ class NativeProcess:
         if self.read(ADDR_LIFE_PATCH, 1) != b"\x00":
             raise RuntimeError("life patch did not verify")
         return "patched-01-to-00"
+
+    def read_ecl_instruction(self, address: int) -> EclInstruction:
+        cached = self.ecl_instruction_cache.get(address)
+        if cached is not None:
+            return cached
+        if not 0x10000 <= address < 0x80000000:
+            raise RuntimeError(f"invalid ECL instruction pointer 0x{address:08X}")
+        header = self.read(address, 12)
+        instruction_time, opcode, offset_to_next = struct.unpack_from(
+            "<ihh", header
+        )
+        if instruction_time < 0:
+            raw = header
+        elif not 12 <= offset_to_next <= 4096:
+            raise RuntimeError(f"invalid ECL instruction size at 0x{address:08X}")
+        else:
+            raw = self.read(address, offset_to_next)
+        instruction = EclInstruction(
+            address,
+            instruction_time,
+            opcode,
+            offset_to_next,
+            header[9],
+            raw.hex(),
+        )
+        self.ecl_instruction_cache[address] = instruction
+        return instruction
+
+
+def _read_ecl_program(
+    process: NativeProcess,
+    start_address: int,
+) -> tuple[EclInstruction, ...]:
+    """Capture a bounded immutable instruction graph, including jump targets."""
+    pending = [start_address]
+    found: dict[int, EclInstruction] = {}
+    while pending and len(found) < ECL_PROGRAM_INSTRUCTION_LIMIT:
+        address = pending.pop()
+        if not address or address in found:
+            continue
+        instruction = process.read_ecl_instruction(address)
+        found[address] = instruction
+        if instruction.time < 0:
+            continue
+        pending.append(address + instruction.offset_to_next)
+        if instruction.opcode in (2, 3, 29, 30, 31, 32, 33, 34):
+            raw = bytes.fromhex(instruction.raw_hex)
+            jump_offset = struct.unpack_from("<i", raw, 0x10)[0]
+            pending.append(address + jump_offset)
+    return tuple(found[address] for address in sorted(found))
 
 
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
@@ -441,6 +527,18 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     in_menu = bool(game_menu or retry_menu or not gameplay_active or demo_mode)
     frame = struct.unpack_from("<I", game, GAME_FRAMES_OFFSET - GAME_FLAGS_OFFSET)[0]
     stage = struct.unpack_from("<i", game, GAME_STAGE_OFFSET - GAME_FLAGS_OFFSET)[0]
+    if process.ecl_cache_stage != stage:
+        process.ecl_instruction_cache.clear()
+        process.ecl_cache_stage = stage
+    difficulty = struct.unpack(
+        "<i", process.read(ADDR_GAME_MANAGER + GAME_DIFFICULTY_OFFSET, 4)
+    )[0]
+    rank = struct.unpack(
+        "<i", process.read(ADDR_GAME_MANAGER + GAME_RANK_OFFSET, 4)
+    )[0]
+    rng_seed, rng_generation = struct.unpack(
+        "<HxxI", process.read(ADDR_RNG, 8)
+    )
     time_stopped = bool(process.read(ADDR_GAME_MANAGER + GAME_TIME_STOPPED_OFFSET, 1)[0])
     is_replay = bool(struct.unpack("<I", process.read(ADDR_GAME_MANAGER + 0x1C, 4))[0])
     frame_multiplier = struct.unpack("<f", process.read(ADDR_FRAME_MULTIPLIER, 4))[0]
@@ -581,7 +679,29 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
         ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET,
         ENEMY_COUNT * ENEMY_STRIDE,
     )
+    bullet_templates = process.read(
+        ADDR_BULLET_MANAGER,
+        BULLET_TEMPLATE_COUNT * BULLET_TEMPLATE_STRIDE,
+    )
+    bullet_sizes = tuple(
+        tuple(
+            value / 2.0 for value in struct.unpack_from(
+                "<ff",
+                bullet_templates,
+                index * BULLET_TEMPLATE_STRIDE + BULLET_TEMPLATE_SIZE_OFFSET,
+            )
+        )
+        for index in range(BULLET_TEMPLATE_COUNT)
+    )
+    ex_function_addresses = struct.unpack(
+        "<" + "I" * ECL_EX_COUNT,
+        process.read(ADDR_ECL_EX_TABLE, ECL_EX_COUNT * 4),
+    )
+    ex_index_by_address = {
+        address: index for index, address in enumerate(ex_function_addresses)
+    }
     enemies: list[EnemyBody] = []
+    spawners: list[EnemySpawner] = []
     for index in range(ENEMY_COUNT):
         base = index * ENEMY_STRIDE
         flags0, flags1, flags2 = struct.unpack_from(
@@ -589,16 +709,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
         )
         if not flags0 & 0x80:
             continue
-        lethal = (
-            flags1 & 0x01
-            and flags1 & 0x02
-            and flags1 & 0x04
-            and not flags2 & 0x08
-        )
-        if not lethal:
-            continue
         ex, ey = struct.unpack_from("<ff", enemy_pool, base + ENEMY_POSITION_OFFSET)
-        hitbox_x, hitbox_y = struct.unpack_from("<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET)
         velocity_x, velocity_y = struct.unpack_from(
             "<ff", enemy_pool, base + ENEMY_AXIS_SPEED_OFFSET
         )
@@ -622,11 +733,9 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
         )[0]
         movement_mode = flags0 & 0x03
         movement_ease = (flags0 >> 2) & 0x07
-        enemy_numbers = (
+        motion_numbers = (
             ex,
             ey,
-            hitbox_x,
-            hitbox_y,
             velocity_x,
             velocity_y,
             angle,
@@ -640,44 +749,221 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
             move_subframe,
         )
         if (
-            not all(math.isfinite(value) for value in enemy_numbers)
-            or not 0.0 <= hitbox_x <= 1024.0
-            or not 0.0 <= hitbox_y <= 1024.0
+            not all(math.isfinite(value) for value in motion_numbers)
             or movement_mode == 2 and (
                 movement_ease > 4 or move_start_time <= 0 or move_timer < 0
             )
         ):
-            raise RuntimeError(f"invalid lethal enemy state at slot {index}")
-        enemies.append(
-            EnemyBody(
+            raise RuntimeError(f"invalid occupied enemy motion at slot {index}")
+        motion = (
+            ex,
+            ey,
+            velocity_x,
+            velocity_y,
+            angle,
+            angular_velocity,
+            enemy_speed,
+            enemy_acceleration,
+            movement_mode,
+            movement_ease,
+            bool(flags0 & 0x40),
+            move_interp_x,
+            move_interp_y,
+            move_start_x,
+            move_start_y,
+            move_timer,
+            move_timer + move_subframe,
+            move_start_time,
+        )
+        lethal = (
+            flags1 & 0x01
+            and flags1 & 0x02
+            and flags1 & 0x04
+            and not flags2 & 0x08
+        )
+        if lethal:
+            hitbox_x, hitbox_y = struct.unpack_from(
+                "<ff", enemy_pool, base + ENEMY_HITBOX_OFFSET
+            )
+            if (
+                not math.isfinite(hitbox_x)
+                or not math.isfinite(hitbox_y)
+                or not 0.0 <= hitbox_x <= 1024.0
+                or not 0.0 <= hitbox_y <= 1024.0
+            ):
+                raise RuntimeError(
+                    f"invalid lethal enemy geometry at slot {index}"
+                )
+            enemies.append(EnemyBody(
                 ex,
                 ey,
                 hitbox_x / 3.0,
                 hitbox_y / 3.0,
-                velocity_x,
-                velocity_y,
-                angle,
-                angular_velocity,
-                enemy_speed,
-                enemy_acceleration,
-                movement_mode,
-                movement_ease,
-                bool(flags0 & 0x40),
-                move_interp_x,
-                move_interp_y,
-                move_start_x,
-                move_start_y,
-                move_timer,
-                move_timer + move_subframe,
-                move_start_time,
-            )
+                *motion[2:],
+            ))
+
+        life = struct.unpack_from("<i", enemy_pool, base + ENEMY_LIFE_OFFSET)[0]
+        bullet_rank_speed_low, bullet_rank_speed_high = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_BULLET_RANK_SPEED_LOW_OFFSET
         )
+        (
+            bullet_rank_amount1_low,
+            bullet_rank_amount1_high,
+            bullet_rank_amount2_low,
+            bullet_rank_amount2_high,
+        ) = struct.unpack_from(
+            "<hhhh", enemy_pool, base + ENEMY_BULLET_RANK_AMOUNT1_LOW_OFFSET
+        )
+        interval = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_SHOOT_INTERVAL_OFFSET
+        )[0]
+        shooting_disabled = bool(flags0 & 0x20)
+        shoot_offset_x, shoot_offset_y = struct.unpack_from(
+            "<ff", enemy_pool, base + ENEMY_SHOOT_OFFSET
+        )
+        props = base + ENEMY_BULLET_PROPS_OFFSET
+        sprite = struct.unpack_from("<h", enemy_pool, props)[0]
+        angle1, angle2, speed1, speed2 = struct.unpack_from(
+            "<ffff", enemy_pool, props + 0x10
+        )
+        ex_floats = struct.unpack_from("<ffff", enemy_pool, props + 0x20)
+        ex_ints = struct.unpack_from("<iiii", enemy_pool, props + 0x30)
+        count1, count2, aim_mode = struct.unpack_from(
+            "<hhH", enemy_pool, props + 0x44
+        )
+        bullet_flags = struct.unpack_from("<I", enemy_pool, props + 0x4C)[0]
+        shoot_subframe = struct.unpack_from(
+            "<f", enemy_pool, base + ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET
+        )[0]
+        shoot_timer = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_SHOOT_TIMER_OFFSET
+        )[0]
+        pattern_numbers = (
+            shoot_offset_x,
+            shoot_offset_y,
+            angle1,
+            angle2,
+            speed1,
+            speed2,
+            *ex_floats,
+            shoot_subframe,
+        )
+        props_valid = (
+            all(math.isfinite(value) for value in pattern_numbers)
+            and 0 <= sprite < BULLET_TEMPLATE_COUNT
+            and 0 <= aim_mode <= 8
+            and 0 < count1 <= BULLET_COUNT
+            and 0 < count2 <= BULLET_COUNT
+            and count1 * count2 <= BULLET_COUNT
+        )
+        active_periodic = life > 0 and interval > 0 and not shooting_disabled
+        if (
+            (active_periodic and not props_valid)
+            or not -10_000_000 < interval < 10_000_000
+            or not 0 <= shoot_timer < 10_000_000
+            or active_periodic and shoot_timer > interval
+            or not 0.0 <= shoot_subframe < 1.0
+        ):
+            raise RuntimeError(
+                f"invalid periodic bullet shooter at enemy slot {index}"
+            )
+        bullet_pattern = None
+        if props_valid:
+            template = sprite * BULLET_TEMPLATE_STRIDE
+            bullet_half_width, bullet_half_height = bullet_sizes[sprite]
+            if (
+                not math.isfinite(bullet_half_width)
+                or not math.isfinite(bullet_half_height)
+                or not 0.0 < bullet_half_width <= 256.0
+                or not 0.0 < bullet_half_height <= 256.0
+            ):
+                if active_periodic:
+                    raise RuntimeError(
+                        f"invalid bullet template {sprite} for enemy slot {index}"
+                    )
+            else:
+                bullet_pattern = BulletPattern(
+                    sprite,
+                    angle1,
+                    angle2,
+                    speed1,
+                    speed2,
+                    tuple(ex_floats),
+                    tuple(ex_ints),
+                    count1,
+                    count2,
+                    aim_mode,
+                    bullet_flags,
+                    bullet_half_width,
+                    bullet_half_height,
+                )
+
+        context = base + ENEMY_ECL_CONTEXT_OFFSET
+        current_instruction_address = struct.unpack_from(
+            "<I", enemy_pool, context
+        )[0]
+        ecl_subframe = struct.unpack_from("<f", enemy_pool, context + 0x08)[0]
+        ecl_time = struct.unpack_from("<i", enemy_pool, context + 0x0C)[0]
+        repeat_function = struct.unpack_from("<I", enemy_pool, context + 0x10)[0]
+        ecl_ints = (
+            *struct.unpack_from("<iiii", enemy_pool, context + 0x14),
+            *struct.unpack_from("<iiii", enemy_pool, context + 0x34),
+        )
+        ecl_floats = struct.unpack_from("<ffff", enemy_pool, context + 0x24)
+        ecl_compare = struct.unpack_from("<i", enemy_pool, context + 0x44)[0]
+        if (
+            not math.isfinite(ecl_subframe)
+            or not 0.0 <= ecl_subframe < 1.0
+            or not all(math.isfinite(value) for value in ecl_floats)
+        ):
+            raise RuntimeError(f"invalid ECL context at enemy slot {index}")
+        if repeat_function:
+            repeat_ex_index = ex_index_by_address.get(repeat_function, -1)
+        else:
+            repeat_ex_index = None
+        next_instruction = None
+        ecl_program = ()
+        if current_instruction_address:
+            next_instruction = process.read_ecl_instruction(
+                current_instruction_address
+            )
+            ecl_program = _read_ecl_program(
+                process, current_instruction_address
+            )
+
+        spawners.append(EnemySpawner(
+            index,
+            *motion,
+            shoot_offset_x,
+            shoot_offset_y,
+            bullet_rank_speed_low,
+            bullet_rank_speed_high,
+            bullet_rank_amount1_low,
+            bullet_rank_amount1_high,
+            bullet_rank_amount2_low,
+            bullet_rank_amount2_high,
+            life,
+            shooting_disabled,
+            interval,
+            shoot_timer,
+            shoot_timer + shoot_subframe,
+            bullet_pattern,
+            ecl_time,
+            ecl_time + ecl_subframe,
+            tuple(ecl_ints),
+            tuple(ecl_floats),
+            ecl_compare,
+            repeat_ex_index,
+            next_instruction,
+            ecl_program,
+        ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
         normal_speed, focus_speed, normal_diagonal, focus_diagonal,
         frame_multiplier, input_mask, tuple(bullets), len(lasers), in_menu, time_stopped,
         bool(is_replay or demo_mode), tuple(lasers), tuple(enemies),
-        tuple(despawning_bullets), bullet_read_retries,
+        tuple(despawning_bullets), bullet_read_retries, tuple(spawners),
+        difficulty, rank, bullet_sizes, rng_seed, rng_generation,
     )
 
 

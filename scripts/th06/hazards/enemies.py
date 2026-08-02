@@ -3,8 +3,30 @@
 from __future__ import annotations
 
 import math
+from typing import Protocol
 
 from ..model import EnemyBody
+
+
+class MovingEnemy(Protocol):
+    x: float
+    y: float
+    velocity_x: float
+    velocity_y: float
+    angle: float
+    angular_velocity: float
+    speed: float
+    acceleration: float
+    movement_mode: int
+    movement_ease: int
+    invert_x: bool
+    move_interp_x: float
+    move_interp_y: float
+    move_start_x: float
+    move_start_y: float
+    move_timer: int
+    move_timer_float: float
+    move_start_time: int
 
 
 def _ease(value: float, mode: int) -> float:
@@ -23,10 +45,10 @@ def _ease(value: float, mode: int) -> float:
     raise ValueError(f"unsupported enemy movement ease {mode}")
 
 
-def future_boxes(
-    enemy: EnemyBody,
+def future_positions(
+    enemy: MovingEnemy,
     horizon: int,
-) -> list[tuple[float, float, float, float]]:
+) -> list[tuple[float, float]]:
     """Follow Enemy::Move and the source's no-instruction motion update."""
     x = enemy.x
     y = enemy.y
@@ -37,7 +59,7 @@ def future_boxes(
     movement_mode = enemy.movement_mode
     move_timer = enemy.move_timer
     move_timer_float = enemy.move_timer_float
-    result: list[tuple[float, float, float, float]] = []
+    result: list[tuple[float, float]] = []
 
     for _frame in range(horizon):
         x += -velocity_x if enemy.invert_x else velocity_x
@@ -63,13 +85,23 @@ def future_boxes(
                 y = enemy.move_start_y + enemy.move_interp_y
                 velocity_x = 0.0
                 velocity_y = 0.0
-        result.append((
+        result.append((x, y))
+    return result
+
+
+def future_boxes(
+    enemy: EnemyBody,
+    horizon: int,
+) -> list[tuple[float, float, float, float]]:
+    return [
+        (
             x - enemy.half_width,
             y - enemy.half_height,
             x + enemy.half_width,
             y + enemy.half_height,
-        ))
-    return result
+        )
+        for x, y in future_positions(enemy, horizon)
+    ]
 
 
 def hazards_by_frame(

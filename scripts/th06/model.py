@@ -72,6 +72,7 @@ class Bullet:
     direction_max_times: int = 0
     curve_speed_acceleration: float = 0.0
     curve_angular_velocity: float = 0.0
+    slot: int = -1
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,82 @@ class EnemyBody:
 
 
 @dataclass(frozen=True)
+class BulletPattern:
+    """Runtime-resolved EnemyBulletShooter plus its copied collision size."""
+
+    sprite: int
+    angle1: float
+    angle2: float
+    speed1: float
+    speed2: float
+    ex_floats: tuple[float, float, float, float]
+    ex_ints: tuple[int, int, int, int]
+    count1: int
+    count2: int
+    aim_mode: int
+    flags: int
+    half_width: float
+    half_height: float
+
+
+@dataclass(frozen=True)
+class EclInstruction:
+    address: int
+    time: int
+    opcode: int
+    offset_to_next: int
+    skip_for_difficulty: int
+    raw_hex: str
+
+
+@dataclass(frozen=True)
+class EnemySpawner:
+    """An occupied enemy's observable periodic and ECL emission state."""
+
+    slot: int
+    x: float
+    y: float
+    velocity_x: float
+    velocity_y: float
+    angle: float
+    angular_velocity: float
+    speed: float
+    acceleration: float
+    movement_mode: int
+    movement_ease: int
+    invert_x: bool
+    move_interp_x: float
+    move_interp_y: float
+    move_start_x: float
+    move_start_y: float
+    move_timer: int
+    move_timer_float: float
+    move_start_time: int
+    shoot_offset_x: float
+    shoot_offset_y: float
+    bullet_rank_speed_low: float
+    bullet_rank_speed_high: float
+    bullet_rank_amount1_low: int
+    bullet_rank_amount1_high: int
+    bullet_rank_amount2_low: int
+    bullet_rank_amount2_high: int
+    life: int
+    shooting_disabled: bool
+    interval: int
+    timer: int
+    timer_float: float
+    pattern: BulletPattern | None
+    ecl_time: int
+    ecl_time_float: float
+    ecl_ints: tuple[int, int, int, int, int, int, int, int]
+    ecl_floats: tuple[float, float, float, float]
+    ecl_compare: int
+    repeat_ex_index: int | None
+    next_instruction: EclInstruction | None
+    ecl_program: tuple[EclInstruction, ...]
+
+
+@dataclass(frozen=True)
 class Snapshot:
     frame: int
     stage: int
@@ -146,6 +223,12 @@ class Snapshot:
     enemies: tuple[EnemyBody, ...] = ()
     despawning_bullets: tuple[Bullet, ...] = ()
     bullet_read_retries: int = 0
+    spawners: tuple[EnemySpawner, ...] = ()
+    difficulty: int = 2
+    rank: int = 0
+    bullet_sizes: tuple[tuple[float, float], ...] = ()
+    rng_seed: int = 0
+    rng_generation: int = 0
 
 
 @dataclass(frozen=True)
