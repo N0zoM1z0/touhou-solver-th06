@@ -624,6 +624,79 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(len(forecast.births[0]), 1)
         self.assertEqual(forecast.births[0][0].speed, 3.5)
 
+    def test_call_at_maximum_source_depth_enters_without_pushing(self):
+        call = self.instruction(
+            0x1000,
+            0,
+            35,
+            struct.pack("<iif", 0, 7, 2.5),
+            0x18,
+        )
+        caller_sentinel = EclInstruction(
+            0x1018, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        callee_bullet = self.instruction(
+            0x2000,
+            0,
+            68,
+            struct.pack(
+                "<hhii ffff I", 0, 0, 1, 1, 8.0, 8.0, 0.0, 0.0, 4
+            ),
+            0x30,
+        )
+        return_instruction = self.instruction(0x2030, 0, 36, b"", 0x0C)
+        resumed_bullet = self.instruction(
+            0x3000,
+            0,
+            68,
+            struct.pack(
+                "<hhii ffff I", 0, 0, 1, 1, 4.0, 4.0, 0.0, 0.0, 4
+            ),
+            0x30,
+        )
+        resumed_sentinel = EclInstruction(
+            0x3030, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        saved_context = EnemyEclContext(
+            0x3000,
+            0,
+            0.0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            (0.0, 0.0, 0.0, 0.0),
+            0,
+            None,
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            interval=0,
+            next_instruction=call,
+            ecl_program=(
+                call,
+                caller_sentinel,
+                callee_bullet,
+                return_instruction,
+                resumed_bullet,
+                resumed_sentinel,
+            ),
+            ecl_subroutines=(0x2000,),
+            ecl_stack=(saved_context,) * 7,
+        )
+
+        forecast = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),),
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertEqual(
+            sorted(bullet.speed for bullet in forecast.births[0]),
+            [3.75, 7.75],
+        )
+
     def test_conditional_call_uses_the_immutable_subroutine_table(self):
         call = self.instruction(
             0x1000,

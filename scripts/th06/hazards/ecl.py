@@ -1124,11 +1124,11 @@ def _forecast_ecl_births_single(
                             frame_index,
                             "ECL call stack is disabled",
                         )
-                    if len(call_stack) >= 7:
+                    if len(call_stack) > 7:
                         return EclForecast(
                             tuple(map(tuple, births)),
                             frame_index,
-                            "ECL call stack capacity exceeded",
+                            "invalid ECL call stack depth",
                         )
                     sub_id, var0 = struct.unpack_from("<ii", raw, 0x0C)
                     if not 0 <= sub_id < len(spawner.ecl_subroutines):
@@ -1137,15 +1137,22 @@ def _forecast_ecl_births_single(
                             frame_index,
                             f"ECL call subroutine {sub_id} is unavailable",
                         )
-                    call_stack.append(EnemyEclContext(
-                        next_address,
-                        current_time,
-                        current_time + time_subframe,
-                        tuple(integers),
-                        tuple(floats),
-                        compare_register,
-                        None,
-                    ))
+                    # RunEcl still enters the callee at stackDepth == 7, but
+                    # does not increment the depth.  Its write to saved slot 7
+                    # is therefore not the context restored by RET: RET first
+                    # decrements to 6 and restores saved slot 6.  Keeping the
+                    # existing seven captured contexts models that source
+                    # behavior exactly.
+                    if len(call_stack) < 7:
+                        call_stack.append(EnemyEclContext(
+                            next_address,
+                            current_time,
+                            current_time + time_subframe,
+                            tuple(integers),
+                            tuple(floats),
+                            compare_register,
+                            None,
+                        ))
                     integers[0] = var0
                     floats[0] = struct.unpack_from("<f", raw, 0x14)[0]
                     instruction_address = spawner.ecl_subroutines[sub_id]
