@@ -11,6 +11,7 @@ from th06.hazards.births import (
 )
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
+from th06.hazards.world import forecast_world_births
 from th06.birth_parity import compare_periodic_births
 from th06.model import BulletPattern, EnemySpawner, EclInstruction, Snapshot
 
@@ -269,6 +270,73 @@ class EclBirthTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 3)
         self.assertEqual([len(items) for items in forecast.births], [0, 0, 1])
         self.assertAlmostEqual(forecast.births[2][0].speed, 3.5)
+
+        world = forecast_world_births(
+            snapshot(
+                10,
+                spawners=(emitter,),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),) * 3,
+        )
+        self.assertEqual(world.covered_frames, 3)
+        self.assertEqual([len(items) for items in world.births], [0, 0, 1])
+
+    def test_world_rng_is_explicit_and_emitters_run_in_slot_order(self):
+        random_bullet = self.instruction(
+            0x1000,
+            0,
+            73,
+            struct.pack(
+                "<hhii ffff I", 0, 0, 1, 1, 4.0, 2.0, 1.0, -1.0, 4
+            ),
+            0x30,
+        )
+        sentinel = EclInstruction(
+            0x1030, -1, 0, 0, 0, (b"\xff" * 12).hex()
+        )
+        later_slot = spawner(
+            pattern(count1=1, count2=1),
+            slot=9,
+            x=90.0,
+            interval=0,
+            next_instruction=random_bullet,
+            ecl_program=(random_bullet, sentinel),
+        )
+        earlier_slot = replace(later_slot, slot=2, x=20.0)
+        state = snapshot(
+            10,
+            spawners=(later_slot, earlier_slot),
+            bullet_sizes=((3.0, 3.0),),
+        )
+
+        hard = forecast_world_births(state, ((100.0, 400.0),))
+        self.assertEqual(hard.covered_frames, 0)
+        self.assertIn("emitter 2", hard.reason)
+
+        nominal = forecast_world_births(
+            state,
+            ((100.0, 400.0),),
+            rng_mode="nominal",
+        )
+        self.assertEqual(nominal.covered_frames, 1)
+        self.assertEqual([bullet.x for bullet in nominal.births[0]], [23.0, 93.0])
+
+        rng = RngState(0, 0)
+        expected_first = spawn_pattern(
+            replace(pattern(count1=1, count2=1), aim_mode=6, angle1=1.0, angle2=-1.0),
+            (23.0, 63.0),
+            (100.0, 400.0),
+            rng,
+        )[0]
+        expected_second = spawn_pattern(
+            replace(pattern(count1=1, count2=1), aim_mode=6, angle1=1.0, angle2=-1.0),
+            (93.0, 63.0),
+            (100.0, 400.0),
+            rng,
+        )[0]
+        self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
+        self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,7 @@ class EclForecast:
     births: tuple[tuple[Bullet, ...], ...]
     covered_frames: int
     reason: str = ""
+    next_spawner: EnemySpawner | None = None
 
 
 def _trunc_div(numerator: int, denominator: int) -> int:
@@ -524,4 +525,24 @@ def forecast_ecl_births(
             return EclForecast(
                 tuple(map(tuple, births)), frame_index + 1, stop_after_frame
             )
-    return EclForecast(tuple(map(tuple, births)), horizon)
+    next_instruction = program.get(instruction_address)
+    return EclForecast(
+        tuple(map(tuple, births)),
+        horizon,
+        next_spawner=replace(
+            spawner,
+            x=enemy[0],
+            y=enemy[1],
+            shooting_disabled=shooting_disabled,
+            interval=interval,
+            timer=interval_timer,
+            timer_float=interval_timer + interval_subframe,
+            pattern=pattern,
+            ecl_time=current_time,
+            ecl_time_float=current_time + time_subframe,
+            ecl_ints=tuple(integers),
+            ecl_floats=tuple(floats),
+            ecl_compare=compare_register,
+            next_instruction=next_instruction,
+        ),
+    )

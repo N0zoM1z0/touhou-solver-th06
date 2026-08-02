@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from .hazards.ecl import forecast_ecl_births
-from .hazards.rng import RngState
+from .hazards.world import forecast_world_births
 from .model import Bullet, Snapshot
 
 
@@ -46,23 +45,16 @@ def compare_births(previous: Snapshot, current: Snapshot) -> BirthParity:
     """Measure exact count/geometry parity for one adjacent game frame."""
     if previous.stage != current.stage or current.frame - previous.frame != 1:
         return BirthParity(False, 0, 0, 0, 0.0, 0.0, 0.0, "non-adjacent frames")
-    predicted: list[Bullet] = []
-    rng = RngState(previous.rng_seed, previous.rng_generation)
-    for spawner in sorted(previous.spawners, key=lambda item: item.slot):
-        forecast = forecast_ecl_births(
-            spawner,
-            ((current.x, current.y),),
-            previous.difficulty,
-            previous.rank,
-            previous.bullet_sizes,
-            previous.frame_multiplier,
-            rng,
+    forecast = forecast_world_births(
+        previous,
+        ((current.x, current.y),),
+        rng_mode="nominal",
+    )
+    if forecast.covered_frames < 1:
+        return BirthParity(
+            False, 0, 0, 0, 0.0, 0.0, 0.0, forecast.reason
         )
-        if forecast.covered_frames < 1:
-            return BirthParity(
-                False, len(predicted), 0, 0, 0.0, 0.0, 0.0, forecast.reason
-            )
-        predicted.extend(forecast.births[0])
+    predicted = list(forecast.births[0])
     free_slots = max(
         0,
         640 - len(previous.bullets) - len(previous.despawning_bullets),
