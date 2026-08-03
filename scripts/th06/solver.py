@@ -1124,21 +1124,16 @@ class Solver:
                 if self.kernel is not None
                 else None
             )
-            terminal_progressive_maximum = (
-                # A c6 effort estimate caps deeper work, not the ordinary p8
-                # local baseline.  Admit p8 on the residual deadline without
-                # paying to prepare the h16 extension first.
-                (
-                    TURN_CAPABLE_POLICY_HORIZONS[-1]
-                    if limit >= BASE_POLICY_HORIZON
-                    else BASE_POLICY_HORIZON
-                )
-                if terminal_progressive_native is not None and len(hard) > 1
-                else None
+            progressive_terminal_ready = bool(
+                terminal_progressive_native is not None and len(hard) > 1
             )
-            soft_prepare_horizon = max(
-                limit,
-                terminal_progressive_maximum or limit,
+            # Projection is part of each progressive rung.  Preparing the
+            # deepest window before publishing p8/p12 can let an expensive
+            # h16 forecast starve an affordable intermediate continuation.
+            soft_prepare_horizon = (
+                BASE_POLICY_HORIZON
+                if progressive_terminal_ready
+                else limit
             )
             operation_started = self.clock()
             self._prepare_soft(snapshot, soft_prepare_horizon)
@@ -1175,43 +1170,78 @@ class Solver:
                 if self.kernel is not None
                 else None
             )
-            if terminal_progressive_native is not None and len(hard) > 1:
+            if progressive_terminal_ready:
                 allowed = frozenset(
                     candidate.action for candidate in hard
                 )
-                # Once the ordinary h8 continuation is admitted, let the
-                # native complete-or-discard frontier spend the residual
-                # budget through every deeper ordinary rung. The coarse cost
-                # estimate selects whether to enter this ladder, not which
-                # already-shared prefix may complete. A timed-out h12/h16
-                # extension preserves the last fully published result.
-                terminal_maximum = terminal_progressive_maximum
-                elapsed_ms = (self.clock() - started) * 1000.0
-                remaining_ms = (
-                    self.effort.budget_ms()
-                    - elapsed_ms
-                    - TERMINAL_DEADLINE_GUARD_MS
-                )
-                progressive_terminal = (
-                    self._budgeted_progressive_terminal_counts(
-                        snapshot,
-                        hard,
-                        BASE_POLICY_HORIZON,
-                        terminal_maximum,
-                        remaining_ms,
+                for terminal_horizon in TURN_CAPABLE_POLICY_HORIZONS:
+                    if terminal_horizon > soft_prepare_horizon:
+                        elapsed_ms = (
+                            self.clock() - started
+                        ) * 1000.0
+                        remaining_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - TERMINAL_DEADLINE_GUARD_MS
+                        )
+                        estimated_prepare_ms = (
+                            soft_prepare_ms
+                            * terminal_horizon
+                            / max(1, soft_prepare_horizon)
+                        )
+                        if (
+                            remaining_ms <= 0.0
+                            or estimated_prepare_ms
+                            > remaining_ms * PROMOTION_BUDGET_FRACTION
+                        ):
+                            break
+                        operation_started = self.clock()
+                        self._prepare_soft(snapshot, terminal_horizon)
+                        rung_prepare_ms = (
+                            self.clock() - operation_started
+                        ) * 1000.0
+                        rollout_ms += rung_prepare_ms
+                        soft_prepare_ms = rung_prepare_ms
+                        soft_prepare_horizon = terminal_horizon
+
+                    elapsed_ms = (self.clock() - started) * 1000.0
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - TERMINAL_DEADLINE_GUARD_MS
                     )
-                    if (
-                        terminal_maximum is not None
-                        and remaining_ms > 0.0
+                    if remaining_ms <= 0.0:
+                        break
+                    terminal_started = self.clock()
+                    progressive_terminal = (
+                        self._budgeted_progressive_terminal_counts(
+                            snapshot,
+                            hard,
+                            terminal_horizon,
+                            terminal_horizon,
+                            remaining_ms,
+                        )
                     )
-                    else None
-                )
-                if progressive_terminal is not None:
+                    terminal_ms = (
+                        self.clock() - terminal_started
+                    ) * 1000.0
+                    if progressive_terminal is None:
+                        self.effort.observe_policy_timeout(
+                            snapshot,
+                            terminal_horizon,
+                        )
+                        break
                     (
                         completed_horizon,
                         terminal_scores,
                         _reached_maximum,
                     ) = progressive_terminal
+                    self.effort.observe_policy(
+                        snapshot,
+                        len(hard),
+                        completed_horizon,
+                        terminal_ms,
+                    )
                     best_terminal_count = max(
                         (
                             score for action, score

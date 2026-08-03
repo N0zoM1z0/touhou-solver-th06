@@ -253,18 +253,28 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
         self.clock.advance_ms(min(1.0, budget_ms))
         if budget_ms < 1.0:
             return None
+        if (
+            self.flexible_completed_horizon is not None
+            and minimum_horizon > self.flexible_completed_horizon
+        ):
+            return None
         completed_horizon = (
-            self.flexible_completed_horizon
-            if self.flexible_completed_horizon is not None
-            else maximum_horizon
+            maximum_horizon
         )
+        scores_horizon = (
+            completed_horizon
+            if completed_horizon in self.terminal_scores_by_horizon
+            else self.flexible_completed_horizon
+        )
+        if scores_horizon not in self.terminal_scores_by_horizon:
+            return None
         allowed = frozenset(candidate.action for candidate in candidates)
         return (
             completed_horizon,
             {
                 action: score for action, score
                 in self.terminal_scores_by_horizon[
-                    completed_horizon
+                    scores_horizon
                 ].items()
                 if action in allowed
             },
@@ -587,7 +597,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 16)],
+            [(8, 8), (12, 12), (16, 16)],
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 
@@ -619,7 +629,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 16)],
+            [(8, 8), (12, 12), (16, 16)],
         )
 
     def test_base_terminal_rung_survives_coarse_limit_six(self):
@@ -646,12 +656,87 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 8)
         self.assertIn(("prepare", 8), kernel.calls)
         self.assertNotIn(("prepare", 16), kernel.calls)
+        calls = [
+            call[1:3] for call in kernel.calls
+            if call[0] == "terminal_progressive"
+        ]
+        self.assertEqual(calls[0], (8, 8))
+        self.assertNotIn((16, 16), calls)
+
+    def test_intermediate_projection_completes_before_deep_prepare(self):
+        clock = ManualClock()
+        deep_action = self.hard[1].action
+
+        class MeasuredProjectionKernel(TerminalRefinementKernel):
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms({8: 2.5, 12: 3.8, 16: 6.0}[horizon])
+
+            def segment_terminal_counts_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "terminal_progressive",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidates),
+                ))
+                required_ms = {8: 0.4, 12: 1.5}[maximum_horizon]
+                self.clock.advance_ms(min(required_ms, budget_ms))
+                if budget_ms < required_ms:
+                    return None
+                allowed = frozenset(
+                    candidate.action for candidate in candidates
+                )
+                return (
+                    maximum_horizon,
+                    {
+                        action: score for action, score
+                        in self.terminal_scores_by_horizon[
+                            maximum_horizon
+                        ].items()
+                        if action in allowed
+                    },
+                    True,
+                )
+
+        kernel = MeasuredProjectionKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                8: {candidate.action: 9 for candidate in self.hard},
+                12: {
+                    self.hard[0].action: 4,
+                    deep_action: 9,
+                    self.hard[2].action: 2,
+                },
+            },
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 8
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_action)
+        self.assertEqual(decision.effort_horizon, 12)
         self.assertEqual(
             [
-                call[1:3] for call in kernel.calls
-                if call[0] == "terminal_progressive"
+                call[:3] for call in kernel.calls
+                if call[0] in {"prepare", "terminal_progressive"}
             ],
-            [(8, 8)],
+            [
+                ("prepare", 8),
+                ("terminal_progressive", 8, 8),
+                ("prepare", 12),
+                ("terminal_progressive", 12, 12),
+            ],
         )
 
     def test_budgeted_coarse_macro_adjudicates_local_winner_and_long_witness(self):
