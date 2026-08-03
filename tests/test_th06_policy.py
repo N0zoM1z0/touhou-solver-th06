@@ -318,7 +318,7 @@ class CoarseMacroKernel(TerminalRefinementKernel):
         return tuple(
             candidate for candidate in (
                 self.hard
-                if horizon == EFFORT_HORIZONS[0]
+                if horizon <= BASE_POLICY_HORIZON
                 else self.coarse_frontier
             )
             if candidate.action in allowed
@@ -1143,6 +1143,44 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 16)
         self.assertIn(
             ("frontier", 6, tuple(candidate.action for candidate in self.hard)),
+            kernel.calls,
+        )
+
+    def test_publication_reserve_progresses_through_full_delivery_window(self):
+        clock = ManualClock()
+        nominal_winner = self.hard[0]
+        reserve_winner = self.hard[1]
+        reserve_other = self.hard[2]
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={
+                6: self.hard,
+                BASE_POLICY_HORIZON: (reserve_winner, reserve_other),
+            },
+            scores_by_horizon={
+                16: {
+                    nominal_winner.action: 20,
+                    reserve_winner.action: 12,
+                    reserve_other.action: 8,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, reserve_winner.action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertIn(
+            (
+                "frontier",
+                BASE_POLICY_HORIZON,
+                tuple(candidate.action for candidate in self.hard),
+            ),
             kernel.calls,
         )
 

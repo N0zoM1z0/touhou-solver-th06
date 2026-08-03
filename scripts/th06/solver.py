@@ -1526,14 +1526,15 @@ class Solver:
                 if (
                     policy_preferred
                     and horizon <= policy_horizon
-                    and horizon != EFFORT_HORIZONS[0]
+                    and horizon > BASE_POLICY_HORIZON
                 ):
-                    # The first complete constant rung is a local publication
-                    # reserve: retained physical evidence showed that a deep
-                    # nominal turn can demand a correction one frame later,
-                    # after an age-one snapshot requires delay-4 authority.
-                    # Deeper unchanged-input witnesses remain redundant once
-                    # a turn-capable rung is complete.
+                    # Constant h6 and h8 form a progressive local publication
+                    # reserve.  H8 covers the four-frame Hard window plus the
+                    # complete 0..3-frame physical delivery window, so a deep
+                    # nominal turn cannot rank an input which already requires
+                    # an unpublishable correction inside that interval.  Work
+                    # beyond this ordinary reserve remains redundant once a
+                    # turn-capable rung is complete.
                     continue
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (
@@ -1555,11 +1556,15 @@ class Solver:
                 ) * 1000.0
                 if next_frontier is None:
                     break
-                if horizon == EFFORT_HORIZONS[0]:
+                if horizon <= BASE_POLICY_HORIZON:
                     local_reserve_ready = True
-                    local_reserve = frozenset(
-                        candidate.action for candidate in next_frontier
-                    )
+                    if next_frontier:
+                        # Keep the deepest complete non-empty lower bound.  An
+                        # empty constant frontier cannot reject a safe policy
+                        # which turns, and a timed-out rung is discarded above.
+                        local_reserve = frozenset(
+                            candidate.action for candidate in next_frontier
+                        )
                 rollout_horizon = horizon
                 if len(next_frontier) < len(frontier):
                     contracted = True
@@ -2151,11 +2156,11 @@ class Solver:
             if frontier_horizon > HARD_SAFETY_HORIZON
             else frozenset()
         )
-        # Deeper constant witnesses remain tie-breakers.  The first complete
-        # h6 witness is different: it is the measured local reserve needed to
-        # leave one fresh correction publishable when the next snapshot ages
-        # by a frame.  It constrains proposal ranking only; Hard-4 eligibility
-        # and fail-close authority remain unchanged.
+        # Deeper constant witnesses remain tie-breakers.  The progressively
+        # completed h6/h8 witness is different: it is the local reserve needed
+        # to leave a fresh correction publishable across the measured delivery
+        # window.  It constrains proposal ranking only; Hard-4 eligibility and
+        # fail-close authority remain unchanged.
         restricted_preferred: frozenset[Action] = frozenset()
         if (
             policy_preferred

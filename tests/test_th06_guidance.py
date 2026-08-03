@@ -914,6 +914,27 @@ class TerminalGuidanceTests(unittest.TestCase):
             expected["hard_actions"],
         )
 
+        constants_by_horizon = {}
+        for raw_horizon, expected_actions in expected.get(
+            "constant_actions_by_horizon", {}
+        ).items():
+            horizon = int(raw_horizon)
+            constant = (
+                certify_actions(state, horizon, actions=CONTROL_ACTIONS)
+                if kernel is None
+                else kernel.certify_selected(
+                    state,
+                    horizon,
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                )
+            )
+            constants_by_horizon[horizon] = constant
+            self.assertEqual(
+                [candidate.action.name for candidate in constant],
+                expected_actions,
+            )
+
         fixed_by_horizon = {}
         for raw_horizon, expected_scores in (
             expected["scores_by_horizon"].items()
@@ -950,6 +971,23 @@ class TerminalGuidanceTests(unittest.TestCase):
                     if score == best
                 ],
                 expected["actions_by_horizon"][raw_horizon],
+            )
+
+        reserve_expect = expected.get("publication_reserve")
+        if reserve_expect is not None:
+            horizon = reserve_expect["horizon"]
+            scores = fixed_by_horizon[values["maximum_horizon"]]
+            reserve = constants_by_horizon[horizon]
+            reserve_best = max(
+                scores[candidate.action] for candidate in reserve
+            )
+            self.assertEqual(reserve_best, reserve_expect["best_score"])
+            self.assertEqual(
+                [
+                    candidate.action.name for candidate in reserve
+                    if scores[candidate.action] == reserve_best
+                ],
+                reserve_expect["actions"],
             )
 
         if kernel is not None:
