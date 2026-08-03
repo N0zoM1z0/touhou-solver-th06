@@ -32,7 +32,6 @@ from ..model import (
 from ..safety import _action_mask, candidate_path
 
 
-REPLANNING_REFINEMENT_BUDGET_FRACTION = 0.5
 
 
 class _Aabb(ctypes.Structure):
@@ -1170,9 +1169,7 @@ class NativeSafetyKernel:
         viable_actions = {
             action for action, score in viability.items() if score > 0
         }
-        robustness_budget_ms = (
-            remaining_ms() * REPLANNING_REFINEMENT_BUDGET_FRACTION
-        )
+        robustness_budget_ms = remaining_ms()
         if (
             not viable_actions
             or robustness_budget_ms <= 0.0

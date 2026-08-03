@@ -1132,6 +1132,52 @@ class BaselineTests(unittest.TestCase):
             )
         )
 
+    def test_progressive_replanning_does_not_fragment_residual_budget(self):
+        action = CONTROL_ACTIONS[0]
+        candidates = (SafeAction(action, 1.0, 192.0, 380.0),)
+
+        class BudgetProbeKernel(NativeSafetyKernel):
+            def __init__(self):
+                self.budgeted_replanning_viability_function = object()
+                self.budgeted_replanning_function = object()
+                self.robustness_budget_ms = None
+
+            def _prepare_fail_closed(self, *_args, **_kwargs):
+                return (), (), (), ()
+
+            def _replanning_prepared_budgeted(
+                self,
+                function,
+                _snapshot,
+                _candidates,
+                _split,
+                _horizon,
+                _collision_margin,
+                budget_ms,
+                _prepared,
+            ):
+                if function is self.budgeted_replanning_viability_function:
+                    return {action: 1}
+                self.robustness_budget_ms = budget_ms
+                return {action: 3} if budget_ms >= 6.0 else None
+
+        kernel = BudgetProbeKernel()
+        with mock.patch(
+            "th06.kernels.safety.time.perf_counter",
+            side_effect=(0.0, 0.0, 0.002),
+        ):
+            result = kernel.replanning_scores_progressive_budgeted(
+                snapshot(),
+                candidates,
+                split=4,
+                horizon=8,
+                collision_margin=0.35,
+                budget_ms=10.0,
+            )
+
+        self.assertEqual(result, ({action: 3}, True))
+        self.assertAlmostEqual(kernel.robustness_budget_ms, 8.0)
+
     def test_replanning_counts_unique_reachable_corner_states(self):
         state = snapshot(x=376.0, y=432.0)
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
