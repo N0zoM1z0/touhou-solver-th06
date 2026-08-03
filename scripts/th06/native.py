@@ -160,7 +160,7 @@ ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
 ENEMY_TIMELINE_INSTRUCTION_OFFSET = 0xEE5DC
 ENEMY_TIMELINE_TIMER_OFFSET = 0xEE5E0
 ECL_EX_COUNT = 17
-ECL_PROGRAM_INSTRUCTION_LIMIT = 96
+ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
 ECL_TIMELINE_INSTRUCTION_LIMIT = 4096
 ECL_TIMELINE_SNAPSHOT_LIMIT = 96
@@ -503,6 +503,12 @@ def _read_ecl_program(
             sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
             if not 0 <= sub_id < len(process.ecl_subroutines):
                 raise RuntimeError(f"invalid ECL subroutine id {sub_id}")
+            pending.append(process.ecl_subroutines[sub_id])
+        if instruction.opcode == 95:
+            raw = bytes.fromhex(instruction.raw_hex)
+            sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
+            if not 0 <= sub_id < len(process.ecl_subroutines):
+                raise RuntimeError(f"invalid spawned ECL subroutine id {sub_id}")
             pending.append(process.ecl_subroutines[sub_id])
         if instruction.opcode in (108, 109, 114, 116):
             raw = bytes.fromhex(instruction.raw_hex)

@@ -143,6 +143,7 @@ OPCODE_SPELL_TIMEOUT_FLAG = 135
 ECL_OPCODE_COUNT = 136
 MAX_ABSTRACT_INTEGER_RNG_BRANCHES = 64
 MAX_ABSTRACT_INTEGER_RNG_EVALUATIONS = 256
+ENEMY_CREATE_WORLD_REASON = "future ECL enemy creation needs a world-emitter insertion"
 
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
@@ -183,14 +184,14 @@ FAIL_CLOSED_ECL_OPCODES = {
     OPCODE_LASER_OFFSET: "future ECL laser mutation is not represented",
     OPCODE_LASER_TEST: "future ECL laser liveness is not captured",
     OPCODE_LASER_CANCEL: "future ECL laser state mutation is not represented",
-    OPCODE_ENEMY_CREATE: "future ECL enemy creation needs a world-emitter insertion",
+    OPCODE_ENEMY_CREATE: ENEMY_CREATE_WORLD_REASON,
     OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
     OPCODE_INTERRUPT: "ECL interrupt table is not captured",
     OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
 }
 
 MODELLED_ECL_OPCODES = frozenset(
-    {OPCODE_NOP, 1, *range(OPCODE_JUMP, OPCODE_SET_SELF_Z),
+     {OPCODE_NOP, 1, *range(OPCODE_JUMP, OPCODE_SET_SELF_Z),
      *range(OPCODE_MATH_INT_ADD, OPCODE_MOVE_BOUNDS_DISABLE + 1),
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
@@ -312,6 +313,71 @@ def _copy_spawner(spawner: EnemySpawner, **changes) -> EnemySpawner:
     clone.__dict__.update(spawner.__dict__)
     clone.__dict__.update(changes)
     return clone
+
+
+def _source_enemy_template(
+    parent: EnemySpawner,
+    sub_id: int,
+    x: float,
+    y: float,
+    life: int,
+) -> EnemySpawner | None:
+    """Build the hazard-relevant state copied by source ``SpawnEnemy``."""
+    if not 0 <= sub_id < len(parent.ecl_subroutines):
+        return None
+    start_address = parent.ecl_subroutines[sub_id]
+    first = _compiled_program(parent.ecl_program).get(start_address)
+    if first is None:
+        return None
+    return EnemySpawner(
+        slot=-1,
+        x=x,
+        y=y,
+        velocity_x=0.0,
+        velocity_y=0.0,
+        angle=0.0,
+        angular_velocity=0.0,
+        speed=0.0,
+        acceleration=0.0,
+        movement_mode=0,
+        movement_ease=0,
+        invert_x=False,
+        move_interp_x=0.0,
+        move_interp_y=0.0,
+        move_start_x=0.0,
+        move_start_y=0.0,
+        move_timer=0,
+        move_timer_float=0.0,
+        move_start_time=0,
+        shoot_offset_x=0.0,
+        shoot_offset_y=0.0,
+        bullet_rank_speed_low=-0.5,
+        bullet_rank_speed_high=0.5,
+        bullet_rank_amount1_low=0,
+        bullet_rank_amount1_high=0,
+        bullet_rank_amount2_low=0,
+        bullet_rank_amount2_high=0,
+        life=life if life >= 0 else 1,
+        shooting_disabled=False,
+        interval=0,
+        timer=0,
+        timer_float=0.0,
+        pattern=None,
+        ecl_time=0,
+        ecl_time_float=0.0,
+        ecl_ints=(0,) * 8,
+        ecl_floats=(0.0,) * 4,
+        ecl_compare=0,
+        repeat_ex_index=None,
+        next_instruction=first,
+        ecl_program=parent.ecl_program,
+        hitbox_half_width=4.0,
+        hitbox_half_height=4.0,
+        interactable=True,
+        collidable=True,
+        ecl_subroutines=parent.ecl_subroutines,
+        damageable=True,
+    )
 
 
 def _trunc_div(numerator: int, denominator: int) -> int:
@@ -585,6 +651,7 @@ def _forecast_ecl_births_single(
     enemy_kill_all_is_noop: bool = False,
     abstract_int_choices: tuple[int, ...] = (),
     model_player_damage: bool = True,
+    allow_enemy_create_audit: bool = True,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -1717,6 +1784,104 @@ def _forecast_ecl_births_single(
                 timer_callback_sub = death_callback_sub
                 boss_timer = 0
                 boss_timer_subframe = 0.0
+            elif instruction.opcode == OPCODE_ENEMY_CREATE:
+                # SpawnEnemy first runs the newborn's time-zero ECL inline.
+                # A later free slot may then receive its ordinary update in
+                # this same EnemyManager pass.  At the end of the current
+                # hard window we only need to prove those immediate effects;
+                # any persistent child is captured by the next live snapshot.
+                # Longer forecasts still require a real world insertion.
+                if (
+                    not radial_births
+                    or not allow_enemy_create_audit
+                    or frame_index + 1 < horizon
+                ):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        ENEMY_CREATE_WORLD_REASON,
+                    )
+                sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
+                try:
+                    child_x = _float_var(
+                        raw[0x10:0x14], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                    child_y = _float_var(
+                        raw[0x14:0x18], integers, floats, difficulty, rank,
+                        life, enemy, variable_player,
+                    )
+                except UnsupportedBirthModel as error:
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index, str(error)
+                    )
+                if isinstance(child_x, FloatInterval) or isinstance(
+                    child_y, FloatInterval
+                ):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "uncertain ECL enemy position needs a world envelope",
+                    )
+                child_life = struct.unpack_from("<h", raw, 0x1C)[0]
+                child = _source_enemy_template(
+                    spawner, sub_id, child_x, child_y, child_life
+                )
+                if child is None:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        ENEMY_CREATE_WORLD_REASON,
+                    )
+                newborn = _forecast_ecl_births_single(
+                    child,
+                    (player,),
+                    difficulty,
+                    rank,
+                    bullet_sizes,
+                    frame_multiplier,
+                    None,
+                    allow_player_variables,
+                    radial_births,
+                    abstract_rng,
+                    False,
+                    model_player_damage=False,
+                    allow_enemy_create_audit=False,
+                )
+                if newborn.covered_frames < 1:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"spawned emitter {sub_id}: {newborn.reason}",
+                    )
+                births[frame_index].extend(newborn.births[0])
+                if newborn.next_spawner is not None:
+                    updated = _forecast_ecl_births_single(
+                        newborn.next_spawner,
+                        (player,),
+                        difficulty,
+                        rank,
+                        bullet_sizes,
+                        frame_multiplier,
+                        None,
+                        allow_player_variables,
+                        radial_births,
+                        abstract_rng,
+                        False,
+                        model_player_damage=False,
+                        allow_enemy_create_audit=False,
+                    )
+                    if updated.covered_frames < 1:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            f"spawned emitter {sub_id}: {updated.reason}",
+                        )
+                    births[frame_index].extend(updated.births[0])
+                    if updated.body_hazards:
+                        body_hazards[frame_index].extend(
+                            updated.body_hazards[0]
+                        )
             elif instruction.opcode in (
                 OPCODE_LASER_CREATE,
                 OPCODE_LASER_CREATE_AIMED,

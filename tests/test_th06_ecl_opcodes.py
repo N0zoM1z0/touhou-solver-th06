@@ -132,6 +132,72 @@ class EclOpcodeCoverageTests(unittest.TestCase):
                 )
                 self.assertEqual(forecast.reason, reason)
 
+    def test_final_frame_enemy_creation_audits_source_newborn_setup(self):
+        create = instruction(
+            0x1000,
+            95,
+            struct.pack("<ifffhhi", 0, 10.0, 20.0, 0.0, 100, 0, 0),
+            0x24,
+        )
+        parent_wait = replace(
+            instruction(0x1024, 0, bytes(4), 0x10),
+            time=50,
+        )
+        child_disable_body = instruction(
+            0x2000, 117, struct.pack("<i", 0), 0x10
+        )
+        child_wait = replace(
+            instruction(0x2010, 0, bytes(4), 0x10),
+            time=50,
+        )
+        source = replace(
+            emitter(create, parent_wait),
+            interactable=False,
+            ecl_subroutines=(child_disable_body.address,),
+            ecl_program=(
+                create,
+                parent_wait,
+                child_disable_body,
+                child_wait,
+            ),
+        )
+
+        hard = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+        longer = forecast_ecl_births(
+            source,
+            ((100.0, 400.0), (100.0, 400.0)),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+        nominal = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        self.assertEqual(hard.covered_frames, 1, hard.reason)
+        self.assertEqual(hard.births, ((),))
+        self.assertEqual(hard.body_hazards, ((),))
+        self.assertEqual(longer.covered_frames, 0)
+        self.assertIn("world-emitter insertion", longer.reason)
+        self.assertEqual(nominal.covered_frames, 0)
+        self.assertIn("world-emitter insertion", nominal.reason)
+
     def test_bullet_effects_survive_a_frame_boundary_and_reach_spawn(self):
         effects = instruction(
             0x1000,

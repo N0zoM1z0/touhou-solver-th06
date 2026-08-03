@@ -1029,6 +1029,39 @@ class BaselineTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(process.reads, reads)
 
+    def test_ecl_graph_captures_spawned_enemy_subroutine(self):
+        start = EclInstruction(
+            0x1000,
+            0,
+            95,
+            36,
+            0xFF,
+            (
+                bytes(12)
+                + struct.pack("<ifffhhi", 0, 10.0, 20.0, 0.0, 1, 0, 0)
+            ).hex(),
+        )
+        fallthrough = EclInstruction(
+            0x1024, -1, 0, 12, 0xFF, bytes(12).hex()
+        )
+        child = EclInstruction(
+            0x2000, -1, 0, 12, 0xFF, bytes(12).hex()
+        )
+        instructions = {
+            item.address: item for item in (start, fallthrough, child)
+        }
+        process = type("Process", (), {
+            "ecl_subroutines": (child.address,),
+            "read_ecl_instruction": lambda _self, address: instructions[address],
+        })()
+
+        program = native._read_ecl_program(process, start.address)
+
+        self.assertEqual(
+            {item.address for item in program},
+            {start.address, fallthrough.address, child.address},
+        )
+
     def test_native_spatial_replanning_matches_reference_scores(self):
         if os.name != "nt":
             self.skipTest("native kernel is loaded only by Windows Python")
@@ -1087,7 +1120,7 @@ class BaselineTests(unittest.TestCase):
 
 
 
-    def test_native_hard_selected_followup_reuses_fail_closed_hazards(self):
+    def test_native_selected_followup_cannot_widen_hard_projection(self):
         state = snapshot()
         hard = certify_actions(state, HARD_SAFETY_HORIZON)
         held = action_from_input(state.input_mask)
@@ -1117,12 +1150,24 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(combined, (hard, hard, held_effort))
         self.assertEqual(effort, hard)
-        kernel._prepare_window.assert_called_once_with(
-            state,
-            0,
-            6,
-            fail_closed_horizon=6,
-            collision_margin=0.35,
+        self.assertEqual(
+            kernel._prepare_window.call_args_list,
+            [
+                mock.call(
+                    state,
+                    0,
+                    HARD_SAFETY_HORIZON,
+                    fail_closed_horizon=HARD_SAFETY_HORIZON,
+                    collision_margin=0.35,
+                ),
+                mock.call(
+                    state,
+                    0,
+                    6,
+                    fail_closed_horizon=6,
+                    collision_margin=0.35,
+                ),
+            ],
         )
 
     def test_native_window_prunes_only_unreachable_aabbs(self):

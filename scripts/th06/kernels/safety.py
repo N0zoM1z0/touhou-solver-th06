@@ -759,30 +759,37 @@ class NativeSafetyKernel:
             for index, action in enumerate(CONTROL_ACTIONS)
             if action in selected
         )
-        # This selected continuation may extend physical publication
-        # authority, so every included ECL frame must use fail-closed source
-        # semantics rather than the nominal soft-proposal forecast.
-        prepared = self._prepare_fail_closed(
-            snapshot, selected_horizon, collision_margin
+        # Hard eligibility is exactly the ordinary hard window.  A longer
+        # selected continuation may fail closed, but its extra source frame
+        # must not retroactively erase a complete Hard result.
+        hard_prepared = self._prepare_fail_closed(
+            snapshot, hard_horizon, collision_margin
         )
         hard, age_zero, _extended = self._certify_prepared(
             snapshot,
             hard_horizon,
             collision_margin,
-            prepared,
+            hard_prepared,
             (1 << len(CONTROL_ACTIONS)) - 1,
         )
-        selected_safe = (
-            self._certify_prepared(
+        selected_safe = ()
+        if candidate_mask:
+            # This continuation may extend physical publication authority,
+            # so all of its frames independently use fail-closed semantics.
+            selected_prepared = (
+                hard_prepared
+                if selected_horizon == hard_horizon
+                else self._prepare_fail_closed(
+                    snapshot, selected_horizon, collision_margin
+                )
+            )
+            selected_safe = self._certify_prepared(
                 snapshot,
                 selected_horizon,
                 collision_margin,
-                prepared,
+                selected_prepared,
                 candidate_mask,
             )[0]
-            if candidate_mask
-            else ()
-        )
         return hard, age_zero, selected_safe
 
     def certify_delivery_sets(
