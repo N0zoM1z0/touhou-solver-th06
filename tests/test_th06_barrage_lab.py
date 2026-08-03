@@ -8,8 +8,12 @@ from th06.barrage_lab.assets import (
 )
 from th06.barrage_lab.generator import generate_barrage_case
 from th06.barrage_lab.oracle import certify_linear_source
+from th06.barrage_lab.planner import source_terminal_counts
 from th06.barrage_lab.runner import (
+    PlannerMismatch,
     SweepMismatch,
+    python_terminal_counts,
+    shrink_planner_mismatch,
     python_action_names,
     shrink_mismatch,
 )
@@ -190,6 +194,81 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(len(reduced.snapshot.bullets), 1)
         self.assertEqual(len(reduced.sources), 1)
         self.assertEqual(reduced.differing_actions, ("down_right_fast",))
+
+    def test_source_planner_deduplicates_boundary_aliased_states(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 19, target_bullets=8)
+        snapshot = replace(
+            case.snapshot,
+            bullets=(),
+            x=376.0,
+            y=432.0,
+            input_mask=0xA4,
+        )
+        result = source_terminal_counts(snapshot, ("right",), 4, 8)
+
+        # Nine focused continuation actions collapse to six physical endpoints
+        # at the bottom-right clamp. Raw path multiplicity would report nine.
+        self.assertEqual(result.counts, (("right", 6),))
+
+    def test_seeded_source_planner_matches_production_reference(self):
+        opcode = parse_ecl_bullet_opcodes(
+            ecl_effect_bytes(), "effects.ecl"
+        )[0]
+        case = generate_barrage_case((opcode,), 0, target_bullets=64)
+        candidates = certify_linear_source(case.snapshot, 4).actions
+        expected = source_terminal_counts(
+            case.snapshot, candidates, 4, 8
+        ).counts
+
+        self.assertEqual(
+            python_terminal_counts(case.snapshot, candidates, 4, 8),
+            expected,
+        )
+
+    def test_planner_reducer_minimizes_horizon_candidate_and_bullets(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 29, target_bullets=8)
+        far_bullets = tuple(
+            replace(bullet, x=-1000.0, y=-1000.0, vx=0.0, vy=0.0)
+            for bullet in case.snapshot.bullets
+        )
+        snapshot = replace(case.snapshot, bullets=far_bullets)
+        candidates = ("stay", "right")
+
+        def fake_planner(state, names, segment_length, horizon):
+            counts = list(
+                source_terminal_counts(
+                    state, names, segment_length, horizon
+                ).counts
+            )
+            if horizon >= 6 and state.bullets and "stay" in names:
+                counts[names.index("stay")] = (
+                    "stay", counts[names.index("stay")][1] + 1
+                )
+            return tuple(counts)
+
+        expected = source_terminal_counts(
+            snapshot, candidates, 4, 8
+        ).counts
+        mismatch = PlannerMismatch(
+            29,
+            "fake",
+            4,
+            8,
+            candidates,
+            expected,
+            fake_planner(snapshot, candidates, 4, 8),
+            snapshot,
+            case.sources,
+        )
+        reduced = shrink_planner_mismatch(mismatch, fake_planner)
+
+        self.assertEqual(reduced.horizon, 6)
+        self.assertEqual(reduced.candidate_names, ("stay",))
+        self.assertEqual(reduced.differing_actions, ("stay",))
+        self.assertEqual(len(reduced.snapshot.bullets), 1)
+        self.assertEqual(len(reduced.sources), 1)
 
 
 if __name__ == "__main__":

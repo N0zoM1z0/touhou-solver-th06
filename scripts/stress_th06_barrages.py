@@ -11,7 +11,12 @@ from pathlib import Path
 
 from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.generator import eligible_opcodes
-from th06.barrage_lab.runner import native_action_names, run_sweep
+from th06.barrage_lab.runner import (
+    native_action_names,
+    native_terminal_counts,
+    run_planner_sweep,
+    run_sweep,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,6 +24,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("archive", type=Path, help="path to the installed TH06 ST.DAT")
     parser.add_argument("--seeds", type=int, default=100)
     parser.add_argument("--horizon", type=int, default=8)
+    parser.add_argument(
+        "--planner", action="store_true",
+        help="differentially fuzz terminal-state planning instead of Hard certification",
+    )
+    parser.add_argument("--segment-length", type=int, default=4)
     parser.add_argument(
         "--native", action="store_true",
         help="also compare build/th06_safety.dll (Windows Python only)",
@@ -30,26 +40,46 @@ def main() -> int:
     args = parse_args()
     if args.seeds <= 0 or not 1 <= args.horizon <= 64:
         raise ValueError("seeds must be positive and horizon must be in 1..64")
+    if args.planner and not 0 < args.segment_length <= args.horizon:
+        raise ValueError("planner segment length must be inside the horizon")
     catalogue = load_ecl_bullet_catalogue(args.archive)
-    extras = ()
+    kernel = None
     if args.native:
         if os.name != "nt":
             raise RuntimeError("--native requires Windows Python")
         from th06.kernels.safety import NativeSafetyKernel
-        extras = (("native", native_action_names(NativeSafetyKernel())),)
-    summary, mismatch = run_sweep(
-        catalogue, seeds=args.seeds, horizon=args.horizon,
-        extra_certifiers=extras,
-    )
+        kernel = NativeSafetyKernel()
+    if args.planner:
+        extras = (
+            (("native", native_terminal_counts(kernel)),)
+            if kernel is not None else ()
+        )
+        summary, mismatch = run_planner_sweep(
+            catalogue,
+            seeds=args.seeds,
+            segment_length=args.segment_length,
+            horizon=args.horizon,
+            extra_planners=extras,
+        )
+    else:
+        extras = (
+            (("native", native_action_names(kernel)),)
+            if kernel is not None else ()
+        )
+        summary, mismatch = run_sweep(
+            catalogue, seeds=args.seeds, horizon=args.horizon,
+            extra_certifiers=extras,
+        )
     output = {
         "archive": str(args.archive),
+        "mode": "planner" if args.planner else "hard-certification",
         "catalogue_opcodes": len(catalogue),
         "exact_hard_opcodes": len(eligible_opcodes(catalogue)),
         "summary": asdict(summary),
         "mismatch": None,
     }
     if mismatch is not None:
-        output["mismatch"] = {
+        mismatch_output = {
             "seed": mismatch.seed,
             "implementation": mismatch.implementation,
             "reduced_horizon": mismatch.horizon,
@@ -69,6 +99,10 @@ def main() -> int:
             ],
             "ecl_sources": mismatch.sources,
         }
+        if args.planner:
+            mismatch_output["segment_length"] = mismatch.segment_length
+            mismatch_output["candidate_actions"] = mismatch.candidate_names
+        output["mismatch"] = mismatch_output
     print(json.dumps(output, indent=2, ensure_ascii=False))
     return int(mismatch is not None)
 
