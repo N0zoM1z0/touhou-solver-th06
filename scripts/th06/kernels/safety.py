@@ -32,6 +32,9 @@ from ..model import (
 from ..safety import _action_mask, candidate_path
 
 
+REPLANNING_REFINEMENT_BUDGET_FRACTION = 0.5
+
+
 class _Aabb(ctypes.Structure):
     _fields_ = (("left", ctypes.c_float), ("top", ctypes.c_float), ("right", ctypes.c_float), ("bottom", ctypes.c_float))
 
@@ -1070,7 +1073,7 @@ class NativeSafetyKernel:
         collision_margin: float,
         budget_ms: float,
     ) -> tuple[dict[Action, int], bool] | None:
-        """Publish viability first, then exact robustness if time remains."""
+        """Publish viability, then try a bounded exact robustness rung."""
         if budget_ms <= 0.0:
             return None
         started = time.perf_counter()
@@ -1099,7 +1102,9 @@ class NativeSafetyKernel:
         viable_actions = {
             action for action, score in viability.items() if score > 0
         }
-        robustness_budget_ms = remaining_ms()
+        robustness_budget_ms = (
+            remaining_ms() * REPLANNING_REFINEMENT_BUDGET_FRACTION
+        )
         if (
             not viable_actions
             or robustness_budget_ms <= 0.0

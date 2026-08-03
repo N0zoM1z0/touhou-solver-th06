@@ -1278,6 +1278,7 @@ class Solver:
         policy_horizon = HARD_SAFETY_HORIZON
         policy_scores = None
         policy_guidance = None
+        delivery_viable: frozenset[Action] = frozenset()
         delivery_preferred: frozenset[Action] = frozenset()
         terminal_completed = False
         target_guided = False
@@ -1291,9 +1292,9 @@ class Solver:
         if len(hard) > 1:
             # This is the ordinary first continuation rung, not a predicted
             # scene depth.  Always offer it the measured residual deadline;
-            # The native call first completes every candidate's viability
-            # predicate, then spends the same residual deadline on exact
-            # robustness counts.  A timed-out refinement is discarded while
+            # the native call first completes every candidate's viability
+            # predicate, then spends a bounded share on exact robustness
+            # counts.  A timed-out refinement is discarded while
             # the completed viability result remains publishable.  A
             # conservative depth estimate must not suppress an affordable
             # refinement after a transient late publication reduced the
@@ -1326,6 +1327,11 @@ class Solver:
                     default=0,
                 )
                 if replanning_best > 0:
+                    delivery_viable = frozenset(
+                        action for action, score
+                        in replanning.items()
+                        if score > 0
+                    )
                     delivery_preferred = frozenset(
                         action for action, score
                         in replanning.items()
@@ -1333,7 +1339,7 @@ class Solver:
                     )
                     planning_candidates = tuple(
                         candidate for candidate in hard
-                        if candidate.action in delivery_preferred
+                        if candidate.action in delivery_viable
                     )
                     policy_preferred = delivery_preferred
                     policy_horizon = BASE_POLICY_HORIZON
@@ -2281,11 +2287,12 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
-        if delivery_preferred:
-            # This completed two-delivery p8 result is the strongest fresh
-            # local micro evidence. Later nominal-pickup horizons may rank
-            # inside it but cannot restore an action it rejected.
-            retained = preferred & delivery_preferred
+        if delivery_viable:
+            # Zero means no safe next correction across every modeled
+            # delivery branch, so a later nominal proposal cannot restore it.
+            # Positive endpoint multiplicity is only a local robustness rank:
+            # a deeper completed continuation may reorder viable actions.
+            retained = preferred & delivery_viable
             if retained:
                 preferred = retained
             else:
@@ -2294,19 +2301,19 @@ class Solver:
                     delivery_best = max(
                         (
                             policy_scores.get(action, 0)
-                            for action in delivery_preferred
+                            for action in delivery_viable
                         ),
                         default=0,
                     )
                     if delivery_best > 0:
                         delivery_ranked = frozenset(
-                            action for action in delivery_preferred
+                            action for action in delivery_viable
                             if policy_scores.get(action, 0) == delivery_best
                         )
                 elif policy_guidance is not None:
                     delivery_ranked = preferred_target_actions(
                         policy_guidance,
-                        delivery_preferred,
+                        delivery_viable,
                     )
                 preferred = delivery_ranked or delivery_preferred
 

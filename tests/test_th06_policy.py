@@ -1229,6 +1229,52 @@ class AnytimePolicyTests(unittest.TestCase):
             kernel.calls,
         )
 
+    def test_deeper_continuation_ranks_inside_delivery_viability(self):
+        clock = ManualClock()
+        local_winner = self.hard[0]
+        deep_winner = self.hard[1]
+        other = self.hard[2]
+        kernel = DeliveryReplanningKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                local_winner.action: 5,
+                deep_winner.action: 3,
+                other.action: 1,
+            },
+            terminal_scores_by_horizon={
+                16: {
+                    local_winner.action: 8,
+                    deep_winner.action: 20,
+                    other.action: 4,
+                },
+            },
+            scores_by_horizon={
+                16: {
+                    local_winner.action: 8,
+                    deep_winner.action: 20,
+                    other.action: 4,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+            flexible_completed_horizon=16,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_winner.action)
+        progressive = next(
+            call for call in kernel.calls
+            if call[0] == "terminal_progressive"
+        )
+        self.assertEqual(
+            {candidate.action for candidate in progressive[3]},
+            {candidate.action for candidate in self.hard},
+        )
+
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
         for robustness_complete in (False, True):
             with self.subTest(
