@@ -105,12 +105,14 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
         budgeted_ms_by_horizon=None,
         flexible_completed_horizon=None,
         flexible_reached_maximum=True,
+        reachability_by_horizon=None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.budgeted_ms_by_horizon = budgeted_ms_by_horizon or {}
         self.flexible_completed_horizon = flexible_completed_horizon
         self.flexible_reached_maximum = flexible_reached_maximum
+        self.reachability_by_horizon = reachability_by_horizon
 
     def nominal_policy_counts_budgeted(
         self,
@@ -136,7 +138,7 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
             if action in allowed
         }
 
-    def flexible_terminal_counts_progressive(
+    def boolean_reachability_progressive(
         self,
         state,
         candidates,
@@ -153,8 +155,13 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
             budget_ms,
             tuple(candidates),
         ))
+        available = (
+            self.reachability_by_horizon
+            if self.reachability_by_horizon is not None
+            else self.scores_by_horizon
+        )
         available_horizons = tuple(
-            horizon for horizon in self.scores_by_horizon
+            horizon for horizon in available
             if minimum_horizon <= horizon <= maximum_horizon
         )
         if self.flexible_completed_horizon is not None:
@@ -173,11 +180,24 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
             completed_horizon, 1.0
         )
         self.clock.advance_ms(required_ms)
-        scores = self.scores_by_horizon.get(
-            completed_horizon,
-            self.scores_by_horizon.get(minimum_horizon, self.scores),
+        scores = (
+            self.reachability_by_horizon.get(completed_horizon, {})
+            if self.reachability_by_horizon is not None
+            else self.scores_by_horizon.get(
+                completed_horizon,
+                self.scores_by_horizon.get(minimum_horizon, self.scores),
+            )
         )
         allowed = frozenset(candidate.action for candidate in candidates)
+        if self.reachability_by_horizon is None:
+            best = max(
+                (score for action, score in scores.items() if action in allowed),
+                default=0,
+            )
+            scores = {
+                action: int(score == best and best > 0)
+                for action, score in scores.items()
+            }
         return (
             completed_horizon,
             {
@@ -327,7 +347,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, up)
         self.assertEqual(decision.effort_horizon, 20)
 
-    def test_policy_rung_precedes_more_distant_constant_frontier(self):
+    def test_constant_lower_bound_precedes_branching_search(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(
             clock,
@@ -345,8 +365,7 @@ class AnytimePolicyTests(unittest.TestCase):
         solver.decide(snapshot())
 
         calls = [(call[0], call[1]) for call in kernel.calls]
-        self.assertLess(calls.index(("policy", 8)), calls.index(("frontier", 12)))
-        self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 12)))
+        self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 8)))
 
     def test_progressive_reachability_uses_fresh_completed_evidence(self):
         clock = ManualClock()
@@ -376,13 +395,37 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, deep_action)
         self.assertEqual(decision.effort_horizon, 16)
-        self.assertEqual(decision.held_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(decision.held_horizon, 16)
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
         progressive = next(
             call for call in kernel.calls if call[0] == "progressive"
         )
         self.assertEqual(progressive[1:3], (8, 20))
         self.assertEqual(progressive[4], self.hard)
+
+    def test_boolean_membership_keeps_every_winning_first_action(self):
+        clock = ManualClock()
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            reachability_by_horizon={
+                16: {
+                    self.hard[0].action: 1,
+                    self.hard[1].action: 1,
+                    self.hard[2].action: 0,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, self.hard[0].action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(decision.effort_safe_count, 2)
 
     def test_missing_extended_authority_caps_only_current_effort(self):
         clock = ManualClock()
@@ -391,6 +434,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = PublicationFragileKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     shallow_action: 9,
@@ -403,7 +447,7 @@ class AnytimePolicyTests(unittest.TestCase):
                     self.hard[2].action: 1,
                 },
             },
-            budgeted_ms_by_horizon={8: 5.0, 12: 8.0},
+            budgeted_ms_by_horizon={8: 3.0, 12: 6.0},
         )
         solver = self.solver(kernel, clock)
         solver.effort.rollout_ms_per_work = 0.0
@@ -439,6 +483,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     self.hard[0].action: 5,
@@ -485,6 +530,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     self.hard[0].action: 5,
@@ -525,7 +571,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
-            frontiers={16: (self.hard[0], self.hard[2])},
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     retained_action: 4,
@@ -554,7 +600,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, excluded_action)
         self.assertNotEqual(decision.action, retained_action)
         self.assertEqual(decision.effort_horizon, 12)
-        self.assertNotIn("frontier", [call[0] for call in kernel.calls])
+        self.assertIn("frontier", [call[0] for call in kernel.calls])
 
     def test_progressive_reachability_evaluates_every_hard_action(self):
         clock = ManualClock()
@@ -648,7 +694,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
-            frontiers={16: ()},
+            frontiers={12: (), 16: ()},
             scores_by_horizon={
                 8: {
                     current.action: 2,
@@ -685,6 +731,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     base_action: 5,
@@ -728,6 +775,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     base_action: 5,
@@ -792,6 +840,7 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
+            frontiers={12: ()},
             scores_by_horizon={
                 8: {
                     self.hard[0].action: 5,

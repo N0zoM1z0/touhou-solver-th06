@@ -10,7 +10,13 @@ from .hazards.geometry import signed_clearance
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
 from .hazards.world import forecast_world_births
-from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
+from .model import (
+    ACTIONS,
+    Action,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 from .safety import (
     COLLISION_MARGIN,
     DELIVERY_DELAYS,
@@ -28,6 +34,7 @@ def nominal_policy_scores(
     candidates: tuple[SafeAction, ...],
     segment_length: int,
     horizon: int,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
 ) -> dict[Action, int]:
     """Count recursive fixed-segment MPC policies under nominal pickup.
 
@@ -124,7 +131,7 @@ def nominal_policy_scores(
         end_frame = min(horizon, start_frame + segment_length)
         total = 0
         next_states: set[tuple[float, float]] = set()
-        for action in ACTIONS:
+        for action in continuation_actions:
             future_x, future_y = x, y
             survived = True
             for frame in range(start_frame + 1, end_frame + 1):

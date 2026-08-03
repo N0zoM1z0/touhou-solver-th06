@@ -654,7 +654,11 @@ class BaselineTests(unittest.TestCase):
             y=100.0,
             input_mask=BUTTON_FOCUS | 0x20,
         )
-        expected = certify_actions(state, horizon=4)
+        expected = certify_actions(
+            state,
+            horizon=4,
+            actions=CONTROL_ACTIONS,
+        )
         decision = Solver().decide(state)
         self.assertNotIn(up_left, {item.action for item in expected})
         self.assertEqual(

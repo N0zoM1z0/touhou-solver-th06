@@ -13,7 +13,13 @@ from .hazards.geometry import signed_clearance
 from .hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from .hazards.lasers import signed_laser_clearance
 from .hazards.world import forecast_world_births
-from .model import ACTIONS, Action, SafeAction, Snapshot, action_from_input
+from .model import (
+    ACTIONS,
+    Action,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 from .safety import (
     COLLISION_MARGIN,
     DELIVERY_DELAYS,
@@ -72,6 +78,7 @@ def terminal_guidance_scores(
     horizon: int,
     target: tuple[float, float] | None = None,
     continuation_length: int | None = None,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
 ) -> dict[Action, TerminalGuidance]:
     """Deduplicate nominal terminal positions behind each Hard first action."""
     if segment_length <= 0 or horizon < segment_length:
@@ -169,7 +176,7 @@ def terminal_guidance_scores(
             end_frame = min(horizon, start_frame + continuation_length)
             next_states = set()
             for state_x, state_y in states:
-                for action in ACTIONS:
+                for action in continuation_actions:
                     x, y = state_x, state_y
                     for frame in range(start_frame + 1, end_frame + 1):
                         x, y = step(x, y, action)
@@ -282,6 +289,7 @@ def terminal_reachability_counts(
     candidates: tuple[SafeAction, ...],
     segment_length: int,
     horizon: int,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
 ) -> dict[Action, int]:
     """Count exact terminal states after frame-granular continuation.
 
@@ -296,6 +304,7 @@ def terminal_reachability_counts(
         segment_length,
         horizon,
         continuation_length=1,
+        continuation_actions=continuation_actions,
     )
     return {
         action: value.terminal_count

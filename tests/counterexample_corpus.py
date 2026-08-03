@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from th06.model import (
-    ACTIONS,
+    CONTROL_ACTIONS,
     Bullet,
     BulletPattern,
     EnemyBody,
@@ -17,7 +17,7 @@ from th06.model import (
     Snapshot,
 )
 CORPUS_DIR = Path(__file__).with_name("corpus") / "counterexamples"
-ACTION_BY_NAME = {action.name: action for action in ACTIONS}
+ACTION_BY_NAME = {action.name: action for action in CONTROL_ACTIONS}
 
 
 def load_cases() -> tuple[dict, ...]:

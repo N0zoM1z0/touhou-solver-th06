@@ -2119,3 +2119,384 @@ TH06_EXPORT std::int32_t th06_flexible_terminal_counts_progressive(
     if (status == 1) return 2;
     return status;
 }
+
+// Query-local backward viability from the exact physical delivery frontier.
+// Nature chooses any observed delivery/transition branch; after that branch
+// is observable, the controller may choose any direction/focus action on each
+// frame.  Each rung publishes only after every candidate and delivery branch
+// has a complete Boolean answer.  Exact state memoization, existential
+// witness short-circuiting, and monotone removal of losing first actions are
+// semantic-preserving prunes rather than path-volume approximations.
+TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t minimumHorizon,
+    std::int32_t maximumHorizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* completedHorizonOutput,
+    std::int32_t* viabilityOutput
+) {
+    constexpr std::uint32_t controlMask = (
+        (1U << kControlActionCount) - 1U
+    );
+    if (
+        segmentLength != 4 || minimumHorizon <= segmentLength
+        || maximumHorizon < minimumHorizon || maximumHorizon > 64
+        || candidateMask == 0U || (candidateMask & ~controlMask) != 0U
+        || !(budgetMs > 0.0) || !std::isfinite(budgetMs)
+        || bulletOffsets == nullptr || laserOffsets == nullptr
+        || completedHorizonOutput == nullptr || viabilityOutput == nullptr
+    ) {
+        return -1;
+    }
+
+    std::fill(
+        viabilityOutput,
+        viabilityOutput + kControlActionCount,
+        0
+    );
+    *completedHorizonOutput = 0;
+    const PolicyClock::time_point deadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const auto deadlineExpired = [&]() {
+        return PolicyClock::now() >= deadline;
+    };
+
+    std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
+    constexpr std::int32_t kCellSize = 32;
+    constexpr std::int32_t kGridWidth = 12;
+    constexpr std::int32_t kGridHeight = 14;
+    constexpr std::int32_t kGridCells = kGridWidth * kGridHeight;
+    std::array<std::array<std::vector<std::uint32_t>, kGridCells>, 64>
+        bulletGrid;
+    const auto clampCellX = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridWidth - 1);
+    };
+    const auto clampCellY = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridHeight - 1);
+    };
+    for (std::int32_t frame = 0; frame < maximumHorizon; ++frame) {
+        if (deadlineExpired()) return 1;
+        for (
+            std::uint32_t index = bulletOffsets[frame];
+            index < bulletOffsets[frame + 1];
+            ++index
+        ) {
+            const Aabb& hazard = bullets[index];
+            const std::int32_t left = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.left - playerHalfWidth - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t right = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.right + playerHalfWidth + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t top = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.top - playerHalfHeight - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t bottom = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.bottom + playerHalfHeight + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            for (std::int32_t cellY = top; cellY <= bottom; ++cellY) {
+                for (std::int32_t cellX = left; cellX <= right; ++cellX) {
+                    bulletGrid[frame][cellY * kGridWidth + cellX].push_back(
+                        index
+                    );
+                }
+            }
+        }
+    }
+    const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        auto& frameCache = safetyCache[frame];
+        const std::uint64_t key = positionKey(x, y);
+        const auto found = frameCache.find(key);
+        if (found != frameCache.end()) return found->second;
+        const std::int32_t cellX = clampCellX(static_cast<std::int32_t>(
+            std::floor(x / static_cast<float>(kCellSize))
+        ));
+        const std::int32_t cellY = clampCellY(static_cast<std::int32_t>(
+            std::floor(y / static_cast<float>(kCellSize))
+        ));
+        bool safe = true;
+        for (const std::uint32_t index : bulletGrid[frame][
+            cellY * kGridWidth + cellX
+        ]) {
+            if (withinMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                bullets[index],
+                collisionMargin
+            )) {
+                safe = false;
+                break;
+            }
+        }
+        if (safe) {
+            for (
+                std::uint32_t index = laserOffsets[frame];
+                index < laserOffsets[frame + 1];
+                ++index
+            ) {
+                if (withinLaserMargin(
+                    x,
+                    y,
+                    playerHalfWidth,
+                    playerHalfHeight,
+                    lasers[index],
+                    collisionMargin
+                )) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        frameCache.emplace(key, safe);
+        return safe;
+    };
+
+    std::array<std::vector<std::uint64_t>, kControlActionCount> branchOrigins;
+    std::array<bool, kControlActionCount> prefixSafe{};
+    const ControlAction current = actionFromInput(inputMask);
+    for (
+        std::int32_t firstIndex = 0;
+        firstIndex < kControlActionCount;
+        ++firstIndex
+    ) {
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+        prefixSafe[firstIndex] = true;
+        ControlAction transitions[5];
+        const std::int32_t transitionCount = transitionActions(
+            inputMask, kActionMasks[firstIndex], transitions
+        );
+        for (const std::int32_t delay : kDelays) {
+            const std::int32_t branchCount = 1 + (
+                delay > 0 ? transitionCount : 0
+            );
+            for (
+                std::int32_t branch = 0;
+                branch < branchCount;
+                ++branch
+            ) {
+                if (deadlineExpired()) return 1;
+                const ControlAction* transition = branch == 0
+                    ? nullptr
+                    : &transitions[branch - 1];
+                float x = playerX;
+                float y = playerY;
+                for (
+                    std::int32_t frame = 1;
+                    frame <= segmentLength;
+                    ++frame
+                ) {
+                    stepPlayer(
+                        x,
+                        y,
+                        scheduledAction(
+                            frame,
+                            delay,
+                            current,
+                            kActions[firstIndex],
+                            transition
+                        ),
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
+                    );
+                    if (!spatialSafeAtFrame(x, y, frame - 1)) {
+                        prefixSafe[firstIndex] = false;
+                        break;
+                    }
+                }
+                if (!prefixSafe[firstIndex]) break;
+                branchOrigins[firstIndex].push_back(positionKey(x, y));
+            }
+            if (!prefixSafe[firstIndex]) break;
+        }
+        if (prefixSafe[firstIndex]) {
+            auto& origins = branchOrigins[firstIndex];
+            std::sort(origins.begin(), origins.end());
+            origins.erase(
+                std::unique(origins.begin(), origins.end()),
+                origins.end()
+            );
+        }
+    }
+
+    // Try focus and unfocused variants of each direction together.  This is
+    // ordering only: a losing state is recorded only after all 18 successors
+    // have been checked.
+    constexpr std::int32_t actionOrder[kControlActionCount] = {
+        0, 9, 1, 10, 2, 11, 3, 12, 4, 13,
+        5, 14, 6, 15, 7, 16, 8, 17,
+    };
+    std::uint32_t activeMask = candidateMask;
+    for (
+        std::int32_t firstIndex = 0;
+        firstIndex < kControlActionCount;
+        ++firstIndex
+    ) {
+        if (
+            (activeMask & (1U << firstIndex)) != 0U
+            && !prefixSafe[firstIndex]
+        ) {
+            activeMask &= ~(1U << firstIndex);
+        }
+    }
+    std::array<std::int32_t, kControlActionCount> lastMembership{};
+    // A state that cannot reach an earlier absolute horizon cannot reach a
+    // later one either. Persist those exact negative proofs across rungs.
+    // Winning actions are not proofs for a deeper rung, but trying the old
+    // witness first usually extends the prior policy without search churn.
+    std::array<std::unordered_set<std::uint64_t>, 64> losingStates;
+    std::array<std::unordered_map<std::uint64_t, std::int8_t>, 64>
+        witnessActions;
+
+    for (
+        std::int32_t targetHorizon = minimumHorizon;
+        targetHorizon <= maximumHorizon;
+        ++targetHorizon
+    ) {
+        std::array<std::unordered_map<std::uint64_t, std::uint8_t>, 64> memo;
+        bool timedOut = false;
+        std::uint32_t deadlinePoll = 0;
+        const auto canSurvive = [&](
+            auto&& self,
+            std::uint64_t key,
+            std::int32_t frame
+        ) -> bool {
+            if (frame >= targetHorizon) return true;
+            ++deadlinePoll;
+            if (
+                (deadlinePoll & 0x0FU) == 0U
+                && deadlineExpired()
+            ) {
+                timedOut = true;
+                return false;
+            }
+            if (losingStates[frame].count(key) != 0U) return false;
+            auto& frameMemo = memo[frame];
+            const auto found = frameMemo.find(key);
+            if (found != frameMemo.end()) return found->second == 2U;
+            float startX;
+            float startY;
+            positionFromKey(key, startX, startY);
+            const auto tryAction = [&](std::int32_t actionIndex) {
+                float x = startX;
+                float y = startY;
+                stepPlayer(
+                    x,
+                    y,
+                    kActions[actionIndex],
+                    normalSpeed,
+                    focusSpeed,
+                    normalDiagonalSpeed,
+                    focusDiagonalSpeed
+                );
+                return spatialSafeAtFrame(x, y, frame)
+                    && self(self, positionKey(x, y), frame + 1);
+            };
+            const auto oldWitness = witnessActions[frame].find(key);
+            const std::int32_t preferredAction = (
+                oldWitness == witnessActions[frame].end()
+                ? -1
+                : oldWitness->second
+            );
+            if (
+                preferredAction >= 0
+                && tryAction(preferredAction)
+            ) {
+                if (!timedOut) frameMemo.emplace(key, 2U);
+                return !timedOut;
+            }
+            if (timedOut) return false;
+            for (const std::int32_t actionIndex : actionOrder) {
+                if (actionIndex == preferredAction) continue;
+                if (!tryAction(actionIndex)) {
+                    if (timedOut) return false;
+                    continue;
+                }
+                witnessActions[frame][key] = static_cast<std::int8_t>(
+                    actionIndex
+                );
+                frameMemo.emplace(key, 2U);
+                return true;
+            }
+            frameMemo.emplace(key, 1U);
+            losingStates[frame].insert(key);
+            return false;
+        };
+
+        std::array<std::int32_t, kControlActionCount> rungMembership{};
+        for (
+            std::int32_t firstIndex = 0;
+            firstIndex < kControlActionCount;
+            ++firstIndex
+        ) {
+            if ((activeMask & (1U << firstIndex)) == 0U) continue;
+            bool viable = true;
+            for (const std::uint64_t origin : branchOrigins[firstIndex]) {
+                if (!canSurvive(
+                    canSurvive,
+                    origin,
+                    segmentLength
+                )) {
+                    viable = false;
+                    break;
+                }
+            }
+            if (timedOut) break;
+            if (viable) {
+                rungMembership[firstIndex] = 1;
+            } else {
+                // Failure at H implies failure at every H' > H.
+                activeMask &= ~(1U << firstIndex);
+            }
+        }
+        if (timedOut || deadlineExpired()) {
+            return *completedHorizonOutput == 0 ? 1 : 2;
+        }
+        lastMembership = rungMembership;
+        *completedHorizonOutput = targetHorizon;
+        std::copy(
+            lastMembership.begin(),
+            lastMembership.end(),
+            viabilityOutput
+        );
+        if (activeMask == 0U) {
+            // The all-losing result is complete for every deeper horizon by
+            // monotonicity, so no deadline-limited work remains.
+            *completedHorizonOutput = maximumHorizon;
+            return 0;
+        }
+    }
+    return 0;
+}

@@ -107,7 +107,10 @@ class ProposalRanker:
                     else 0.0
                 ),
                 candidate.action == self.committed_action,
-                candidate.action.focused,
+                # Avoid an extra Focus edge unless stronger continuation
+                # evidence selected the other mode. This is publication
+                # continuity, not a fixed preference for focused movement.
+                candidate.action.focused == current.focused,
                 candidate.clearance,
                 candidate.action == current,
                 candidate.action.name,

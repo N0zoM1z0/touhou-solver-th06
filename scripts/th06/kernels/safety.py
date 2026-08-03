@@ -162,6 +162,13 @@ class NativeSafetyKernel:
             ctypes.POINTER(ctypes.c_int32),
         )
         self.progressive_counts_function.restype = ctypes.c_int32
+        self.progressive_viability_function = (
+            self.library.th06_boolean_reachability_progressive
+        )
+        self.progressive_viability_function.argtypes = (
+            *self.progressive_counts_function.argtypes,
+        )
+        self.progressive_viability_function.restype = ctypes.c_int32
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
         self._prepared_hazards = None
@@ -527,6 +534,7 @@ class NativeSafetyKernel:
             hard_horizon,
             collision_margin,
             prepared,
+            (1 << len(CONTROL_ACTIONS)) - 1,
         )
         selected_safe = (
             self._certify_prepared(
@@ -871,6 +879,68 @@ class NativeSafetyKernel:
             completed_horizon.value,
             {
                 action: terminal_counts[index]
+                for index, action in enumerate(CONTROL_ACTIONS)
+                if action in candidate_actions
+            },
+            status == 0,
+        )
+
+    def boolean_reachability_progressive(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> tuple[int, dict[Action, int], bool] | None:
+        """Return deepest complete robust Boolean viability membership."""
+        bullet_offsets, bullets, laser_offsets, lasers = (
+            self._prepare_reusable(snapshot, maximum_horizon)
+        )
+        candidate_actions = {candidate.action for candidate in candidates}
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        )
+        completed_horizon = ctypes.c_int32()
+        membership = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
+        status = self.progressive_viability_function(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.normal_speed,
+            snapshot.focus_speed,
+            snapshot.normal_diagonal_speed,
+            snapshot.focus_diagonal_speed,
+            snapshot.input_mask,
+            segment_length,
+            minimum_horizon,
+            maximum_horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+            budget_ms,
+            ctypes.byref(completed_horizon),
+            membership,
+        )
+        if status == 1:
+            return None
+        if status not in (0, 2):
+            raise RuntimeError(
+                "native Boolean reachability rejected input "
+                f"with status {status}"
+            )
+        return (
+            completed_horizon.value,
+            {
+                action: membership[index]
                 for index, action in enumerate(CONTROL_ACTIONS)
                 if action in candidate_actions
             },

@@ -14,7 +14,13 @@ from th06.input_lease import (
     required_changed_action_delivery_delay,
 )
 from th06.hazards.world import forecast_world_births
-from th06.model import SafeAction, Snapshot, action_from_input
+from th06.model import (
+    ACTIONS,
+    CONTROL_ACTIONS,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
@@ -40,9 +46,10 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         replace(state, frame=state.frame + offset)
                     )
                 self.assertIsNotNone(decision)
+                expected_action = ACTION_BY_NAME[case["expect"]["action"]]
                 self.assertEqual(
-                    decision.action,
-                    ACTION_BY_NAME[case["expect"]["action"]],
+                    (decision.action.dx, decision.action.dy),
+                    (expected_action.dx, expected_action.dy),
                 )
                 self.assertGreaterEqual(
                     decision.effort_horizon,
@@ -60,7 +67,11 @@ class CounterexampleCorpusTests(unittest.TestCase):
             with self.subTest(case=case["id"]):
                 raw = case.get("snapshot") or case["input"]["snapshot"]
                 state = decode_snapshot(raw)
-                hard = certify_actions(state, 4)
+                hard = certify_actions(
+                    state,
+                    4,
+                    actions=CONTROL_ACTIONS,
+                )
                 decision = Solver(decision_budget_ms=0.001).decide(state)
                 if hard:
                     self.assertEqual(
@@ -84,6 +95,45 @@ class CounterexampleCorpusTests(unittest.TestCase):
                                 for candidate in decision.safe_actions
                             },
                         )
+
+    def test_action_factor_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "action_factor"
+        )
+        self.assertTrue(cases, "action-factor corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                focused = certify_actions(
+                    state,
+                    values["hard_horizon"],
+                    actions=ACTIONS,
+                )
+                control = certify_actions(
+                    state,
+                    values["hard_horizon"],
+                    actions=CONTROL_ACTIONS,
+                )
+                constant = certify_actions(
+                    state,
+                    values["constant_horizon"],
+                    actions=CONTROL_ACTIONS,
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in focused],
+                    expected["focused_actions_h4"],
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in control],
+                    expected["control_actions_h4"],
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in constant],
+                    expected["constant_actions_h16"],
+                )
 
     def test_ecl_forecast_counterexamples(self):
         cases = tuple(
@@ -256,7 +306,14 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     sorted(candidate.action.name for candidate in hard),
-                    sorted(case["expect"]["actions_by_horizon"]["4"]),
+                    sorted(
+                        candidate.action.name
+                        for candidate in certify_actions(
+                            state,
+                            4,
+                            actions=CONTROL_ACTIONS,
+                        )
+                    ),
                 )
                 self.assertEqual(
                     tuple(candidate.action for candidate in held),
@@ -450,9 +507,12 @@ class CounterexampleCorpusTests(unittest.TestCase):
                             replace(state, frame=state.frame + offset)
                         )
                     self.assertIsNotNone(decision)
+                    expected_action = ACTION_BY_NAME[
+                        solver_expect["action"]
+                    ]
                     self.assertEqual(
-                        decision.action,
-                        ACTION_BY_NAME[solver_expect["action"]],
+                        (decision.action.dx, decision.action.dy),
+                        (expected_action.dx, expected_action.dy),
                     )
                     self.assertGreaterEqual(
                         decision.effort_horizon,

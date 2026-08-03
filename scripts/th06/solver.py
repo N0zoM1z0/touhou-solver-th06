@@ -11,6 +11,7 @@ from .hazards.lasers import unknown_motion_may_reach_player
 from .kernels.safety import NativeSafetyKernel
 from .model import (
     ACTIONS,
+    CONTROL_ACTIONS,
     Action,
     Decision,
     PLAYER_ALIVE,
@@ -628,6 +629,7 @@ class Solver:
             HARD_SAFETY_HORIZON,
             horizon,
             target,
+            continuation_actions=CONTROL_ACTIONS,
         )
 
     def _certify_selected(
@@ -677,16 +679,21 @@ class Solver:
                 self.kernel,
                 snapshot,
                 HARD_SAFETY_HORIZON,
-                ACTIONS,
+                CONTROL_ACTIONS,
                 collision_margin=0.35,
             )
             return hard, age_zero, ()
-        hard = certify_actions(snapshot, HARD_SAFETY_HORIZON)
+        hard = certify_actions(
+            snapshot,
+            HARD_SAFETY_HORIZON,
+            actions=CONTROL_ACTIONS,
+        )
         age_zero = (
             certify_actions(
                 snapshot,
                 HARD_SAFETY_HORIZON,
                 DELIVERY_DELAYS[:-1],
+                actions=CONTROL_ACTIONS,
             )
             if not hard
             else ()
@@ -731,6 +738,7 @@ class Solver:
             candidates,
             HARD_SAFETY_HORIZON,
             horizon,
+            continuation_actions=CONTROL_ACTIONS,
         )
 
     def _budgeted_policy_scores(
@@ -761,7 +769,7 @@ class Solver:
             budget_ms=budget_ms,
         )
 
-    def _budgeted_flexible_terminal_counts(
+    def _budgeted_progressive_reachability(
         self,
         snapshot: Snapshot,
         candidates,
@@ -771,7 +779,7 @@ class Solver:
         native = (
             getattr(
                 type(self.kernel),
-                "flexible_terminal_counts_progressive",
+                "boolean_reachability_progressive",
                 None,
             )
             if self.kernel is not None
@@ -995,6 +1003,48 @@ class Solver:
             if pending_candidate is None:
                 self.pending_target_action = None
 
+            # Establish cheap, exact survival lower bounds before spending
+            # the residual deadline on a branching controller. A deeper
+            # constant witness is materially stronger fresh evidence than a
+            # shallower incomplete Boolean search; the latter may replace it
+            # only after completing at least the same horizon for every Hard
+            # first action.
+            for horizon in EFFORT_HORIZONS:
+                if (
+                    horizon > limit
+                    or horizon > TURN_CAPABLE_POLICY_HORIZONS[-1]
+                    or constant_exhausted
+                ):
+                    break
+                elapsed_ms = (self.clock() - started) * 1000.0
+                if (
+                    elapsed_ms
+                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
+                ):
+                    break
+                operation_started = self.clock()
+                next_frontier = self._certify_selected(
+                    snapshot,
+                    horizon,
+                    tuple(candidate.action for candidate in frontier),
+                )
+                rollout_ms += (
+                    self.clock() - operation_started
+                ) * 1000.0
+                rollout_horizon = horizon
+                if len(next_frontier) < len(frontier):
+                    contracted = True
+                if next_frontier:
+                    frontier = next_frontier
+                    frontier_horizon = horizon
+                else:
+                    constant_exhausted = True
+            if frontier_horizon > HARD_SAFETY_HORIZON:
+                policy_preferred = frozenset(
+                    candidate.action for candidate in frontier
+                )
+                policy_horizon = frontier_horizon
+
             budgeted_policy = (
                 getattr(
                     type(self.kernel),
@@ -1007,7 +1057,7 @@ class Solver:
             progressive_reachability = (
                 getattr(
                     type(self.kernel),
-                    "flexible_terminal_counts_progressive",
+                    "boolean_reachability_progressive",
                     None,
                 )
                 if self.kernel is not None
@@ -1031,7 +1081,7 @@ class Solver:
                 if reachability_budget_ms > 0.0:
                     policy_started = self.clock()
                     progressive = (
-                        self._budgeted_flexible_terminal_counts(
+                        self._budgeted_progressive_reachability(
                             snapshot,
                             hard,
                             limit,
@@ -1054,20 +1104,24 @@ class Solver:
                             completed_horizon,
                             policy_ms,
                         )
-                        flexible_best = max(
-                            (
-                                score for action, score
+                        # Membership is an exact exists-controller result for
+                        # every physical delivery branch. Keep every first
+                        # action in the deepest complete winning set; local
+                        # ranking breaks that survival tie.
+                        if (
+                            completed_horizon >= policy_horizon
+                            and any(
+                                score > 0
+                                for action, score
                                 in flexible_scores.items()
                                 if action in allowed
-                            ),
-                            default=0,
-                        )
-                        if flexible_best > 0:
+                            )
+                        ):
                             policy_preferred = frozenset(
                                 action for action, score
                                 in flexible_scores.items()
                                 if (
-                                    score == flexible_best
+                                    score > 0
                                     and action in allowed
                                 )
                             )

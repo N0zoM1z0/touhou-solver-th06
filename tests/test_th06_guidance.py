@@ -10,7 +10,13 @@ from th06.guidance import (
     terminal_reachability_counts,
 )
 from th06.kernels.safety import NativeSafetyKernel
-from th06.model import ACTIONS, SafeAction, Snapshot, action_from_input
+from th06.model import (
+    ACTIONS,
+    CONTROL_ACTIONS,
+    SafeAction,
+    Snapshot,
+    action_from_input,
+)
 from th06.safety import certify_actions
 from th06.solver import Solver
 from th06.viability import nominal_policy_scores
@@ -221,7 +227,7 @@ class RankedDeepFrontierGuidanceKernel(GuidanceKernel):
             for item in candidates
         }
 
-    def flexible_terminal_counts_progressive(
+    def boolean_reachability_progressive(
         self,
         _state,
         candidates,
@@ -237,7 +243,7 @@ class RankedDeepFrontierGuidanceKernel(GuidanceKernel):
             16,
             {
                 item.action: (
-                    2 if item.action.name in ("left", "up_right") else 1
+                    1 if item.action.name in ("left", "up_right") else 0
                 )
                 for item in candidates
             },
@@ -277,7 +283,7 @@ class SurvivalBeforeShallowTargetKernel(GuidanceKernel):
             for item in candidates
         }
 
-    def flexible_terminal_counts_progressive(
+    def boolean_reachability_progressive(
         self,
         _state,
         candidates,
@@ -292,7 +298,7 @@ class SurvivalBeforeShallowTargetKernel(GuidanceKernel):
         return (
             16,
             {
-                item.action: 10 if item.action.name == "stay" else 1
+                item.action: 1 if item.action.name == "stay" else 0
                 for item in candidates
             },
             maximum_horizon == 16,
@@ -338,7 +344,7 @@ class BudgetedReachabilityKernel(GuidanceKernel):
             for item in candidates
         }
 
-    def flexible_terminal_counts_progressive(
+    def boolean_reachability_progressive(
         self,
         _state,
         candidates,
@@ -358,7 +364,7 @@ class BudgetedReachabilityKernel(GuidanceKernel):
         return (
             maximum_horizon,
             {
-                item.action: 5 if item.action.name == "down" else 4
+                item.action: 1 if item.action.name == "down" else 0
                 for item in candidates
             },
             True,
@@ -392,7 +398,7 @@ class TimedOutReachabilityKernel(BudgetedReachabilityKernel):
         self.clock.advance_ms(budget_ms)
         return None
 
-    def flexible_terminal_counts_progressive(
+    def boolean_reachability_progressive(
         self,
         _state,
         _candidates,
@@ -792,6 +798,44 @@ class TerminalGuidanceTests(unittest.TestCase):
             counts,
             terminal_reachability_counts(state, hard, 4, horizon),
         )
+        self.assertIsNone(expired)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_boolean_reachability_is_complete_or_discarded(self):
+        state = snapshot(x=192.0, y=380.0, input_mask=0x04)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify_selected(
+            state,
+            4,
+            CONTROL_ACTIONS,
+            collision_margin=0.35,
+        )
+
+        completed = kernel.boolean_reachability_progressive(
+            state,
+            hard,
+            4,
+            8,
+            12,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.boolean_reachability_progressive(
+            state,
+            hard,
+            4,
+            8,
+            20,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertIsNotNone(completed)
+        horizon, membership, reached_maximum = completed
+        self.assertEqual(horizon, 12)
+        self.assertTrue(reached_maximum)
+        self.assertEqual(set(membership), set(CONTROL_ACTIONS))
+        self.assertTrue(all(membership.values()))
         self.assertIsNone(expired)
 
     def replay_terminal_reachability_case(self, case, kernel=None):
@@ -1535,7 +1579,7 @@ class TerminalGuidanceTests(unittest.TestCase):
             [],
         )
         self.assertIn(decision.action, {item.action for item in hard})
-        self.assertEqual(decision.effort_horizon, 20)
+        self.assertEqual(decision.effort_horizon, 16)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_physical_discontinuity_discards_only_soft_plan_state(self):
