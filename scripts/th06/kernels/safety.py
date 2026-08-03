@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ctypes
 import os
-import time
 from array import array
 from dataclasses import replace
 from pathlib import Path
@@ -170,32 +169,6 @@ class NativeSafetyKernel:
             *self.progressive_counts_function.argtypes,
         )
         self.progressive_viability_function.restype = ctypes.c_int32
-        self.coarse_scores_function = (
-            self.library.th06_coarse_survival_scores_budgeted
-        )
-        self.coarse_scores_function.argtypes = (
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_uint16,
-            ctypes.c_int32,
-            ctypes.c_int32,
-            ctypes.c_uint32,
-            ctypes.POINTER(ctypes.c_uint32),
-            ctypes.POINTER(_Aabb),
-            ctypes.POINTER(ctypes.c_uint32),
-            ctypes.POINTER(_LaserHazard),
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_float,
-            ctypes.c_double,
-            ctypes.POINTER(ctypes.c_int32),
-            ctypes.POINTER(ctypes.c_float),
-        )
-        self.coarse_scores_function.restype = ctypes.c_int32
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
         self._prepared_hazards = None
@@ -973,65 +946,6 @@ class NativeSafetyKernel:
             },
             status == 0,
         )
-
-    def coarse_survival_scores_budgeted(
-        self,
-        snapshot: Snapshot,
-        candidates: tuple[SafeAction, ...],
-        segment_length: int,
-        horizon: int,
-        collision_margin: float,
-        budget_ms: float,
-    ) -> dict[Action, tuple[int, float]] | None:
-        """Return complete coarse long-view labels, or discard on timeout."""
-        started = time.perf_counter()
-        bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, horizon)
-        )
-        remaining_ms = budget_ms - (time.perf_counter() - started) * 1000.0
-        if remaining_ms <= 0.0:
-            return None
-        candidate_actions = {candidate.action for candidate in candidates}
-        candidate_mask = sum(
-            1 << index
-            for index, action in enumerate(CONTROL_ACTIONS)
-            if action in candidate_actions
-        )
-        survival_frames = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
-        utility = (ctypes.c_float * len(CONTROL_ACTIONS))()
-        status = self.coarse_scores_function(
-            snapshot.x,
-            snapshot.y,
-            snapshot.normal_speed,
-            snapshot.focus_speed,
-            snapshot.normal_diagonal_speed,
-            snapshot.focus_diagonal_speed,
-            snapshot.input_mask,
-            segment_length,
-            horizon,
-            candidate_mask,
-            bullet_offsets,
-            bullets,
-            laser_offsets,
-            lasers,
-            snapshot.half_width,
-            snapshot.half_height,
-            collision_margin,
-            remaining_ms,
-            survival_frames,
-            utility,
-        )
-        if status == 1:
-            return None
-        if status != 0:
-            raise RuntimeError(
-                f"native coarse survival rejected input with status {status}"
-            )
-        return {
-            action: (survival_frames[index], utility[index])
-            for index, action in enumerate(CONTROL_ACTIONS)
-            if action in candidate_actions
-        }
 
     def _terminal_counts_prepared(
         self,
