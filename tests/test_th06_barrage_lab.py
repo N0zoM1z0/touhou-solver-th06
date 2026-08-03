@@ -1,6 +1,7 @@
 import struct
 import unittest
 from dataclasses import replace
+from unittest import mock
 
 from th06.barrage_lab.assets import (
     Pbg3Archive,
@@ -24,8 +25,15 @@ from th06.barrage_lab.runner import (
     source_terminal_guidance,
 )
 from th06.barrage_lab.temporal import run_proposal_temporal_sweep
+from th06.barrage_lab.stateful import (
+    UnsupportedStatefulModel,
+    physical_step_parity,
+    run_closed_loop,
+    step_closed_world,
+    step_fired_bullet,
+)
 from th06.hazards.bullets import hazard_box
-from th06.model import Bullet
+from th06.model import CONTROL_ACTIONS, Bullet
 
 
 class BitWriter:
@@ -226,6 +234,82 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(hazard_box(bullet, 1), (100.0, 98.0, 104.0, 102.0))
         self.assertEqual(hazard_box(bullet, 2), (102.0, 98.0, 106.0, 102.0))
         self.assertEqual(hazard_box(bullet, 3), (105.0, 98.0, 109.0, 102.0))
+
+    def test_stateful_fired_step_matches_source_projection_state(self):
+        bullet = Bullet(
+            x=100.0, y=100.0, vx=2.0, vy=0.0,
+            half_width=2.0, half_height=2.0, state=1,
+            ex_flags=0x11, angle=0.0, speed=2.0,
+            acceleration_x=1.0, acceleration_y=0.0,
+            acceleration_duration=30, timer=16, timer_float=16.0,
+        )
+
+        first = step_fired_bullet(bullet)
+        second = step_fired_bullet(first)
+        third = step_fired_bullet(second)
+
+        self.assertEqual((first.x, second.x, third.x), (102.0, 104.0, 107.0))
+        self.assertEqual((first.timer, third.timer_float), (17, 19.0))
+        self.assertEqual(first.ex_flags, 0x11)
+        self.assertEqual(second.ex_flags, 0x10)
+        self.assertEqual(third.vx, 3.0)
+
+    def test_stateful_world_and_physical_player_parity_are_closed_loop(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 7, target_bullets=8)
+        right = next(action for action in CONTROL_ACTIONS if action.name == "right")
+        start = replace(
+            case.snapshot,
+            frame=100,
+            input_mask=0x05,
+            bullets=tuple(
+                replace(bullet, x=-1000.0, y=-1000.0)
+                for bullet in case.snapshot.bullets
+            ),
+        )
+        following = step_closed_world(start, right)
+        parity = physical_step_parity((start, following))
+
+        self.assertEqual(parity.adjacent_pairs, 1)
+        self.assertEqual(parity.exact_player_steps, 1)
+        self.assertEqual(
+            parity.exact_fired_bullet_steps,
+            parity.fired_bullet_steps,
+        )
+        self.assertLessEqual(parity.maximum_fired_bullet_error, 1e-4)
+
+        result = run_closed_loop(
+            replace(start, bullets=()),
+            lambda _snapshot: right,
+            frames=3,
+            delivery_seed=1,
+        )
+        self.assertEqual(result.outcome, "survived")
+        self.assertEqual(result.actions, ("stay", "right", "right"))
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.certify_linear_source",
+            wraps=certify_linear_source,
+        ) as certify:
+            run_closed_loop(
+                replace(start, bullets=()),
+                lambda _snapshot: right,
+                frames=2,
+                delivery_seed=3,
+            )
+        self.assertIn(1, [call.args[1] for call in certify.call_args_list])
+        self.assertNotIn(4, [call.args[1] for call in certify.call_args_list])
+
+    def test_stateful_world_rejects_unproved_spawn_animation(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 7, target_bullets=1)
+        spawning = replace(case.snapshot.bullets[0], state=3)
+
+        with self.assertRaises(UnsupportedStatefulModel):
+            step_closed_world(
+                replace(case.snapshot, bullets=(spawning,)),
+                CONTROL_ACTIONS[0],
+            )
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
