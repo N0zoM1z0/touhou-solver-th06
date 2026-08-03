@@ -434,7 +434,6 @@ class PublicationFragileKernel(BudgetedProgressiveKernel):
             if candidate.action in allowed
         )
 
-
 class AnytimePolicyTests(unittest.TestCase):
     def setUp(self):
         state = snapshot()
@@ -702,7 +701,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 16)],
+            [(8, 8), (12, 16)],
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 
@@ -801,6 +800,76 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[0] for call in kernel.calls],
         )
         self.assertIn(("prepare", 12), kernel.calls)
+        self.assertIn(
+            (12, 12),
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+        )
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
+    def test_next_terminal_projection_completes_before_deeper_promotion(self):
+        clock = ManualClock()
+        shallow = self.hard[0]
+        deep = self.hard[1]
+
+        class NextRungKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                segment_length,
+                horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "delivery_viability",
+                    segment_length,
+                    horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                if budget_ms < 1.0:
+                    self.clock.advance_ms(budget_ms)
+                    return None
+                self.clock.advance_ms(1.0)
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms(4.0 if horizon == 12 else 9.5)
+
+        kernel = NextRungKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                candidate.action: 1 for candidate in self.hard
+            },
+            delivery_ms=100.0,
+            terminal_scores_by_horizon={
+                12: {
+                    shallow.action: 3,
+                    deep.action: 9,
+                    self.hard[2].action: 1,
+                },
+            },
+            scores_by_horizon={},
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep.action)
+        self.assertGreaterEqual(decision.effort_horizon, 12)
+        self.assertEqual(
+            [call for call in kernel.calls if call[0] == "prepare"],
+            [("prepare", 12)],
+        )
         self.assertIn(
             (12, 12),
             [
@@ -967,6 +1036,7 @@ class AnytimePolicyTests(unittest.TestCase):
             def prepare(self, _state, horizon):
                 self.calls.append(("prepare", horizon))
                 self.clock.advance_ms({
+                    8: 0.0,
                     16: 1.0,
                     24: 2.0,
                     32: 3.0,
@@ -997,7 +1067,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 32)
         self.assertEqual(
             [call[1] for call in kernel.calls if call[0] == "prepare"],
-            [16, 24, 32],
+            [8, 16, 24, 32],
         )
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
@@ -1131,14 +1201,14 @@ class AnytimePolicyTests(unittest.TestCase):
         solver.effort.last_limit = 12
 
         fragile = solver.decide(snapshot())
-        progressive = next(
-            call for call in kernel.calls if call[0] == "progressive"
-        )
 
         self.assertEqual(fragile.safe_actions, self.hard)
         self.assertEqual(fragile.action, shallow_action)
-        self.assertEqual(fragile.effort_horizon, 8)
-        self.assertLess(progressive[3], SAME_FRAME_DECISION_BUDGET_MS)
+        self.assertEqual(fragile.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertNotIn(
+            "progressive",
+            [call[0] for call in kernel.calls],
+        )
         self.assertLessEqual(clock.seconds * 1000.0, SAME_FRAME_DECISION_BUDGET_MS)
 
         kernel.extended_safe = True
@@ -1148,7 +1218,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(robust.safe_actions, self.hard)
         self.assertEqual(robust.action, deep_action)
-        self.assertEqual(robust.effort_horizon, 12)
+        self.assertGreaterEqual(robust.effort_horizon, 12)
         self.assertLessEqual(
             clock.seconds * 1000.0 - second_started_ms,
             12.5,
@@ -1522,6 +1592,67 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(decision.effort_horizon, 16)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
+    def test_constrained_publication_budget_keeps_exact_local_ranking(self):
+        clock = ManualClock()
+        local_winner = self.hard[1]
+
+        class ConstrainedKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                segment_length,
+                horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "delivery_viability",
+                    segment_length,
+                    horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms(4.0)
+
+        kernel = ConstrainedKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                self.hard[0].action: 2,
+                local_winner.action: 7,
+                self.hard[2].action: 1,
+            },
+            delivery_ms=2.0,
+            terminal_scores_by_horizon={},
+            scores_by_horizon={},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.publication_scale = 0.5
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, local_winner.action)
+        self.assertIn(
+            "delivery_replanning",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn(
+            "delivery_viability",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn(
+            "prepare",
+            [call[0] for call in kernel.calls],
+        )
 
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
         for robustness_complete in (False, True):

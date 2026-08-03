@@ -83,9 +83,9 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         {candidate.action for candidate in hard},
                     )
                 else:
-                    self.assertIn(
+                    self.assertEqual(
                         decision.reason,
-                        ("hard-safe-set-empty", "same-frame-delivery-only"),
+                        "hard-safe-set-empty",
                     )
                     if decision.action is not None:
                         self.assertIn(

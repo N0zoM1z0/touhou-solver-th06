@@ -139,6 +139,12 @@ class EffortController:
     def require_same_frame_publication(self) -> None:
         self.decision_budget_cap_ms = SAME_FRAME_DECISION_BUDGET_MS
 
+    def full_publication_budget_available(self) -> bool:
+        return (
+            self.decision_budget_cap_ms is None
+            and self.publication_scale >= 1.0
+        )
+
     @staticmethod
     def _measurement_freshness(
         snapshot_frame: int,
@@ -1290,16 +1296,6 @@ class Solver:
         started = self.clock()
         hard, age_zero, hard_held = self._hard_authority(snapshot)
         if not hard:
-            if age_zero:
-                chosen = self.ranker.choose(snapshot, age_zero)
-                return Decision(
-                    chosen.action,
-                    age_zero,
-                    chosen.clearance,
-                    HARD_SAFETY_HORIZON,
-                    "same-frame-delivery-only",
-                    HARD_SAFETY_HORIZON,
-                )
             return Decision(
                 None,
                 (),
@@ -1307,6 +1303,7 @@ class Solver:
                 HARD_SAFETY_HORIZON,
                 "hard-safe-set-empty",
                 HARD_SAFETY_HORIZON,
+                repairable_count=len(age_zero),
             )
 
         extended_delivery = (
@@ -1361,17 +1358,20 @@ class Solver:
         acquisition_horizon = HARD_SAFETY_HORIZON
         progressive_pending_guidance = None
         planning_candidates = hard
+        full_publication_budget = (
+            self.effort.full_publication_budget_available()
+        )
 
         if len(hard) > 1:
             # This is the ordinary first continuation rung, not a predicted
-            # scene depth.  Publish the cheap complete delivery-viability
-            # predicate first and leave the measured residual to the stronger
-            # h12/h16 terminal frontier below.  Spending the deadline on p8
-            # robustness can suppress a materially stronger next rung even
-            # when p8 is almost indifferent.  Kernels without the Boolean
-            # primitive retain the complete p8 fallback.  This ordering
-            # changes compute effort only; every published action remains in
-            # Hard and delivery-viable.
+            # scene depth.  With the full publication budget, publish the
+            # cheap complete delivery-viability predicate first and leave the
+            # measured residual to h12/h16.  A latency-constrained decision
+            # instead spends its smaller residual on complete p8 robustness;
+            # starting a fresh projection there can discard both rankings.
+            # Kernels without the Boolean primitive retain the same complete
+            # p8 fallback.  This changes compute effort only; every published
+            # action remains in Hard and delivery-viable.
             elapsed_ms = (self.clock() - started) * 1000.0
             remaining_ms = (
                 self.effort.budget_ms()
@@ -1379,10 +1379,18 @@ class Solver:
                 - POLICY_DEADLINE_GUARD_MS
             )
             replanning_started = self.clock()
-            replanning_result = self._budgeted_replanning_viability(
-                snapshot,
-                hard,
-                remaining_ms,
+            replanning_result = (
+                self._budgeted_replanning_viability(
+                    snapshot,
+                    hard,
+                    remaining_ms,
+                )
+                if full_publication_budget
+                else self._budgeted_replanning_scores(
+                    snapshot,
+                    hard,
+                    remaining_ms,
+                )
             )
             replanning_ms = (
                 self.clock() - replanning_started
@@ -1421,7 +1429,8 @@ class Solver:
 
         elapsed_ms = (self.clock() - started) * 1000.0
         if (
-            (
+            full_publication_budget
+            and (
                 limit > max(HARD_SAFETY_HORIZON, policy_horizon)
                 # A completed p8 result is safe to retain while one ordinary
                 # h12 probe measures a previously unseen cost.  Otherwise an
@@ -1452,16 +1461,15 @@ class Solver:
                 terminal_progressive_native is not None
                 and len(planning_candidates) > 1
             )
-            # Build the deeper turn-capable window selected by the budget
-            # controller.  If the delivery-aware p8 rung completed, nominal
-            # pickup starts at h12 instead of rebuilding a weaker p8 forecast.
-            # The deeper progressive call still shares its own prefixes up to
-            # h16 and remains complete-or-discard.
+            # Prepare only the next ordinary turn-capable rung.  Building the
+            # whole predicted h16 projection up front can consume a shortened
+            # publication deadline before h12 gets any terminal-search time.
+            # Once h12 completes, the measured residual promotion below may
+            # extend the same cached projection to h16.  Every rung therefore
+            # remains complete-or-discard instead of hiding an intermediate
+            # result behind a deeper candidate-independent build.
             soft_prepare_horizon = (
-                max(
-                    nominal_minimum_horizon,
-                    min(limit, TURN_CAPABLE_POLICY_HORIZONS[-1]),
-                )
+                nominal_minimum_horizon
                 if progressive_terminal_ready
                 else limit
             )

@@ -445,7 +445,6 @@ def run(args: argparse.Namespace) -> int:
                                 )
                                 if (
                                     decision.action != current_action
-                                    and decision.reason != "same-frame-delivery-only"
                                     and required_max_delay > certified_max_delay
                                     and required_max_delay <= HARD_SAFETY_HORIZON
                                 ):
@@ -480,14 +479,6 @@ def run(args: argparse.Namespace) -> int:
                                     # uncertified transition; retry from a fresh
                                     # snapshot when the timing bound is too old.
                                     stale_retry = True
-                            if (
-                                not stale_retry
-                                and decision.reason == "same-frame-delivery-only"
-                                and delivery_age != 0
-                            ):
-                                # This fallback deliberately omits delay 3;
-                                # it can publish only before the snapshot ages.
-                                stale_retry = True
                         if decision.action is not None and not stale_retry:
                             events = keyboard.apply(decision.action)
                             transition_count += len(events)

@@ -873,7 +873,7 @@ class BaselineTests(unittest.TestCase):
             {item.action for item in expected},
         )
 
-    def test_empty_stale_set_keeps_a_same_frame_authority(self):
+    def test_shorter_delivery_set_cannot_replace_hard_authority(self):
         state = snapshot(
             Bullet(
                 191.4767, 364.4699, 0.3829, 2.2426,
@@ -885,18 +885,25 @@ class BaselineTests(unittest.TestCase):
             ),
             input_mask=BUTTON_FOCUS | 0x10,
         )
-        fixed = certify_actions(state, HARD_SAFETY_HORIZON)
+        fixed = certify_actions(
+            state,
+            HARD_SAFETY_HORIZON,
+            actions=CONTROL_ACTIONS,
+        )
         same_frame = certify_actions(
             state,
             HARD_SAFETY_HORIZON,
             DELIVERY_DELAYS[:-1],
+            actions=CONTROL_ACTIONS,
         )
         decision = Solver().decide(state)
 
         self.assertFalse(fixed)
         self.assertTrue(same_frame)
-        self.assertEqual(decision.reason, "same-frame-delivery-only")
-        self.assertIn(decision.action, {item.action for item in same_frame})
+        self.assertEqual(decision.reason, "hard-safe-set-empty")
+        self.assertIsNone(decision.action)
+        self.assertFalse(decision.safe_actions)
+        self.assertEqual(decision.repairable_count, len(same_frame))
 
     def test_input_lease_can_only_hold_a_hard_safe_action(self):
         right = ACTION_BY_VECTOR[(1, 0)]
