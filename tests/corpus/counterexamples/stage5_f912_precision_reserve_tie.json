@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "id": "stage5-f912-precision-reserve-tie",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 5,
+    "target_frame": 912,
+    "failure_frame": 969
+  },
+  "runner": "segment_terminal_progressive",
+  "contract": "When strongest fresh continuation evidence exactly ties focused and unfocused movement, prefer the focused segment before positional tie-breaking; larger displacement needs stronger survival evidence because the next soft continuation may miss its compute deadline.",
+  "summary": "The f969 Hard-empty stop was an effect. At f912 exact p12 tied left, right, and left-fast. Positional free-space ranking selected left-fast, after which dense projection cost left only Hard-4 for 55 frames and the unproved constant hold crossed the whole lower field. P8 first excluded left-fast at f965, only four frames before authority loss. Removing every bullet, enemy, and source spawner preserves the p12 tie and p16's preference for right, proving that the f912 choice is a general receding-horizon control-reserve issue rather than Stage 5 route strategy. Focused left retains the same strongest p12 score with half the source-defined displacement.",
+  "input": {
+    "segment_length": 4,
+    "minimum_horizon": 12,
+    "maximum_horizon": 12,
+    "snapshot": {
+      "frame": 912,
+      "stage": 5,
+      "player_state": 0,
+      "x": 366.6347351074219,
+      "y": 424.2426452636719,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 1,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 16,
+      "rng_seed": 34124,
+      "rng_generation": 2276
+    }
+  },
+  "expect": {
+    "hard_actions": [
+      "stay",
+      "up",
+      "down",
+      "left",
+      "right",
+      "up_left",
+      "up_right",
+      "down_left",
+      "down_right",
+      "stay_fast",
+      "up_fast",
+      "down_fast",
+      "left_fast",
+      "right_fast",
+      "up_left_fast",
+      "up_right_fast",
+      "down_left_fast",
+      "down_right_fast"
+    ],
+    "scores_by_horizon": {
+      "12": {
+        "stay": 41,
+        "up": 39,
+        "down": 32,
+        "left": 42,
+        "right": 42,
+        "up_left": 39,
+        "up_right": 41,
+        "down_left": 34,
+        "down_right": 33,
+        "stay_fast": 41,
+        "up_fast": 40,
+        "down_fast": 32,
+        "left_fast": 42,
+        "right_fast": 34,
+        "up_left_fast": 40,
+        "up_right_fast": 34,
+        "down_left_fast": 35,
+        "down_right_fast": 24
+      }
+    },
+    "actions_by_horizon": {
+      "12": [
+        "left",
+        "right",
+        "left_fast"
+      ]
+    }
+  }
+}

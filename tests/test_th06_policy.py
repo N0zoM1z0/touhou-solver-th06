@@ -2,7 +2,7 @@ import os
 import unittest
 from dataclasses import replace
 
-from th06.model import ACTIONS, Bullet, SafeAction, Snapshot
+from th06.model import ACTIONS, CONTROL_ACTIONS, Bullet, SafeAction, Snapshot
 from th06.kernels.safety import NativeSafetyKernel
 from th06.ranking import ProposalRanker
 from th06.solver import (
@@ -1679,6 +1679,29 @@ class AnytimePolicyTests(unittest.TestCase):
         chosen = ProposalRanker().choose(state, candidates)
 
         self.assertEqual(chosen.action, current)
+
+    def test_equal_continuation_prefers_focused_correction_reserve(self):
+        state = snapshot(input_mask=0x01)
+        focused = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "left"
+        )
+        fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "left_fast"
+        )
+        candidates = (
+            SafeAction(focused, 10.0, 180.0, state.y),
+            SafeAction(fast, 10.0, 160.0, state.y),
+        )
+
+        chosen = ProposalRanker().choose(
+            state,
+            candidates,
+            frozenset((focused, fast)),
+        )
+
+        self.assertEqual(chosen.action, focused)
 
 
 if __name__ == "__main__":

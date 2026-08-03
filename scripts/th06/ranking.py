@@ -96,11 +96,17 @@ class ProposalRanker:
                 return current_candidate
 
         def score(candidate: SafeAction) -> tuple[
-            bool, float, bool, bool, float, bool, str,
+            bool, bool, float, bool, bool, float, bool, str,
         ]:
             preferred = candidate.action in preferred_actions
             return (
                 preferred,
+                # Equal strongest continuation evidence does not justify the
+                # larger displacement of an unfocused segment.  Focused
+                # motion preserves correction reserve if the next soft rung
+                # misses its compute deadline; Hard has already certified
+                # the required Focus transition and retains sole authority.
+                preferred and candidate.action.focused,
                 (
                     _preferred_free_space(candidate)
                     if preferred and preferred_clearance_tied
