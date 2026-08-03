@@ -25,10 +25,126 @@ from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
 from th06.solver import Solver
-from th06.viability import nominal_policy_scores
+from th06.viability import (
+    delivery_segment_viability_scores,
+    nominal_policy_scores,
+)
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_repeated_pickup_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "delivery_segment_viability"
+        )
+        self.assertTrue(cases, "repeated-pickup corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard = certify_actions(
+                    state, values["segment_length"], actions=CONTROL_ACTIONS
+                )
+                viable = frozenset(expected["replanning_viable"])
+                candidates = tuple(
+                    candidate for candidate in hard
+                    if candidate.action.name in viable
+                )
+                scores = delivery_segment_viability_scores(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    values["maximum_horizon"],
+                )
+                self.assertEqual(
+                    {action.name: score for action, score in scores.items()},
+                    expected["robust_scores"],
+                )
+                robust = frozenset(
+                    action.name for action, score in scores.items() if score
+                )
+                self.assertEqual(robust, frozenset(expected["robust_actions"]))
+                self.assertIn("right", viable)
+                self.assertEqual(expected["nominal_actions"], ["right"])
+                self.assertNotIn("right", robust)
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_repeated_pickup_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "delivery_segment_viability"
+        )
+        self.assertTrue(cases, "repeated-pickup corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard = kernel.certify_selected(
+                    state,
+                    values["segment_length"],
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                )
+                viable = frozenset(expected["replanning_viable"])
+                candidates = tuple(
+                    candidate for candidate in hard
+                    if candidate.action.name in viable
+                )
+                p8 = kernel.replanning_viability_budgeted(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    8,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                robust8 = kernel.delivery_segment_viability_progressive(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    8,
+                    8,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                self.assertEqual(robust8[1], p8)
+                robust = None
+                for horizon in range(8, values["maximum_horizon"] + 1):
+                    robust = kernel.delivery_segment_viability_progressive(
+                        state,
+                        candidates,
+                        values["segment_length"],
+                        horizon,
+                        horizon,
+                        collision_margin=0.35,
+                        budget_ms=1000.0,
+                    )
+                    reference = delivery_segment_viability_scores(
+                        state,
+                        candidates,
+                        values["segment_length"],
+                        horizon,
+                    )
+                    self.assertEqual(robust[1], reference)
+                self.assertIsNotNone(robust)
+                self.assertEqual(
+                    {action.name: score for action, score in robust[1].items()},
+                    expected["robust_scores"],
+                )
+                expired = kernel.delivery_segment_viability_progressive(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    values["minimum_horizon"],
+                    values["maximum_horizon"],
+                    collision_margin=0.35,
+                    budget_ms=0.000001,
+                )
+                self.assertIsNone(expired)
+
     def test_anytime_policy_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

@@ -1535,6 +1535,27 @@ class NativeSafetyKernel:
             status == 0,
         )
 
+    def delivery_segment_viability_progressive(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> tuple[int, dict[Action, int], bool] | None:
+        """Return exact pickup-robust membership at each completed segment."""
+        return self.boolean_reachability_progressive(
+            snapshot,
+            candidates,
+            segment_length,
+            minimum_horizon,
+            maximum_horizon,
+            collision_margin,
+            budget_ms,
+        )
+
     def segment_terminal_guidance_progressive(
         self,
         snapshot: Snapshot,

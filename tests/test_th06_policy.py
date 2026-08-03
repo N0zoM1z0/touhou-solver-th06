@@ -1528,6 +1528,90 @@ class AnytimePolicyTests(unittest.TestCase):
             {candidate.action for candidate in self.hard},
         )
 
+    def test_repeated_pickup_gate_rejects_nominal_reversal(self):
+        clock = ManualClock()
+        state = snapshot()
+        stay = SafeAction(ACTIONS[0], 10.0, state.x, state.y)
+        left = SafeAction(ACTIONS[3], 9.0, state.x, state.y)
+        right = SafeAction(ACTIONS[4], 8.0, state.x, state.y)
+        hard = (stay, left, right)
+
+        class RepeatedPickupKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def delivery_segment_viability_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "repeated_pickup",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                self.clock.advance_ms(min(1.0, budget_ms))
+                allowed = frozenset(
+                    candidate.action for candidate in candidates
+                )
+                return (
+                    maximum_horizon,
+                    {
+                        action: int(action in (stay.action, left.action))
+                        for action in allowed
+                    },
+                    True,
+                )
+
+        kernel = RepeatedPickupKernel(
+            clock,
+            hard,
+            delivery_scores={candidate.action: 1 for candidate in hard},
+            terminal_scores_by_horizon={
+                12: {
+                    stay.action: 8,
+                    left.action: 10,
+                    right.action: 20,
+                },
+            },
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, left.action)
+        repeated = next(
+            call for call in kernel.calls if call[0] == "repeated_pickup"
+        )
+        self.assertEqual(repeated[1:3], (12, 12))
+        terminal = next(
+            call for call in kernel.calls
+            if call[0] == "terminal_progressive"
+        )
+        self.assertNotIn(right.action, {
+            candidate.action for candidate in terminal[3]
+        })
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_admitted_deeper_rung_follows_complete_local_viability(self):
         clock = ManualClock()
         shallow_winner = self.hard[0]

@@ -29,21 +29,7 @@ from .safety import (
 _MAX_POLICY_VOLUME = (1 << 31) - 1
 
 
-def nominal_policy_scores(
-    snapshot: Snapshot,
-    candidates: tuple[SafeAction, ...],
-    segment_length: int,
-    horizon: int,
-    continuation_actions: tuple[Action, ...] = ACTIONS,
-) -> dict[Action, int]:
-    """Count recursive fixed-segment MPC policies under nominal pickup.
-
-    The first segment retains every physical delivery and transition branch.
-    Later segments are proposal-only nominal continuations. Hard-4 remains the
-    sole authority for the candidate set and for every published action.
-    """
-    if not 0 < segment_length < horizon:
-        raise ValueError("segment length must be inside the horizon")
+def _proposal_hazard_frames(snapshot: Snapshot, horizon: int):
     bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
     enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
@@ -59,33 +45,40 @@ def nominal_policy_scores(
     uncovered = ((-10000.0, -10000.0, 10000.0, 10000.0),)
     aabb_frames = []
     for index in range(horizon):
-        if index < 4:
-            births = (
-                hard_births.hazards[index]
-                if index < hard_births.covered_frames
-                else uncovered
-            )
-            bodies = (
-                hard_births.body_hazards[index]
-                if index < hard_births.covered_frames
-                and hard_births.body_hazards
-                else uncovered
-            )
-        else:
-            births = (
-                nominal_births.hazards[index]
-                if index < nominal_births.covered_frames
-                else ()
-            )
-            bodies = (
-                nominal_births.body_hazards[index]
-                if index < nominal_births.covered_frames
-                and nominal_births.body_hazards
-                else ()
-            )
+        source = hard_births if index < 4 else nominal_births
+        fallback = uncovered if index < 4 else ()
+        births = (
+            source.hazards[index]
+            if index < source.covered_frames
+            else fallback
+        )
+        bodies = (
+            source.body_hazards[index]
+            if index < source.covered_frames and source.body_hazards
+            else fallback
+        )
         aabb_frames.append(
             bullet_frames[index] + enemy_frames[index] + births + bodies
         )
+    return tuple(aabb_frames), laser_frames
+
+
+def nominal_policy_scores(
+    snapshot: Snapshot,
+    candidates: tuple[SafeAction, ...],
+    segment_length: int,
+    horizon: int,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
+) -> dict[Action, int]:
+    """Count recursive fixed-segment MPC policies under nominal pickup.
+
+    The first segment retains every physical delivery and transition branch.
+    Later segments are proposal-only nominal continuations. Hard-4 remains the
+    sole authority for the candidate set and for every published action.
+    """
+    if not 0 < segment_length < horizon:
+        raise ValueError("segment length must be inside the horizon")
+    aabb_frames, laser_frames = _proposal_hazard_frames(snapshot, horizon)
 
     @lru_cache(maxsize=None)
     def safe_at(x: float, y: float, frame_index: int) -> bool:
@@ -177,6 +170,148 @@ def nominal_policy_scores(
                     best_from(x, y, segment_length) if survived else 0,
                 )
         scores[candidate.action] = 0 if worst == _MAX_POLICY_VOLUME else worst
+    return scores
+
+
+def delivery_segment_viability_scores(
+    snapshot: Snapshot,
+    candidates: tuple[SafeAction, ...],
+    segment_length: int,
+    horizon: int,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
+) -> dict[Action, int]:
+    """Exact local viability with physical pickup at every decision segment.
+
+    The controller observes each segment endpoint before choosing its next
+    target.  That target must survive every bounded pickup delay and every
+    sorted key-transition prefix.  This is proposal membership only; the
+    caller's Hard-certified candidate set remains the action authority.
+    """
+    if segment_length <= 0 or horizon <= segment_length:
+        raise ValueError("horizon must extend beyond the first segment")
+
+    aabb_frames, laser_frames = _proposal_hazard_frames(snapshot, horizon)
+
+    @lru_cache(maxsize=None)
+    def safe_at(x: float, y: float, frame_index: int) -> bool:
+        if any(
+            signed_clearance(
+                x,
+                y,
+                snapshot.half_width,
+                snapshot.half_height,
+                hazard,
+            ) <= COLLISION_MARGIN
+            for hazard in aabb_frames[frame_index]
+        ):
+            return False
+        return not any(
+            signed_laser_clearance(
+                x,
+                y,
+                snapshot.half_width,
+                snapshot.half_height,
+                laser,
+            ) <= COLLISION_MARGIN
+            for laser in laser_frames[frame_index]
+        )
+
+    def step(x: float, y: float, action: Action) -> tuple[float, float]:
+        return _step_player(
+            x,
+            y,
+            action,
+            snapshot.focus_speed if action.focused else snapshot.normal_speed,
+            (
+                snapshot.focus_diagonal_speed
+                if action.focused
+                else snapshot.normal_diagonal_speed
+            ),
+        )
+
+    def delivery_endpoints(
+        x: float,
+        y: float,
+        current: Action,
+        target: Action,
+        start_frame: int,
+    ) -> frozenset[tuple[float, float]] | None:
+        endpoints: set[tuple[float, float]] = set()
+        prefixes = transition_actions(current, target)
+        step_count = min(segment_length, horizon - start_frame)
+        for delay in DELIVERY_DELAYS:
+            branches = (None,) + prefixes if delay > 0 else (None,)
+            for prefix in branches:
+                future_x, future_y = x, y
+                for elapsed in range(1, step_count + 1):
+                    if prefix is not None and elapsed == delay:
+                        action = prefix
+                    elif elapsed < delay or (
+                        prefix is None and elapsed <= delay
+                    ):
+                        action = current
+                    else:
+                        action = target
+                    future_x, future_y = step(future_x, future_y, action)
+                    if not safe_at(
+                        future_x,
+                        future_y,
+                        start_frame + elapsed - 1,
+                    ):
+                        return None
+                endpoints.add((future_x, future_y))
+        return frozenset(endpoints)
+
+    @lru_cache(maxsize=None)
+    def can_survive(
+        x: float,
+        y: float,
+        current: Action,
+        start_frame: int,
+    ) -> bool:
+        if start_frame >= horizon:
+            return True
+        step_count = min(segment_length, horizon - start_frame)
+        for target in continuation_actions:
+            endpoints = delivery_endpoints(
+                x, y, current, target, start_frame
+            )
+            if endpoints is None:
+                continue
+            if all(
+                can_survive(
+                    future_x,
+                    future_y,
+                    target,
+                    start_frame + step_count,
+                )
+                for future_x, future_y in endpoints
+            ):
+                return True
+        return False
+
+    current = action_from_input(snapshot.input_mask)
+    scores: dict[Action, int] = {}
+    for candidate in candidates:
+        endpoints = delivery_endpoints(
+            snapshot.x,
+            snapshot.y,
+            current,
+            candidate.action,
+            0,
+        )
+        scores[candidate.action] = int(
+            endpoints is not None
+            and all(
+                can_survive(
+                    future_x,
+                    future_y,
+                    candidate.action,
+                    segment_length,
+                )
+                for future_x, future_y in endpoints
+            )
+        )
     return scores
 
 

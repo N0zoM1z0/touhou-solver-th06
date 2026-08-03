@@ -2803,13 +2803,13 @@ TH06_EXPORT std::int32_t th06_segment_terminal_guidance_progressive(
     return status;
 }
 
-// Query-local backward viability from the exact physical delivery frontier.
-// Nature chooses any observed delivery/transition branch; after that branch
-// is observable, the controller may choose any direction/focus action on each
-// frame.  Each rung publishes only after every candidate and delivery branch
-// has a complete Boolean answer.  Exact state memoization, existential
-// witness short-circuiting, and monotone removal of losing first actions are
-// semantic-preserving prunes rather than path-volume approximations.
+// Query-local backward viability under the same physical pickup model at
+// every decision segment. Nature chooses any observed 0..3-frame pickup and
+// sorted key-transition branch; after the exact endpoint is observable, the
+// controller chooses the next focused target. Each rung publishes only after
+// every candidate and delivery branch has a complete Boolean answer. Exact
+// state memoization, branch endpoint deduplication, existential witness
+// short-circuiting, and monotone removal are semantic-preserving prunes.
 TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
     float playerX,
     float playerY,
@@ -3034,13 +3034,6 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
         }
     }
 
-    // Try focus and unfocused variants of each direction together.  This is
-    // ordering only: a losing state is recorded only after all 18 successors
-    // have been checked.
-    constexpr std::int32_t actionOrder[kControlActionCount] = {
-        0, 9, 1, 10, 2, 11, 3, 12, 4, 13,
-        5, 14, 6, 15, 7, 16, 8, 17,
-    };
     std::uint32_t activeMask = candidateMask;
     for (
         std::int32_t firstIndex = 0;
@@ -3054,26 +3047,35 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
             activeMask &= ~(1U << firstIndex);
         }
     }
+
+    using StateSetByAction = std::array<
+        std::unordered_set<std::uint64_t>,
+        kControlActionCount
+    >;
+    using StateMemoByAction = std::array<
+        std::unordered_map<std::uint64_t, std::uint8_t>,
+        kControlActionCount
+    >;
+    using WitnessByAction = std::array<
+        std::unordered_map<std::uint64_t, std::int8_t>,
+        kControlActionCount
+    >;
+    std::array<StateSetByAction, 64> losingStates;
+    std::array<WitnessByAction, 64> witnessActions;
     std::array<std::int32_t, kControlActionCount> lastMembership{};
-    // A state that cannot reach an earlier absolute horizon cannot reach a
-    // later one either. Persist those exact negative proofs across rungs.
-    // Winning actions are not proofs for a deeper rung, but trying the old
-    // witness first usually extends the prior policy without search churn.
-    std::array<std::unordered_set<std::uint64_t>, 64> losingStates;
-    std::array<std::unordered_map<std::uint64_t, std::int8_t>, 64>
-        witnessActions;
 
     for (
         std::int32_t targetHorizon = minimumHorizon;
         targetHorizon <= maximumHorizon;
         ++targetHorizon
     ) {
-        std::array<std::unordered_map<std::uint64_t, std::uint8_t>, 64> memo;
+        std::array<StateMemoByAction, 64> memo;
         bool timedOut = false;
         std::uint32_t deadlinePoll = 0;
-        const auto canSurvive = [&](
+        const auto canSurvive = [&] (
             auto&& self,
             std::uint64_t key,
+            std::int32_t currentIndex,
             std::int32_t frame
         ) -> bool {
             if (frame >= targetHorizon) return true;
@@ -3085,56 +3087,138 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
                 timedOut = true;
                 return false;
             }
-            if (losingStates[frame].count(key) != 0U) return false;
-            auto& frameMemo = memo[frame];
-            const auto found = frameMemo.find(key);
-            if (found != frameMemo.end()) return found->second == 2U;
+            if (
+                losingStates[frame][currentIndex].count(key) != 0U
+            ) {
+                return false;
+            }
+            auto& stateMemo = memo[frame][currentIndex];
+            const auto found = stateMemo.find(key);
+            if (found != stateMemo.end()) return found->second == 2U;
+
             float startX;
             float startY;
             positionFromKey(key, startX, startY);
-            const auto tryAction = [&](std::int32_t actionIndex) {
-                float x = startX;
-                float y = startY;
-                stepPlayer(
-                    x,
-                    y,
-                    kActions[actionIndex],
-                    normalSpeed,
-                    focusSpeed,
-                    normalDiagonalSpeed,
-                    focusDiagonalSpeed
+            const std::int32_t stepCount = std::min(
+                segmentLength, targetHorizon - frame
+            );
+            const auto targetSurvives = [&](std::int32_t targetIndex) {
+                ControlAction transitions[5];
+                const std::int32_t transitionCount = transitionActions(
+                    kActionMasks[currentIndex],
+                    kActionMasks[targetIndex],
+                    transitions
                 );
-                return spatialSafeAtFrame(x, y, frame)
-                    && self(self, positionKey(x, y), frame + 1);
+                std::array<std::uint64_t, 24> endpoints{};
+                std::int32_t endpointCount = 0;
+                for (const std::int32_t delay : kDelays) {
+                    const std::int32_t branchCount = 1 + (
+                        delay > 0 ? transitionCount : 0
+                    );
+                    for (
+                        std::int32_t branch = 0;
+                        branch < branchCount;
+                        ++branch
+                    ) {
+                        ++deadlinePoll;
+                        if (
+                            (deadlinePoll & 0x0FU) == 0U
+                            && deadlineExpired()
+                        ) {
+                            timedOut = true;
+                            return false;
+                        }
+                        const ControlAction* transition = branch == 0
+                            ? nullptr
+                            : &transitions[branch - 1];
+                        float x = startX;
+                        float y = startY;
+                        for (
+                            std::int32_t elapsed = 1;
+                            elapsed <= stepCount;
+                            ++elapsed
+                        ) {
+                            stepPlayer(
+                                x,
+                                y,
+                                scheduledAction(
+                                    elapsed,
+                                    delay,
+                                    kActions[currentIndex],
+                                    kActions[targetIndex],
+                                    transition
+                                ),
+                                normalSpeed,
+                                focusSpeed,
+                                normalDiagonalSpeed,
+                                focusDiagonalSpeed
+                            );
+                            if (!spatialSafeAtFrame(
+                                x, y, frame + elapsed - 1
+                            )) {
+                                return false;
+                            }
+                        }
+                        endpoints[endpointCount++] = positionKey(x, y);
+                    }
+                }
+                std::sort(
+                    endpoints.begin(), endpoints.begin() + endpointCount
+                );
+                const auto uniqueEnd = std::unique(
+                    endpoints.begin(), endpoints.begin() + endpointCount
+                );
+                if (frame + stepCount >= targetHorizon) return true;
+                for (
+                    auto endpoint = endpoints.begin();
+                    endpoint != uniqueEnd;
+                    ++endpoint
+                ) {
+                    if (!self(
+                        self,
+                        *endpoint,
+                        targetIndex,
+                        frame + stepCount
+                    )) {
+                        return false;
+                    }
+                }
+                return true;
             };
-            const auto oldWitness = witnessActions[frame].find(key);
+
+            const auto oldWitness = witnessActions[frame][currentIndex].find(
+                key
+            );
             const std::int32_t preferredAction = (
-                oldWitness == witnessActions[frame].end()
+                oldWitness == witnessActions[frame][currentIndex].end()
                 ? -1
                 : oldWitness->second
             );
             if (
                 preferredAction >= 0
-                && tryAction(preferredAction)
+                && targetSurvives(preferredAction)
             ) {
-                if (!timedOut) frameMemo.emplace(key, 2U);
+                if (!timedOut) stateMemo.emplace(key, 2U);
                 return !timedOut;
             }
             if (timedOut) return false;
-            for (const std::int32_t actionIndex : actionOrder) {
-                if (actionIndex == preferredAction) continue;
-                if (!tryAction(actionIndex)) {
+            for (
+                std::int32_t targetIndex = 0;
+                targetIndex < kFocusedActionCount;
+                ++targetIndex
+            ) {
+                if (targetIndex == preferredAction) continue;
+                if (!targetSurvives(targetIndex)) {
                     if (timedOut) return false;
                     continue;
                 }
-                witnessActions[frame][key] = static_cast<std::int8_t>(
-                    actionIndex
-                );
-                frameMemo.emplace(key, 2U);
+                witnessActions[frame][currentIndex][key] =
+                    static_cast<std::int8_t>(targetIndex);
+                stateMemo.emplace(key, 2U);
                 return true;
             }
-            frameMemo.emplace(key, 1U);
-            losingStates[frame].insert(key);
+            stateMemo.emplace(key, 1U);
+            losingStates[frame][currentIndex].insert(key);
             return false;
         };
 
@@ -3150,6 +3234,7 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
                 if (!canSurvive(
                     canSurvive,
                     origin,
+                    firstIndex,
                     segmentLength
                 )) {
                     viable = false;
@@ -3160,7 +3245,6 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
             if (viable) {
                 rungMembership[firstIndex] = 1;
             } else {
-                // Failure at H implies failure at every H' > H.
                 activeMask &= ~(1U << firstIndex);
             }
         }
@@ -3175,8 +3259,6 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
             viabilityOutput
         );
         if (activeMask == 0U) {
-            // The all-losing result is complete for every deeper horizon by
-            // monotonicity, so no deadline-limited work remains.
             *completedHorizonOutput = maximumHorizon;
             return 0;
         }

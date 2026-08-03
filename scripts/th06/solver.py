@@ -1193,6 +1193,35 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_delivery_segment_viability(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "delivery_segment_viability_progressive",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None or budget_ms <= 0.0:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def _budgeted_macro_tail_scores(
         self,
         snapshot: Snapshot,
@@ -1389,6 +1418,7 @@ class Solver:
         policy_guidance = None
         delivery_viable: frozenset[Action] = frozenset()
         delivery_preferred: frozenset[Action] = frozenset()
+        segment_delivery_viable: frozenset[Action] = frozenset()
         terminal_completed = False
         target_guided = False
         target_invalid = False
@@ -1599,6 +1629,8 @@ class Solver:
                     nonlocal policy_guidance
                     nonlocal terminal_completed
                     nonlocal progressive_pending_guidance
+                    nonlocal planning_candidates
+                    nonlocal segment_delivery_viable
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
@@ -1607,6 +1639,74 @@ class Solver:
                     )
                     if remaining_ms <= 0.0:
                         return False
+                    robust_native = (
+                        getattr(
+                            type(self.kernel),
+                            "delivery_segment_viability_progressive",
+                            None,
+                        )
+                        if self.kernel is not None
+                        else None
+                    )
+                    # Make the next local rung exact under repeated physical
+                    # pickup.  Deeper terminal rungs are the coarser global
+                    # rank and may refine only inside this robust gate; they
+                    # do not repay the same exponential universal branch tax
+                    # at every extension.
+                    if (
+                        robust_native is not None
+                        and not segment_delivery_viable
+                    ):
+                        robust_result = (
+                            self._budgeted_delivery_segment_viability(
+                                snapshot,
+                                planning_candidates,
+                                maximum_horizon,
+                                remaining_ms,
+                            )
+                        )
+                        if robust_result is None:
+                            return False
+                        robust_horizon = robust_result[0]
+                        robust_scores = robust_result[1]
+                        robust_viable = frozenset(
+                            action for action, score
+                            in robust_scores.items()
+                            if score > 0
+                        )
+                        if (
+                            robust_horizon < maximum_horizon
+                            or not robust_viable
+                        ):
+                            return False
+                        planning_candidates = tuple(
+                            candidate for candidate in planning_candidates
+                            if candidate.action in robust_viable
+                        )
+                        segment_delivery_viable = robust_viable
+                        retained_prior = (
+                            policy_preferred & robust_viable
+                        )
+                        policy_preferred = (
+                            retained_prior or robust_viable
+                        )
+                        policy_horizon = robust_horizon
+                        if not retained_prior:
+                            policy_scores = robust_scores
+                        policy_guidance = None
+                        terminal_completed = True
+                        if len(planning_candidates) <= 1:
+                            return True
+                        elapsed_ms = (
+                            self.clock() - started
+                        ) * 1000.0
+                        remaining_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - TERMINAL_DEADLINE_GUARD_MS
+                        )
+                        if remaining_ms <= 0.0:
+                            return True
                     terminal_started = self.clock()
                     progressive_terminal = (
                         self._budgeted_progressive_terminal_counts(
@@ -1615,7 +1715,14 @@ class Solver:
                             minimum_horizon,
                             maximum_horizon,
                             remaining_ms,
-                            guidance_action,
+                            (
+                                guidance_action
+                                if any(
+                                    candidate.action == guidance_action
+                                    for candidate in planning_candidates
+                                )
+                                else None
+                            ),
                         )
                     )
                     terminal_ms = (
@@ -1844,7 +1951,7 @@ class Solver:
                 remaining_ms = (
                     self.effort.budget_ms()
                     - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
+                    - TERMINAL_DEADLINE_GUARD_MS
                 )
                 if remaining_ms <= 0.0:
                     break
@@ -1978,7 +2085,7 @@ class Solver:
                     remaining_ms = (
                         self.effort.budget_ms()
                         - elapsed_ms
-                        - POLICY_DEADLINE_GUARD_MS
+                        - TERMINAL_DEADLINE_GUARD_MS
                     )
                     coarse_frontier = (
                         self._budgeted_certify_selected(
@@ -2051,6 +2158,11 @@ class Solver:
             if (
                 progressive_reachability is not None
                 and len(hard) > 1
+                # Once the precise local repeated-pickup gate completed, the
+                # deeper nominal terminal ladder is the coarse global rank.
+                # Do not repay the universal delivery branch tax through the
+                # legacy residual Boolean path in the same decision.
+                and not segment_delivery_viable
                 and limit >= BASE_POLICY_HORIZON
                 and (
                     not terminal_completed
@@ -2202,7 +2314,7 @@ class Solver:
                 remaining_ms = (
                     self.effort.budget_ms()
                     - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
+                    - TERMINAL_DEADLINE_GUARD_MS
                 )
                 if remaining_ms <= 0.0:
                     break
@@ -2518,6 +2630,14 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
+        if segment_delivery_viable:
+            # This is exact receding-horizon survival evidence under the same
+            # pickup/transition timeline as publication.  Nominal endpoint,
+            # coarse, target, and attack ranks may break ties inside it, but
+            # cannot restore an action whose later correction was proved too
+            # late across a complete delivery-segment rung.
+            retained = preferred & segment_delivery_viable
+            preferred = retained or segment_delivery_viable
         if delivery_viable:
             # Zero means no safe next correction across every modeled
             # delivery branch, so a later nominal proposal cannot restore it.
