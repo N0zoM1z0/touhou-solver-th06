@@ -508,6 +508,53 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(deep_first, left)
         self.assertEqual(local_first, right)
 
+    def test_authority_filter_preserves_deep_ranking_inside_viable_actions(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        down = next(
+            action for action in CONTROL_ACTIONS if action.name == "down"
+        )
+
+        def replanning(_snapshot, candidates, **_kwargs):
+            values = {candidate.action: 1 for candidate in candidates}
+            values[right] = 1
+            values[left] = 2
+            values[down] = 0
+            return values
+
+        def terminal(_snapshot, actions, _delay, _horizon):
+            values = {name: 1 for name in actions}
+            values[right.name] = 3
+            values[left.name] = 1
+            values[down.name] = 10
+            return mock.Mock(counts=tuple(values.items()))
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.source_replanning_scores",
+            side_effect=replanning,
+        ), mock.patch(
+            "th06.barrage_lab.stateful.source_terminal_counts",
+            side_effect=terminal,
+        ):
+            most_next_actions = ExactTerminalPolicy(
+                16, metric="replanning-count"
+            )(snapshot)
+            filtered_deep = ExactTerminalPolicy(
+                16, metric="authority-filtered-count"
+            )(snapshot)
+
+        self.assertEqual(most_next_actions, left)
+        self.assertEqual(filtered_deep, right)
+
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 23, target_bullets=8)

@@ -33,6 +33,7 @@ from ..model import (
 )
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
+from ..viability import replanning_scores as source_replanning_scores
 from ..guidance import terminal_reachability_counts
 from ..hazards.geometry import signed_clearance
 from ..hazards.births import spawn_pattern
@@ -51,6 +52,8 @@ TERMINAL_METRICS = (
     "count",
     "count-vector",
     "local-count-vector",
+    "replanning-count",
+    "authority-filtered-count",
     "count-clearance",
     "count-clearance-confirmed",
     "count-focus-clearance",
@@ -406,6 +409,41 @@ class ExactTerminalPolicy:
                 and best[0] > 0
                 and scores[candidate.action.name] == best
             )
+        elif self.metric in (
+            "replanning-count",
+            "authority-filtered-count",
+        ):
+            replanning = source_replanning_scores(
+                snapshot,
+                candidates,
+                split=4,
+                horizon=min(8, self.horizon),
+            )
+            if self.metric == "authority-filtered-count":
+                deep = dict(source_terminal_counts(
+                    snapshot,
+                    hard.actions,
+                    4,
+                    self.horizon,
+                ).counts)
+                scores = {
+                    candidate.action: (
+                        int(replanning[candidate.action] > 0),
+                        deep[candidate.action.name],
+                        replanning[candidate.action],
+                    )
+                    for candidate in candidates
+                }
+            else:
+                scores = {
+                    candidate.action: (replanning[candidate.action],)
+                    for candidate in candidates
+                }
+            best = max(scores.values(), default=None)
+            preferred = frozenset(
+                action for action, score in scores.items()
+                if best is not None and score == best
+            )
         elif self.continuation == "frame":
             guidance_by_action = terminal_reachability_counts(
                 snapshot,
@@ -540,6 +578,43 @@ class NativeTerminalPolicy:
                 if best is not None
                 and best[0] > 0
                 and scores[candidate.action] == best
+            )
+        elif self.metric in (
+            "replanning-count",
+            "authority-filtered-count",
+        ):
+            replanning = self.kernel.replanning_scores(
+                snapshot,
+                hard,
+                4,
+                min(8, self.horizon),
+                collision_margin=0.35,
+            )
+            if self.metric == "authority-filtered-count":
+                deep = self.kernel.terminal_counts(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    collision_margin=0.35,
+                )
+                scores = {
+                    candidate.action: (
+                        int(replanning[candidate.action] > 0),
+                        deep[candidate.action],
+                        replanning[candidate.action],
+                    )
+                    for candidate in hard
+                }
+            else:
+                scores = {
+                    candidate.action: (replanning[candidate.action],)
+                    for candidate in hard
+                }
+            best = max(scores.values(), default=None)
+            preferred = frozenset(
+                action for action, score in scores.items()
+                if best is not None and score == best
             )
         elif self.continuation == "frame":
             result = self.kernel.flexible_terminal_counts_progressive(
