@@ -981,7 +981,6 @@ class Solver:
         snapshot: Snapshot,
         candidates,
         budget_ms: float,
-        robustness: bool,
     ):
         progressive = (
             getattr(
@@ -1001,7 +1000,6 @@ class Solver:
                 BASE_POLICY_HORIZON,
                 collision_margin=0.35,
                 budget_ms=budget_ms,
-                robustness=robustness,
             )
         native = (
             getattr(
@@ -1012,7 +1010,7 @@ class Solver:
             if self.kernel is not None
             else None
         )
-        if native is None or budget_ms <= 0.0 or not robustness:
+        if native is None or budget_ms <= 0.0:
             return None
         result = native(
             self.kernel,
@@ -1293,10 +1291,13 @@ class Solver:
         if len(hard) > 1:
             # This is the ordinary first continuation rung, not a predicted
             # scene depth.  Always offer it the measured residual deadline;
-            # the native call either publishes every candidate's complete
-            # two-delivery result or is discarded.  A conservative depth
-            # estimate must not suppress a cheap correction after a transient
-            # late publication has reduced the deeper ladder.
+            # The native call first completes every candidate's viability
+            # predicate, then spends the same residual deadline on exact
+            # robustness counts.  A timed-out refinement is discarded while
+            # the completed viability result remains publishable.  A
+            # conservative depth estimate must not suppress an affordable
+            # refinement after a transient late publication reduced the
+            # deeper ladder.
             elapsed_ms = (self.clock() - started) * 1000.0
             remaining_ms = (
                 self.effort.budget_ms()
@@ -1308,7 +1309,6 @@ class Solver:
                 snapshot,
                 hard,
                 remaining_ms,
-                limit >= BASE_POLICY_HORIZON,
             )
             replanning_ms = (
                 self.clock() - replanning_started

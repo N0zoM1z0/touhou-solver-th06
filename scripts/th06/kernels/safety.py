@@ -1069,7 +1069,6 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
         budget_ms: float,
-        robustness: bool = True,
     ) -> tuple[dict[Action, int], bool] | None:
         """Publish viability first, then exact robustness if time remains."""
         if budget_ms <= 0.0:
@@ -1102,8 +1101,7 @@ class NativeSafetyKernel:
         }
         robustness_budget_ms = remaining_ms()
         if (
-            not robustness
-            or not viable_actions
+            not viable_actions
             or robustness_budget_ms <= 0.0
         ):
             return viability, False

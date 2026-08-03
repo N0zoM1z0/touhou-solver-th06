@@ -328,8 +328,22 @@ class DeliveryReplanningKernel(TerminalRefinementKernel):
         }
 
     def replanning_scores_progressive_budgeted(self, *args, **kwargs):
+        # Preserve the retired keyword in this test double so the regression
+        # fails if a predicted horizon is ever allowed to suppress an
+        # affordable exact refinement again.
         robustness = kwargs.pop("robustness", True)
         scores = self.replanning_scores_budgeted(*args, **kwargs)
+        if (
+            scores is not None
+            and (
+                not robustness
+                or not self.delivery_robustness_complete
+            )
+        ):
+            scores = {
+                action: int(score > 0)
+                for action, score in scores.items()
+            }
         return (
             None
             if scores is None
@@ -1216,11 +1230,10 @@ class AnytimePolicyTests(unittest.TestCase):
         )
 
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
-        for predicted_limit, robustness_complete in (
-            (HARD_SAFETY_HORIZON, False),
-            (BASE_POLICY_HORIZON, True),
-        ):
-            with self.subTest(predicted_limit=predicted_limit):
+        for robustness_complete in (False, True):
+            with self.subTest(
+                robustness_complete=robustness_complete,
+            ):
                 clock = ManualClock()
                 fragile = self.hard[0]
                 robust = self.hard[1]
@@ -1229,12 +1242,8 @@ class AnytimePolicyTests(unittest.TestCase):
                     self.hard,
                     delivery_scores={
                         fragile.action: 0,
-                        robust.action: (
-                            5 if robustness_complete else 1
-                        ),
-                        self.hard[2].action: (
-                            3 if robustness_complete else 1
-                        ),
+                        robust.action: 3,
+                        self.hard[2].action: 5,
                     },
                     delivery_robustness_complete=robustness_complete,
                     terminal_scores_by_horizon={},
@@ -1242,12 +1251,19 @@ class AnytimePolicyTests(unittest.TestCase):
                 )
                 solver = self.solver(kernel, clock)
                 solver.effort.choose_limit = (
-                    lambda *_args, value=predicted_limit: value
+                    lambda *_args: HARD_SAFETY_HORIZON
                 )
 
                 decision = solver.decide(snapshot())
 
-                self.assertEqual(decision.action, robust.action)
+                self.assertEqual(
+                    decision.action,
+                    (
+                        self.hard[2].action
+                        if robustness_complete
+                        else robust.action
+                    ),
+                )
                 self.assertEqual(
                     decision.effort_horizon,
                     BASE_POLICY_HORIZON,
