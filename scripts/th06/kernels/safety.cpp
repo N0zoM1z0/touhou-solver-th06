@@ -686,6 +686,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
             inputMask, kActionMasks[firstIndex], firstTransitions
         );
         std::int32_t worstBranchCount = continuationActionCount;
+        std::unordered_set<std::uint64_t> evaluatedSplitStates;
         for (const std::int32_t firstDelay : kDelays) {
             if (deadlineExpired()) return 1;
             const std::int32_t firstBranchCount = 1 + (
@@ -713,6 +714,16 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                         normalDiagonalSpeed,
                         focusDiagonalSpeed
                     );
+                }
+                // Different pickup delays and transition schedules can alias
+                // to the same clamped physical state.  The second segment
+                // depends only on that exact position and the now-held first
+                // action, so evaluating an alias again cannot change the
+                // worst-branch score.
+                if (!evaluatedSplitStates.insert(positionKey(
+                    splitX, splitY
+                )).second) {
+                    continue;
                 }
                 std::int32_t continuationCount = 0;
                 std::unordered_set<std::uint64_t> continuationStates;

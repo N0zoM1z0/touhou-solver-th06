@@ -1062,6 +1062,40 @@ class Solver:
         )
         return None if result is None else (result, True)
 
+    def _budgeted_replanning_viability(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "replanning_viability_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return self._budgeted_replanning_scores(
+                snapshot,
+                candidates,
+                budget_ms,
+            )
+        if budget_ms <= 0.0:
+            return None
+        result = native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            BASE_POLICY_HORIZON,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+        return None if result is None else (result, False)
+
     def _budgeted_progressive_terminal_counts(
         self,
         snapshot: Snapshot,
@@ -1330,14 +1364,12 @@ class Solver:
 
         if len(hard) > 1:
             # This is the ordinary first continuation rung, not a predicted
-            # scene depth.  Always offer it the measured residual deadline;
-            # the native call first completes every candidate's viability
-            # predicate, then spends a bounded share on exact robustness
-            # counts.  A timed-out refinement is discarded while
-            # the completed viability result remains publishable.  A
-            # conservative depth estimate must not suppress an affordable
-            # refinement after a transient late publication reduced the
-            # deeper ladder.
+            # scene depth.  When no deeper rung is currently admitted, offer
+            # exact local robustness the whole residual deadline.  Otherwise
+            # publish the cheaper complete delivery-viability predicate first
+            # and leave the measured residual to the stronger h12/h16 terminal
+            # frontier below.  This ordering changes compute effort only;
+            # every published action remains in Hard and delivery-viable.
             elapsed_ms = (self.clock() - started) * 1000.0
             remaining_ms = (
                 self.effort.budget_ms()
@@ -1345,10 +1377,18 @@ class Solver:
                 - POLICY_DEADLINE_GUARD_MS
             )
             replanning_started = self.clock()
-            replanning_result = self._budgeted_replanning_scores(
-                snapshot,
-                hard,
-                remaining_ms,
+            replanning_result = (
+                self._budgeted_replanning_viability(
+                    snapshot,
+                    hard,
+                    remaining_ms,
+                )
+                if limit > BASE_POLICY_HORIZON
+                else self._budgeted_replanning_scores(
+                    snapshot,
+                    hard,
+                    remaining_ms,
+                )
             )
             replanning_ms = (
                 self.clock() - replanning_started

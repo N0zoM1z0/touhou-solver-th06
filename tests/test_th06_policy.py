@@ -1385,6 +1385,71 @@ class AnytimePolicyTests(unittest.TestCase):
             {candidate.action for candidate in self.hard},
         )
 
+    def test_admitted_deeper_rung_follows_complete_local_viability(self):
+        clock = ManualClock()
+        shallow_winner = self.hard[0]
+        deep_winner = self.hard[1]
+
+        class ViabilityFirstKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                segment_length,
+                horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "delivery_viability",
+                    segment_length,
+                    horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                if budget_ms < 1.0:
+                    self.clock.advance_ms(budget_ms)
+                    return None
+                self.clock.advance_ms(1.0)
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+        kernel = ViabilityFirstKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                shallow_winner.action: 9,
+                deep_winner.action: 3,
+                self.hard[2].action: 1,
+            },
+            delivery_ms=100.0,
+            terminal_scores_by_horizon={
+                16: {
+                    shallow_winner.action: 4,
+                    deep_winner.action: 20,
+                    self.hard[2].action: 2,
+                },
+            },
+            scores_by_horizon={},
+            flexible_completed_horizon=16,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_winner.action)
+        self.assertIn(
+            "delivery_viability",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn(
+            "delivery_replanning",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
         for robustness_complete in (False, True):
             with self.subTest(
