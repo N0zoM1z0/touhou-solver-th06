@@ -19,6 +19,15 @@ class WorldBirthForecast:
     covered_frames: int
     reason: str = ""
     body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
+    continuation: "WorldForecastContinuation | None" = None
+
+
+@dataclass(frozen=True)
+class WorldForecastContinuation:
+    emitters: tuple[EnemySpawner, ...]
+    rng_seed: int
+    rng_generation: int
+    framewise: bool
 
 
 def _project_hazards(
@@ -42,6 +51,204 @@ def _project_hazards(
             for frame_index, hazard in enumerate(hazards, birth_frame):
                 frames[frame_index].append(hazard)
     return tuple(tuple(frame) for frame in frames)
+
+
+def _forecast_nominal_from_state(
+    snapshot: Snapshot,
+    player_positions: tuple[tuple[float, float], ...],
+    emitters: tuple[EnemySpawner, ...],
+    rng: RngState,
+    *,
+    framewise: bool,
+) -> WorldBirthForecast:
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    if not framewise:
+        if not emitters:
+            return WorldBirthForecast(
+                tuple(tuple(frame) for frame in births),
+                _project_hazards(births, False),
+                len(player_positions),
+                body_hazards=tuple(tuple(frame) for frame in bodies),
+                continuation=WorldForecastContinuation(
+                    (), rng.seed, rng.generation_count, False
+                ),
+            )
+        if len(emitters) != 1:
+            raise ValueError("batched nominal continuation needs one emitter")
+        emitter = emitters[0]
+        try:
+            forecast = forecast_ecl_births(
+                emitter,
+                player_positions,
+                snapshot.difficulty,
+                snapshot.rank,
+                snapshot.bullet_sizes,
+                snapshot.frame_multiplier,
+                rng,
+                allow_player_variables=True,
+                radial_births=False,
+                # The original single-emitter path intentionally assumes no
+                # unknown future player damage. Preserve that exact contract
+                # when an already-started forecast is extended.
+                model_player_damage=False,
+            )
+        except UnsupportedBirthModel as error:
+            return WorldBirthForecast(
+                tuple(tuple(frame) for frame in births),
+                _project_hazards(births, False),
+                0,
+                f"emitter {emitter.slot}: {error}",
+            )
+        for frame_index, frame_births in enumerate(forecast.births):
+            births[frame_index].extend(frame_births)
+        for frame_index, frame_bodies in enumerate(forecast.body_hazards):
+            bodies[frame_index].extend(frame_bodies)
+        next_emitters = (
+            (forecast.next_spawner,)
+            if forecast.next_spawner is not None
+            else ()
+        )
+        continuation = (
+            WorldForecastContinuation(
+                next_emitters,
+                rng.seed,
+                rng.generation_count,
+                False,
+            )
+            if (
+                forecast.covered_frames == len(player_positions)
+                and (
+                    forecast.next_spawner is not None
+                    or forecast.finished
+                )
+            )
+            else None
+        )
+        return WorldBirthForecast(
+            tuple(tuple(frame) for frame in births),
+            _project_hazards(births, False),
+            forecast.covered_frames,
+            forecast.reason,
+            tuple(tuple(frame) for frame in bodies),
+            continuation,
+        )
+
+    for frame_index, player in enumerate(player_positions):
+        next_emitters: list[EnemySpawner] = []
+        stop_reason = ""
+        for emitter in emitters:
+            try:
+                forecast = forecast_ecl_births(
+                    emitter,
+                    (player,),
+                    snapshot.difficulty,
+                    snapshot.rank,
+                    snapshot.bullet_sizes,
+                    snapshot.frame_multiplier,
+                    rng,
+                    allow_player_variables=True,
+                    radial_births=False,
+                )
+            except UnsupportedBirthModel as error:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    f"emitter {emitter.slot}: {error}",
+                )
+            if forecast.covered_frames < 1:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    f"emitter {emitter.slot}: {forecast.reason}",
+                )
+            births[frame_index].extend(forecast.births[0])
+            if forecast.body_hazards:
+                bodies[frame_index].extend(forecast.body_hazards[0])
+            if forecast.next_spawner is None and not forecast.finished:
+                stop_reason = stop_reason or (
+                    f"emitter {emitter.slot}: {forecast.reason}"
+                )
+            elif forecast.next_spawner is not None:
+                next_emitters.append(forecast.next_spawner)
+        if stop_reason:
+            return WorldBirthForecast(
+                tuple(tuple(frame) for frame in births),
+                _project_hazards(births, False),
+                frame_index + 1,
+                stop_reason,
+            )
+        emitters = tuple(next_emitters)
+
+    return WorldBirthForecast(
+        tuple(tuple(frame) for frame in births),
+        _project_hazards(births, False),
+        len(player_positions),
+        body_hazards=tuple(tuple(frame) for frame in bodies),
+        continuation=WorldForecastContinuation(
+            emitters,
+            rng.seed,
+            rng.generation_count,
+            True,
+        ),
+    )
+
+
+def extend_nominal_world_births(
+    snapshot: Snapshot,
+    prefix: WorldBirthForecast,
+    player_positions: tuple[tuple[float, float], ...],
+) -> WorldBirthForecast:
+    """Extend one complete nominal prefix from its exact ECL/RNG state."""
+    if prefix.continuation is None:
+        raise ValueError("nominal world prefix has no exact continuation")
+    if prefix.covered_frames != len(prefix.births):
+        raise ValueError("cannot extend a partially covered nominal prefix")
+    continuation = prefix.continuation
+    tail = _forecast_nominal_from_state(
+        snapshot,
+        player_positions,
+        continuation.emitters,
+        RngState(
+            continuation.rng_seed,
+            continuation.rng_generation,
+        ),
+        framewise=continuation.framewise,
+    )
+    births = prefix.births + tail.births
+    bodies = prefix.body_hazards + tail.body_hazards
+    prefix_horizon = len(prefix.births)
+    total_horizon = len(births)
+    hazards = [list(frame) for frame in prefix.hazards]
+    hazards.extend([] for _ in tail.births)
+    # Preserve every already-published prefix box. Only project older births
+    # into the appended frames, then append the tail's newly born bullets in
+    # the same source birth-frame order as one full forecast.
+    for birth_frame, frame_births in enumerate(prefix.births):
+        remaining = total_horizon - birth_frame
+        for bullet in frame_births:
+            projected = hazard_boxes(bullet, remaining)
+            for frame_index in range(prefix_horizon, total_horizon):
+                hazards[frame_index].append(
+                    projected[frame_index - birth_frame]
+                )
+    for frame_index, frame_hazards in enumerate(
+        tail.hazards,
+        prefix_horizon,
+    ):
+        hazards[frame_index].extend(frame_hazards)
+    return WorldBirthForecast(
+        births,
+        tuple(tuple(frame) for frame in hazards),
+        prefix.covered_frames + tail.covered_frames,
+        tail.reason,
+        bodies,
+        tail.continuation,
+    )
 
 
 def forecast_world_births(
@@ -105,109 +312,10 @@ def forecast_world_births(
             reason,
             tuple(tuple(frame) for frame in bodies),
         )
-    rng = (
-        RngState(snapshot.rng_seed, snapshot.rng_generation)
-        if rng_mode == "nominal"
-        else None
-    )
-    radial = False
-
-    # With one emitter, frame-first/slot-second order is identical to one
-    # multi-frame ECL execution. Keep its compiled control state in the ECL
-    # interpreter instead of rebuilding and copying it once per frame. The
-    # runtime RNG object and player-position sequence remain exact inputs.
-    batch_emitter = emitters[0] if len(emitters) == 1 else None
-    if batch_emitter is not None:
-        emitter = batch_emitter
-        try:
-            forecast = forecast_ecl_births(
-                emitter,
-                player_positions,
-                snapshot.difficulty,
-                snapshot.rank,
-                snapshot.bullet_sizes,
-                snapshot.frame_multiplier,
-                rng,
-                allow_player_variables=True,
-                radial_births=radial,
-                # Nominal proposal forecasting already assumes no unknown
-                # future player damage: the old per-frame path restored the
-                # captured life before each next frame. Make that source
-                # boundary explicit so one emitter can retain its compiled
-                # ECL state across the whole horizon. Timer callbacks, exact
-                # RNG, and per-frame player positions remain live inputs.
-                model_player_damage=False,
-            )
-        except UnsupportedBirthModel as error:
-            return WorldBirthForecast(
-                tuple(tuple(frame) for frame in births),
-                _project_hazards(births, radial),
-                0,
-                f"emitter {emitter.slot}: {error}",
-            )
-        for frame_index, frame_births in enumerate(forecast.births):
-            births[frame_index].extend(frame_births)
-        for frame_index, frame_bodies in enumerate(forecast.body_hazards):
-            bodies[frame_index].extend(frame_bodies)
-        return WorldBirthForecast(
-            tuple(tuple(frame) for frame in births),
-            _project_hazards(births, radial),
-            forecast.covered_frames,
-            forecast.reason,
-            tuple(tuple(frame) for frame in bodies),
-        )
-
-    for frame_index, player in enumerate(player_positions):
-        next_emitters: list[EnemySpawner] = []
-        stop_reason = ""
-        for emitter in emitters:
-            try:
-                forecast = forecast_ecl_births(
-                    emitter,
-                    (player,),
-                    snapshot.difficulty,
-                    snapshot.rank,
-                    snapshot.bullet_sizes,
-                    snapshot.frame_multiplier,
-                    rng,
-                    allow_player_variables=rng_mode == "nominal",
-                    radial_births=radial,
-                )
-            except UnsupportedBirthModel as error:
-                return WorldBirthForecast(
-                    tuple(tuple(frame) for frame in births),
-                    _project_hazards(births, radial),
-                    frame_index,
-                    f"emitter {emitter.slot}: {error}",
-                )
-            if forecast.covered_frames < 1:
-                return WorldBirthForecast(
-                    tuple(tuple(frame) for frame in births),
-                    _project_hazards(births, radial),
-                    frame_index,
-                    f"emitter {emitter.slot}: {forecast.reason}",
-                )
-            births[frame_index].extend(forecast.births[0])
-            if forecast.body_hazards:
-                bodies[frame_index].extend(forecast.body_hazards[0])
-            if forecast.next_spawner is None and not forecast.finished:
-                stop_reason = stop_reason or (
-                    f"emitter {emitter.slot}: {forecast.reason}"
-                )
-            elif forecast.next_spawner is not None:
-                next_emitters.append(forecast.next_spawner)
-        if stop_reason:
-            return WorldBirthForecast(
-                tuple(tuple(frame) for frame in births),
-                _project_hazards(births, radial),
-                frame_index + 1,
-                stop_reason,
-            )
-        emitters = tuple(next_emitters)
-
-    return WorldBirthForecast(
-        tuple(tuple(frame) for frame in births),
-        _project_hazards(births, radial),
-        len(player_positions),
-        body_hazards=tuple(tuple(frame) for frame in bodies),
+    return _forecast_nominal_from_state(
+        snapshot,
+        player_positions,
+        emitters,
+        RngState(snapshot.rng_seed, snapshot.rng_generation),
+        framewise=len(emitters) != 1,
     )

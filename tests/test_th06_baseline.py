@@ -28,7 +28,10 @@ from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box, hazards_by_frame as bullet_hazards_by_frame
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
-from th06.hazards.world import WorldBirthForecast
+from th06.hazards.world import (
+    WorldBirthForecast,
+    WorldForecastContinuation,
+)
 from th06.kernels.safety import NativeSafetyKernel
 from th06.solver import (
     HARD_CURRENT_HOLD_HORIZON,
@@ -1024,6 +1027,94 @@ class BaselineTests(unittest.TestCase):
                     rng_mode="nominal",
                 ),
             ],
+        )
+
+    def test_soft_native_window_extends_exact_nominal_ecl_prefix(self):
+        state = snapshot()
+        hard_horizon = 4
+        first_horizon = 8
+        second_horizon = 12
+        all_frames = ((),) * second_horizon
+        hard_forecast = WorldBirthForecast(
+            births=all_frames[:hard_horizon],
+            hazards=all_frames[:hard_horizon],
+            covered_frames=hard_horizon,
+            body_hazards=all_frames[:hard_horizon],
+        )
+        continuation = WorldForecastContinuation((), 0x1234, 9, False)
+        first_nominal = WorldBirthForecast(
+            births=all_frames[:first_horizon],
+            hazards=all_frames[:first_horizon],
+            covered_frames=first_horizon,
+            body_hazards=all_frames[:first_horizon],
+            continuation=continuation,
+        )
+        second_nominal = WorldBirthForecast(
+            births=all_frames,
+            hazards=all_frames,
+            covered_frames=second_horizon,
+            body_hazards=all_frames,
+            continuation=continuation,
+        )
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._hard_birth_snapshot = None
+        kernel._hard_birth_horizon = 0
+        kernel._hard_birth_forecast = None
+        kernel._nominal_birth_snapshot = None
+        kernel._nominal_birth_horizon = 0
+        kernel._nominal_birth_forecast = None
+
+        with (
+            mock.patch(
+                "th06.kernels.safety.bullet_hazards_by_frame",
+                return_value=all_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.enemy_hazards_by_frame",
+                return_value=all_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.laser_hazards_by_frame",
+                return_value=all_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.forecast_world_births",
+                side_effect=(hard_forecast, first_nominal),
+            ) as births,
+            mock.patch(
+                "th06.kernels.safety.extend_nominal_world_births",
+                return_value=second_nominal,
+            ) as extend,
+        ):
+            kernel._prepare_window(
+                state,
+                0,
+                hard_horizon,
+                fail_closed_horizon=hard_horizon,
+            )
+            kernel._prepare_window(state, 0, first_horizon)
+            kernel._prepare_window(state, 0, second_horizon)
+
+        self.assertEqual(
+            births.call_args_list,
+            [
+                mock.call(
+                    state,
+                    ((state.x, state.y),) * hard_horizon,
+                ),
+                mock.call(
+                    state,
+                    ((state.x, state.y),) * first_horizon,
+                    rng_mode="nominal",
+                ),
+            ],
+        )
+        extend.assert_called_once_with(
+            state,
+            first_nominal,
+            ((state.x, state.y),) * (
+                second_horizon - first_horizon
+            ),
         )
 
     def test_native_fast_pair_prepares_the_long_horizon_once(self):

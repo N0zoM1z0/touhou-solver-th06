@@ -13,7 +13,11 @@ from th06.hazards.births import (
 from th06.hazards.bullets import hazard_box
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
-from th06.hazards.world import _project_hazards, forecast_world_births
+from th06.hazards.world import (
+    _project_hazards,
+    extend_nominal_world_births,
+    forecast_world_births,
+)
 from th06.birth_parity import compare_periodic_births
 from th06.model import (
     Bullet,
@@ -425,6 +429,58 @@ class EclBirthTests(unittest.TestCase):
         )[0]
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
+
+    def test_nominal_extension_matches_one_full_ecl_rng_forecast(self):
+        waiting = self.instruction(
+            0x1000, 10000, 1, bytes(4), 0x10
+        )
+        random_pattern = pattern(
+            aim_mode=8,
+            count1=2,
+            count2=1,
+            angle1=1.0,
+            angle2=-1.0,
+        )
+        later = spawner(
+            random_pattern,
+            slot=9,
+            x=90.0,
+            interval=3,
+            timer=1,
+            timer_float=1.0,
+            next_instruction=waiting,
+            ecl_program=(waiting,),
+        )
+        earlier = replace(later, slot=2, x=20.0, timer=2, timer_float=2.0)
+        positions = tuple(
+            (100.0 + frame, 400.0 - frame)
+            for frame in range(12)
+        )
+        for emitters in ((earlier,), (later, earlier)):
+            with self.subTest(emitters=len(emitters)):
+                state = snapshot(
+                    10,
+                    spawners=emitters,
+                    rng_seed=0x1234,
+                    rng_generation=19,
+                )
+                direct = forecast_world_births(
+                    state,
+                    positions,
+                    rng_mode="nominal",
+                )
+                prefix = forecast_world_births(
+                    state,
+                    positions[:5],
+                    rng_mode="nominal",
+                )
+                extended = extend_nominal_world_births(
+                    state,
+                    prefix,
+                    positions[5:],
+                )
+
+                self.assertEqual(extended, direct)
 
     def test_nominal_batch_keeps_no_damage_callback_semantics(self):
         waiting = self.instruction(

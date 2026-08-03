@@ -12,7 +12,10 @@ from pathlib import Path
 from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
-from ..hazards.world import forecast_world_births
+from ..hazards.world import (
+    extend_nominal_world_births,
+    forecast_world_births,
+)
 from ..guidance import TerminalGuidance
 from ..model import (
     ACTIONS,
@@ -214,6 +217,9 @@ class NativeSafetyKernel:
         self._hard_birth_snapshot: Snapshot | None = None
         self._hard_birth_horizon = 0
         self._hard_birth_forecast = None
+        self._nominal_birth_snapshot: Snapshot | None = None
+        self._nominal_birth_horizon = 0
+        self._nominal_birth_forecast = None
 
     @staticmethod
     def _flatten(frames, value_type, convert):
@@ -266,15 +272,38 @@ class NativeSafetyKernel:
         # A fully fail-closed authority window never reads nominal births.
         # Avoid executing the same ECL program a second time on this Hard hot
         # path; mixed Hard/soft windows still build the nominal continuation.
-        nominal_births = (
-            forecast_world_births(
-                snapshot,
-                ((snapshot.x, snapshot.y),) * total_horizon,
-                rng_mode="nominal",
-            )
-            if fail_closed_horizon < total_horizon
-            else None
-        )
+        nominal_births = None
+        if fail_closed_horizon < total_horizon:
+            if (
+                getattr(self, "_nominal_birth_snapshot", None) is snapshot
+                and getattr(self, "_nominal_birth_horizon", 0)
+                    >= total_horizon
+            ):
+                nominal_births = self._nominal_birth_forecast
+            elif (
+                getattr(self, "_nominal_birth_snapshot", None) is snapshot
+                and getattr(self, "_nominal_birth_forecast", None)
+                    is not None
+                and self._nominal_birth_forecast.continuation is not None
+                and self._nominal_birth_forecast.covered_frames
+                    == getattr(self, "_nominal_birth_horizon", 0)
+            ):
+                nominal_births = extend_nominal_world_births(
+                    snapshot,
+                    self._nominal_birth_forecast,
+                    ((snapshot.x, snapshot.y),) * (
+                        total_horizon - self._nominal_birth_horizon
+                    ),
+                )
+            else:
+                nominal_births = forecast_world_births(
+                    snapshot,
+                    ((snapshot.x, snapshot.y),) * total_horizon,
+                    rng_mode="nominal",
+                )
+            self._nominal_birth_snapshot = snapshot
+            self._nominal_birth_horizon = total_horizon
+            self._nominal_birth_forecast = nominal_births
         uncovered = ((-10000.0, -10000.0, 10000.0, 10000.0),)
         birth_frames = tuple(
             (
