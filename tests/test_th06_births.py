@@ -2,6 +2,7 @@ import math
 import struct
 import unittest
 from dataclasses import replace
+from unittest import mock
 
 from th06.hazards.births import (
     UnsupportedBirthModel,
@@ -429,6 +430,50 @@ class EclBirthTests(unittest.TestCase):
         )[0]
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
+
+    def test_nominal_world_batches_only_rng_independent_emitters(self):
+        waiting = self.instruction(
+            0x1000, 10000, 1, bytes(4), 0x10
+        )
+        later = spawner(
+            pattern(count1=2, count2=1, aim_mode=1),
+            slot=9,
+            x=90.0,
+            interval=3,
+            timer=1,
+            timer_float=1.0,
+            next_instruction=waiting,
+            ecl_program=(waiting,),
+        )
+        earlier = replace(later, slot=2, x=20.0, timer=2, timer_float=2.0)
+        positions = tuple(
+            (100.0 + frame, 400.0 - frame)
+            for frame in range(12)
+        )
+        state = snapshot(
+            10,
+            spawners=(later, earlier),
+            rng_seed=0x1234,
+            rng_generation=19,
+        )
+
+        with mock.patch(
+            "th06.hazards.world.forecast_ecl_births",
+            wraps=forecast_ecl_births,
+        ) as forecast:
+            batched = forecast_world_births(
+                state, positions, rng_mode="nominal"
+            )
+        with mock.patch(
+            "th06.hazards.world._forecast_nominal_without_shared_rng",
+            return_value=None,
+        ):
+            framewise = forecast_world_births(
+                state, positions, rng_mode="nominal"
+            )
+
+        self.assertEqual(batched, framewise)
+        self.assertEqual(forecast.call_count, 2)
 
     def test_nominal_extension_matches_one_full_ecl_rng_forecast(self):
         waiting = self.instruction(

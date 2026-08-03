@@ -30,6 +30,17 @@ class WorldForecastContinuation:
     framewise: bool
 
 
+class _NominalRngConsumed(Exception):
+    pass
+
+
+class _NoRngState(RngState):
+    """Abort a speculative batch at its first shared-RNG dependency."""
+
+    def u16(self) -> int:
+        raise _NominalRngConsumed
+
+
 def _project_hazards(
     births: list[list[Bullet]],
     radial: bool,
@@ -51,6 +62,68 @@ def _project_hazards(
             for frame_index, hazard in enumerate(hazards, birth_frame):
                 frames[frame_index].append(hazard)
     return tuple(tuple(frame) for frame in frames)
+
+
+def _forecast_nominal_without_shared_rng(
+    snapshot: Snapshot,
+    player_positions: tuple[tuple[float, float], ...],
+    emitters: tuple[EnemySpawner, ...],
+    rng: RngState,
+) -> WorldBirthForecast | None:
+    """Batch independent emitters only after proving that none reads RNG.
+
+    EnemyManager normally advances ECL frame-first and slot-second because all
+    emitters share one RNG.  A no-RNG interval is commutative: each captured
+    emitter can advance across the whole interval once.  Unsupported global
+    behavior, incomplete coverage, or the first RNG read discards this fast
+    path and leaves the ordinary framewise model authoritative.
+    """
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    next_emitters = []
+    for emitter in emitters:
+        try:
+            forecast = forecast_ecl_births(
+                emitter,
+                player_positions,
+                snapshot.difficulty,
+                snapshot.rank,
+                snapshot.bullet_sizes,
+                snapshot.frame_multiplier,
+                _NoRngState(rng.seed, rng.generation_count),
+                allow_player_variables=True,
+                radial_births=False,
+            )
+        except (_NominalRngConsumed, UnsupportedBirthModel):
+            return None
+        if (
+            forecast.covered_frames != len(player_positions)
+            or (
+                forecast.next_spawner is None
+                and not forecast.finished
+            )
+        ):
+            return None
+        for frame_index, frame_births in enumerate(forecast.births):
+            births[frame_index].extend(frame_births)
+        for frame_index, frame_bodies in enumerate(forecast.body_hazards):
+            bodies[frame_index].extend(frame_bodies)
+        if forecast.next_spawner is not None:
+            next_emitters.append(forecast.next_spawner)
+    return WorldBirthForecast(
+        tuple(tuple(frame) for frame in births),
+        _project_hazards(births, False),
+        len(player_positions),
+        body_hazards=tuple(tuple(frame) for frame in bodies),
+        continuation=WorldForecastContinuation(
+            tuple(next_emitters),
+            rng.seed,
+            rng.generation_count,
+            True,
+        ),
+    )
 
 
 def _forecast_nominal_from_state(
@@ -135,6 +208,12 @@ def _forecast_nominal_from_state(
             tuple(tuple(frame) for frame in bodies),
             continuation,
         )
+
+    batched = _forecast_nominal_without_shared_rng(
+        snapshot, player_positions, emitters, rng
+    )
+    if batched is not None:
+        return batched
 
     for frame_index, player in enumerate(player_positions):
         next_emitters: list[EnemySpawner] = []

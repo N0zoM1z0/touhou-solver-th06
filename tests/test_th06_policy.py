@@ -741,7 +741,32 @@ class AnytimePolicyTests(unittest.TestCase):
         clock = ManualClock()
         shallow = self.hard[0]
         deep = self.hard[1]
-        kernel = DeliveryReplanningKernel(
+
+        class ViabilityFirstKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                segment_length,
+                horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "delivery_viability",
+                    segment_length,
+                    horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                if budget_ms < 1.0:
+                    self.clock.advance_ms(budget_ms)
+                    return None
+                self.clock.advance_ms(1.0)
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+        kernel = ViabilityFirstKernel(
             clock,
             self.hard,
             delivery_scores={
@@ -749,7 +774,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 deep.action: 5,
                 self.hard[2].action: 1,
             },
-            delivery_ms=2.0,
+            delivery_ms=100.0,
             terminal_scores_by_horizon={
                 12: {
                     shallow.action: 4,
@@ -767,6 +792,14 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, deep.action)
         self.assertEqual(decision.effort_horizon, 12)
+        self.assertIn(
+            "delivery_viability",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn(
+            "delivery_replanning",
+            [call[0] for call in kernel.calls],
+        )
         self.assertIn(("prepare", 12), kernel.calls)
         self.assertIn(
             (12, 12),

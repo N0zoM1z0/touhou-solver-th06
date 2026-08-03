@@ -1364,12 +1364,14 @@ class Solver:
 
         if len(hard) > 1:
             # This is the ordinary first continuation rung, not a predicted
-            # scene depth.  When no deeper rung is currently admitted, offer
-            # exact local robustness the whole residual deadline.  Otherwise
-            # publish the cheaper complete delivery-viability predicate first
-            # and leave the measured residual to the stronger h12/h16 terminal
-            # frontier below.  This ordering changes compute effort only;
-            # every published action remains in Hard and delivery-viable.
+            # scene depth.  Publish the cheap complete delivery-viability
+            # predicate first and leave the measured residual to the stronger
+            # h12/h16 terminal frontier below.  Spending the deadline on p8
+            # robustness can suppress a materially stronger next rung even
+            # when p8 is almost indifferent.  Kernels without the Boolean
+            # primitive retain the complete p8 fallback.  This ordering
+            # changes compute effort only; every published action remains in
+            # Hard and delivery-viable.
             elapsed_ms = (self.clock() - started) * 1000.0
             remaining_ms = (
                 self.effort.budget_ms()
@@ -1377,18 +1379,10 @@ class Solver:
                 - POLICY_DEADLINE_GUARD_MS
             )
             replanning_started = self.clock()
-            replanning_result = (
-                self._budgeted_replanning_viability(
-                    snapshot,
-                    hard,
-                    remaining_ms,
-                )
-                if limit > BASE_POLICY_HORIZON
-                else self._budgeted_replanning_scores(
-                    snapshot,
-                    hard,
-                    remaining_ms,
-                )
+            replanning_result = self._budgeted_replanning_viability(
+                snapshot,
+                hard,
+                remaining_ms,
             )
             replanning_ms = (
                 self.clock() - replanning_started
