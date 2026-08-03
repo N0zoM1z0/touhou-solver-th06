@@ -60,6 +60,7 @@ class EffortController:
         self.rollout_ms_per_work: float | None = None
         self.rollout_frame: int | None = None
         self.projection_ms_per_work: float | None = None
+        self.projection_frame: int | None = None
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
@@ -211,6 +212,18 @@ class EffortController:
             and projection_estimate
             <= max(0.0, remaining_ms - TERMINAL_DEADLINE_GUARD_MS)
         )
+        projection_measurement_stale = (
+            self.projection_ms_per_work is not None
+            and self._measurement_freshness(
+                snapshot.frame,
+                self.projection_frame,
+            ) < 0.5
+        )
+        base_projection_probe_due = (
+            self.last_limit < BASE_POLICY_HORIZON
+            and projection_measurement_stale
+            and remaining_ms > TERMINAL_DEADLINE_GUARD_MS
+        )
         if (
             self.rollout_ms_per_work is not None
             and self.last_limit < BASE_POLICY_HORIZON
@@ -272,6 +285,17 @@ class EffortController:
         # out the first turn-capable continuation until the route is lost.
         if base_recovery_confirmed:
             proposed = max(proposed, BASE_POLICY_HORIZON)
+        # Projection cost can change discontinuously after a forecast birth
+        # becomes a current bullet set.  A once-expensive p8 preparation must
+        # not remain closed forever merely because no later preparation was
+        # allowed to replace that estimate.  Probe one ordinary base rung
+        # only after its cost evidence has aged past the generic half-life and
+        # current Hard work leaves the publication guard.  The preparation is
+        # measured immediately; the native terminal rung remains strictly
+        # complete-or-discard, and a late result is still rejected by the
+        # physical publication check.
+        if base_projection_probe_due:
+            proposed = max(proposed, BASE_POLICY_HORIZON)
 
         ladder = (HARD_SAFETY_HORIZON,) + EFFORT_HORIZONS
         if proposed > self.last_limit:
@@ -290,6 +314,12 @@ class EffortController:
                 if (
                     base_recovery_confirmed
                     and base_projection_affordable
+                    and horizon <= BASE_POLICY_HORIZON
+                ):
+                    promoted = horizon
+                    continue
+                if (
+                    base_projection_probe_due
                     and horizon <= BASE_POLICY_HORIZON
                 ):
                     promoted = horizon
@@ -345,6 +375,7 @@ class EffortController:
             elapsed_ms,
             self.projection_work(snapshot, horizon),
         )
+        self.projection_frame = snapshot.frame
 
     def _effective_policy_rate(
         self,

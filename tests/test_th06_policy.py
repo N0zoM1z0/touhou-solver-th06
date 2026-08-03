@@ -10,6 +10,7 @@ from th06.solver import (
     EFFORT_HORIZONS,
     HARD_SAFETY_HORIZON,
     SAME_FRAME_DECISION_BUDGET_MS,
+    TERMINAL_DEADLINE_GUARD_MS,
     EffortController,
     Solver,
 )
@@ -1649,6 +1650,59 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(first, HARD_SAFETY_HORIZON)
         self.assertEqual(second, BASE_POLICY_HORIZON)
         self.assertEqual(rejected_dense, HARD_SAFETY_HORIZON)
+
+    def test_stale_expensive_projection_gets_one_base_remeasurement(self):
+        controller = EffortController(12.5)
+        state = snapshot(frame=300)
+        controller.rollout_ms_per_work = 20.0 / controller.rollout_work(
+            state,
+            18,
+            BASE_POLICY_HORIZON,
+        )
+        controller.rollout_frame = state.frame
+        controller.observe_projection(
+            replace(state, frame=0),
+            BASE_POLICY_HORIZON,
+            20.0,
+        )
+
+        probe = controller.choose_limit(state, 18, 8.0)
+        controller.observe_projection(
+            state,
+            BASE_POLICY_HORIZON,
+            20.0,
+        )
+        fresh = controller.choose_limit(
+            replace(state, frame=301),
+            18,
+            8.0,
+        )
+
+        self.assertEqual(probe, BASE_POLICY_HORIZON)
+        self.assertEqual(fresh, HARD_SAFETY_HORIZON)
+
+    def test_stale_projection_probe_preserves_publication_guard(self):
+        controller = EffortController(12.5)
+        state = snapshot(frame=300)
+        controller.rollout_ms_per_work = 20.0 / controller.rollout_work(
+            state,
+            18,
+            BASE_POLICY_HORIZON,
+        )
+        controller.rollout_frame = state.frame
+        controller.observe_projection(
+            replace(state, frame=0),
+            BASE_POLICY_HORIZON,
+            20.0,
+        )
+
+        limit = controller.choose_limit(
+            state,
+            18,
+            controller.budget_ms() - TERMINAL_DEADLINE_GUARD_MS,
+        )
+
+        self.assertEqual(limit, HARD_SAFETY_HORIZON)
 
     def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
         controller = EffortController(10.0)
