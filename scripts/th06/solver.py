@@ -58,6 +58,7 @@ class EffortController:
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
         self.rollout_frame: int | None = None
+        self.projection_ms_per_work: float | None = None
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
@@ -98,6 +99,17 @@ class EffortController:
             * max(1, candidate_count)
             * horizon
         )
+
+    @staticmethod
+    def projection_work(snapshot: Snapshot, horizon: int) -> int:
+        """Work proxy for candidate-independent hazard/ECL preparation."""
+        sources = (
+            len(snapshot.bullets)
+            + len(snapshot.enemies)
+            + len(snapshot.lasers)
+            + len(snapshot.spawners)
+        )
+        return (sources + FIXED_WORK_EQUIVALENT) * horizon
 
     @staticmethod
     def _update_rate(
@@ -182,11 +194,30 @@ class EffortController:
             candidate_count,
             BASE_POLICY_HORIZON,
         )
+        projection_estimate = (
+            self.projection_ms_per_work
+            * self.projection_work(snapshot, BASE_POLICY_HORIZON)
+            if self.projection_ms_per_work is not None
+            else None
+        )
+        # Projection is independent of the number of candidate actions and
+        # is not a horizon-scaled copy of Hard certification.  Once measured,
+        # use that causal cost to decide whether the uninterruptible p8 hazard
+        # build fits.  The native terminal search receives only the residual
+        # budget and remains complete-or-discard.
+        base_projection_affordable = (
+            projection_estimate is not None
+            and projection_estimate
+            <= max(0.0, remaining_ms - TERMINAL_DEADLINE_GUARD_MS)
+        )
         if (
             self.rollout_ms_per_work is not None
             and self.last_limit < BASE_POLICY_HORIZON
-            and base_bootstrap_estimate
-            <= remaining_ms * PROMOTION_BUDGET_FRACTION
+            and (
+                base_projection_affordable
+                or base_bootstrap_estimate
+                <= remaining_ms * PROMOTION_BUDGET_FRACTION
+            )
         ):
             if (
                 self.base_recovery_last_frame is None
@@ -228,6 +259,12 @@ class EffortController:
                     break
                 proposed = horizon
 
+        if (
+            self.last_limit >= BASE_POLICY_HORIZON
+            and base_projection_affordable
+        ):
+            proposed = max(proposed, BASE_POLICY_HORIZON)
+
         # A recent expensive projection remains authoritative after one cheap
         # Hard sample.  Two independent current samples can reopen p8 under
         # the same promotion reserve; otherwise one transient spike can lock
@@ -248,6 +285,13 @@ class EffortController:
                     horizon <= self.last_limit
                     or horizon > proposed
                 ):
+                    continue
+                if (
+                    base_recovery_confirmed
+                    and base_projection_affordable
+                    and horizon <= BASE_POLICY_HORIZON
+                ):
+                    promoted = horizon
                     continue
                 promotion_rate = (
                     bootstrap_rate
@@ -287,6 +331,19 @@ class EffortController:
             work,
         )
         self.rollout_frame = snapshot.frame
+
+    def observe_projection(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        elapsed_ms: float,
+    ) -> None:
+        """Measure only the candidate-independent hazard/ECL build."""
+        self.projection_ms_per_work = self._update_rate(
+            self.projection_ms_per_work,
+            elapsed_ms,
+            self.projection_work(snapshot, horizon),
+        )
 
     def _effective_policy_rate(
         self,
@@ -1165,6 +1222,11 @@ class Solver:
                 self.clock() - operation_started
             ) * 1000.0
             rollout_ms += soft_prepare_ms
+            self.effort.observe_projection(
+                snapshot,
+                soft_prepare_horizon,
+                soft_prepare_ms,
+            )
             observed_held = action_from_input(snapshot.input_mask)
             pending_candidate = next(
                 (

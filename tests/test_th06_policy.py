@@ -1614,6 +1614,42 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(first, HARD_SAFETY_HORIZON)
         self.assertEqual(second, 8)
 
+    def test_measured_projection_reopens_only_an_affordable_base_rung(self):
+        controller = EffortController(12.5)
+        bullets = tuple(
+            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+            for _ in range(180)
+        )
+        state = snapshot(bullets=bullets)
+        controller.rollout_ms_per_work = 20.0 / controller.rollout_work(
+            state,
+            18,
+            BASE_POLICY_HORIZON,
+        )
+        controller.rollout_frame = state.frame
+        controller.observe_projection(
+            state,
+            BASE_POLICY_HORIZON,
+            3.4,
+        )
+
+        first = controller.choose_limit(state, 18, 4.5)
+        second = controller.choose_limit(
+            replace(state, frame=state.frame + 1),
+            18,
+            4.5,
+        )
+        dense = replace(
+            state,
+            frame=state.frame + 2,
+            bullets=bullets * 4,
+        )
+        rejected_dense = controller.choose_limit(dense, 18, 9.9)
+
+        self.assertEqual(first, HARD_SAFETY_HORIZON)
+        self.assertEqual(second, BASE_POLICY_HORIZON)
+        self.assertEqual(rejected_dense, HARD_SAFETY_HORIZON)
+
     def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
         controller = EffortController(10.0)
         state = snapshot(frame=300)
