@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "id": "stage5-f1509-base-terminal-starvation",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 5,
+    "target_frame": 1509,
+    "failure_frame": 1630
+  },
+  "runner": "segment_terminal_progressive",
+  "contract": "The ordinary complete-or-discard p8 terminal rung receives the residual deadline even when the coarse effort controller selects c6; the coarse limit may cap deeper work but cannot skip the base turn-capable continuation.",
+  "summary": "The f1630 Hard-empty stop was an effect. The earliest preserved consequential error was f1509 at the lower-right boundary: online effort selected c6 and published up-right after 8.375 ms, then continued along the right wall while density rose. Exact p8 was currently affordable and excluded up-right. Removing all 17 current bullets, five enemy bodies, and five source spawners preserves the contradiction, so it is a scheduling error rather than scene strategy or missing hazard semantics. The full ignored artifact preserves physical timing and the later failure chain.",
+  "input": {
+    "segment_length": 4,
+    "minimum_horizon": 8,
+    "maximum_horizon": 8,
+    "snapshot": {
+      "frame": 1509,
+      "stage": 5,
+      "player_state": 0,
+      "x": 371.9239807128906,
+      "y": 429.11273193359375,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 5,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 18,
+      "rng_seed": 13201,
+      "rng_generation": 4430
+    }
+  },
+  "expect": {
+    "hard_actions": [
+      "stay",
+      "up",
+      "down",
+      "left",
+      "right",
+      "up_left",
+      "up_right",
+      "down_left",
+      "down_right",
+      "stay_fast",
+      "up_fast",
+      "down_fast",
+      "left_fast",
+      "right_fast",
+      "up_left_fast",
+      "up_right_fast",
+      "down_left_fast",
+      "down_right_fast"
+    ],
+    "scores_by_horizon": {
+      "8": {
+        "stay": 9,
+        "up": 9,
+        "down": 7,
+        "left": 9,
+        "right": 7,
+        "up_left": 9,
+        "up_right": 8,
+        "down_left": 7,
+        "down_right": 6,
+        "stay_fast": 9,
+        "up_fast": 9,
+        "down_fast": 7,
+        "left_fast": 9,
+        "right_fast": 7,
+        "up_left_fast": 9,
+        "up_right_fast": 8,
+        "down_left_fast": 8,
+        "down_right_fast": 6
+      }
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay",
+        "up",
+        "left",
+        "up_left",
+        "stay_fast",
+        "up_fast",
+        "left_fast",
+        "up_left_fast"
+      ]
+    }
+  }
+}

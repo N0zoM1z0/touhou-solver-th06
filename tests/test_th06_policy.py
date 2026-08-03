@@ -622,6 +622,38 @@ class AnytimePolicyTests(unittest.TestCase):
             [(8, 16)],
         )
 
+    def test_base_terminal_rung_survives_coarse_limit_six(self):
+        clock = ManualClock()
+        local_action = self.hard[1].action
+        kernel = TerminalRefinementKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                8: {
+                    self.hard[0].action: 4,
+                    local_action: 9,
+                    self.hard[2].action: 2,
+                },
+            },
+            flexible_completed_horizon=8,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 6
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, local_action)
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertIn(("prepare", 8), kernel.calls)
+        self.assertNotIn(("prepare", 16), kernel.calls)
+        self.assertEqual(
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+            [(8, 8)],
+        )
+
     def test_budgeted_coarse_macro_adjudicates_local_winner_and_long_witness(self):
         clock = ManualClock()
         local = self.hard[0].action

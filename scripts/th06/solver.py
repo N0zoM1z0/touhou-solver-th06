@@ -1125,12 +1125,15 @@ class Solver:
                 else None
             )
             terminal_progressive_maximum = (
-                TURN_CAPABLE_POLICY_HORIZONS[-1]
-                if (
-                    terminal_progressive_native is not None
-                    and len(hard) > 1
-                    and limit >= BASE_POLICY_HORIZON
+                # A c6 effort estimate caps deeper work, not the ordinary p8
+                # local baseline.  Admit p8 on the residual deadline without
+                # paying to prepare the h16 extension first.
+                (
+                    TURN_CAPABLE_POLICY_HORIZONS[-1]
+                    if limit >= BASE_POLICY_HORIZON
+                    else BASE_POLICY_HORIZON
                 )
+                if terminal_progressive_native is not None and len(hard) > 1
                 else None
             )
             soft_prepare_horizon = max(
