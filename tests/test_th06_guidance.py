@@ -1573,6 +1573,49 @@ class TerminalGuidanceTests(unittest.TestCase):
             [8, 12, 16],
         )
 
+    def test_target_refinement_is_complete_or_discard_with_residual_budget(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+
+        class TimedTargetKernel(GuidanceKernel):
+            def terminal_guidance_budgeted(
+                self,
+                _state,
+                _candidates,
+                _segment_length,
+                horizon,
+                collision_margin,
+                budget_ms,
+                target=None,
+            ):
+                self.calls.append(("budgeted_target", horizon, budget_ms))
+                self.clock.advance_ms(budget_ms)
+                return None
+
+        kernel = TimedTargetKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.target_rate_by_kind["track"][8] = 0.0
+        solver.effort.target_frame_by_kind["track"][8] = state.frame
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 16
+
+        decision = solver.decide(state)
+
+        self.assertIsNotNone(decision.action)
+        calls = [call for call in kernel.calls if call[0] == "budgeted_target"]
+        self.assertEqual(len(calls), 1)
+        self.assertGreater(calls[0][2], 0.0)
+        self.assertNotIn("target", {call[0] for call in kernel.calls})
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_shallow_target_cannot_override_deeper_fresh_frontier(self):
         state = snapshot(x=192.0, y=380.0)
         hard = tuple(

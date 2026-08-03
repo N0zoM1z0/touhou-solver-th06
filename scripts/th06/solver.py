@@ -608,7 +608,26 @@ class Solver:
         candidates,
         horizon: int,
         target: tuple[float, float] | None = None,
+        budget_ms: float | None = None,
     ):
+        if budget_ms is not None and budget_ms <= 0.0:
+            return None
+        budgeted_native = (
+            getattr(type(self.kernel), "terminal_guidance_budgeted", None)
+            if self.kernel is not None and budget_ms is not None
+            else None
+        )
+        if budgeted_native is not None:
+            return budgeted_native(
+                self.kernel,
+                snapshot,
+                candidates,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=0.35,
+                budget_ms=budget_ms,
+                target=target,
+            )
         native = (
             getattr(type(self.kernel), "terminal_guidance", None)
             if self.kernel is not None
@@ -1387,11 +1406,17 @@ class Solver:
                         )
                     ):
                         guidance_started = self.clock()
+                        guidance_budget_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - POLICY_DEADLINE_GUARD_MS
+                        )
                         guidance = self._terminal_guidance(
                             snapshot,
                             refinement_candidates,
                             policy_horizon,
                             self.guidance_target,
+                            guidance_budget_ms,
                         )
                         guidance_ms = (
                             self.clock() - guidance_started
@@ -1530,11 +1555,17 @@ class Solver:
                 else:
                     policy_started = self.clock()
                     if self.guidance_target is not None:
+                        guidance_budget_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - POLICY_DEADLINE_GUARD_MS
+                        )
                         guidance = self._terminal_guidance(
                             snapshot,
                             hard,
                             effective_horizon,
                             self.guidance_target,
+                            guidance_budget_ms,
                         )
                     else:
                         scores = self._policy_scores(
@@ -1752,10 +1783,16 @@ class Solver:
                 )
             ):
                 guidance_started = self.clock()
+                guidance_budget_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
                 guidance = self._terminal_guidance(
                     snapshot,
                     (pending_candidate,),
                     acquisition_horizon,
+                    budget_ms=guidance_budget_ms,
                 )
                 guidance_ms = (
                     self.clock() - guidance_started
