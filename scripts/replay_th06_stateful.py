@@ -58,6 +58,12 @@ def parse_args() -> argparse.Namespace:
         help="soft terminal ranking to evaluate in the closed loop",
     )
     parser.add_argument(
+        "--continuation",
+        choices=("segment", "frame", "hybrid"),
+        default="segment",
+        help="proposal continuation granularity after physical delivery",
+    )
+    parser.add_argument(
         "--compare-metrics",
         help="comma-separated terminal metrics to run on identical cases",
     )
@@ -118,9 +124,18 @@ def main() -> int:
         selected = None
         for metric in metrics:
             policy_factory = (
-                partial(NativeTerminalPolicy, kernel=kernel, metric=metric)
+                partial(
+                    NativeTerminalPolicy,
+                    kernel=kernel,
+                    metric=metric,
+                    continuation=args.continuation,
+                )
                 if args.native
-                else partial(ExactTerminalPolicy, metric=metric)
+                else partial(
+                    ExactTerminalPolicy,
+                    metric=metric,
+                    continuation=args.continuation,
+                )
             )
             factories[metric] = policy_factory
             started = time.perf_counter()
@@ -335,6 +350,7 @@ def main() -> int:
         metric, summary, advantage, policy_factory = selected
         output["stateful_sweep"] = asdict(summary)
         output["terminal_metric"] = metric
+        output["continuation"] = args.continuation
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
                 advantage,

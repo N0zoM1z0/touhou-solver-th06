@@ -27,6 +27,7 @@ from th06.barrage_lab.runner import (
 )
 from th06.barrage_lab.temporal import run_proposal_temporal_sweep
 from th06.barrage_lab.stateful import (
+    ExactTerminalPolicy,
     UnsupportedStatefulModel,
     physical_step_parity,
     run_closed_loop,
@@ -427,6 +428,36 @@ class BarrageLabTests(unittest.TestCase):
         )
         self.assertEqual(first, frozenset(guidance))
         self.assertEqual(second, frozenset((fast,)))
+
+    def test_stateful_frame_continuation_is_an_explicit_count_policy(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        with mock.patch(
+            "th06.barrage_lab.stateful.terminal_reachability_counts",
+            side_effect=lambda _snapshot, candidates, *_args: {
+                candidate.action: int(candidate.action == right)
+                for candidate in candidates
+            },
+        ) as reachability:
+            chosen = ExactTerminalPolicy(
+                8,
+                continuation="frame",
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+        reachability.assert_called_once()
+        with self.assertRaises(ValueError):
+            ExactTerminalPolicy(
+                8,
+                metric="count-clearance",
+                continuation="frame",
+            )
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

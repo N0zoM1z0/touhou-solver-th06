@@ -33,6 +33,7 @@ from ..model import (
 )
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
+from ..guidance import terminal_reachability_counts
 from ..hazards.births import spawn_pattern
 from ..hazards.rng import RngState
 from .oracle import (
@@ -310,13 +311,25 @@ def collides_now(snapshot: Snapshot) -> bool:
 class ExactTerminalPolicy:
     """Independent exact terminal-volume policy for closed-loop comparison."""
 
-    def __init__(self, horizon: int, metric: str = "count") -> None:
+    def __init__(
+        self,
+        horizon: int,
+        metric: str = "count",
+        continuation: str = "segment",
+    ) -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
         if metric not in TERMINAL_METRICS:
             raise ValueError(f"unknown terminal metric {metric!r}")
+        if continuation not in ("segment", "frame", "hybrid"):
+            raise ValueError(f"unknown continuation {continuation!r}")
+        if continuation != "segment" and metric != "count":
+            raise ValueError(
+                "frame and hybrid continuation currently support count only"
+            )
         self.horizon = horizon
         self.metric = metric
+        self.continuation = continuation
         self.ranker = ProposalRanker()
         self.metric_confirmation: Action | None = None
 
@@ -364,6 +377,46 @@ class ExactTerminalPolicy:
                 and best[0] > 0
                 and scores[candidate.action.name] == best
             )
+        elif self.continuation == "frame":
+            guidance_by_action = terminal_reachability_counts(
+                snapshot,
+                candidates,
+                4,
+                self.horizon,
+            )
+            preferred, self.metric_confirmation = _terminal_preferred(
+                guidance_by_action,
+                self.metric,
+                self.metric_confirmation,
+            )
+        elif self.continuation == "hybrid":
+            base_horizon = min(8, self.horizon)
+            base_values = dict(source_terminal_counts(
+                snapshot,
+                hard.actions,
+                4,
+                base_horizon,
+            ).counts)
+            base_by_action = {
+                candidate.action: base_values[candidate.action.name]
+                for candidate in candidates
+            }
+            base_preferred, _confirmation = _terminal_preferred(
+                base_by_action,
+                "count",
+                None,
+            )
+            membership = terminal_reachability_counts(
+                snapshot,
+                candidates,
+                4,
+                self.horizon,
+            )
+            winning = frozenset(
+                action for action, score in membership.items()
+                if score > 0
+            )
+            preferred = base_preferred & winning or winning
         else:
             guidance = dict(source_terminal_counts(
                 snapshot,
@@ -395,17 +448,25 @@ class NativeTerminalPolicy:
         horizon: int,
         kernel=None,
         metric: str = "count",
+        continuation: str = "segment",
     ) -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
         if metric not in TERMINAL_METRICS:
             raise ValueError(f"unknown terminal metric {metric!r}")
+        if continuation not in ("segment", "frame", "hybrid"):
+            raise ValueError(f"unknown continuation {continuation!r}")
+        if continuation != "segment" and metric != "count":
+            raise ValueError(
+                "frame and hybrid continuation currently support count only"
+            )
         if kernel is None:
             from ..kernels.safety import NativeSafetyKernel
             kernel = NativeSafetyKernel()
         self.horizon = horizon
         self.kernel = kernel
         self.metric = metric
+        self.continuation = continuation
         self.ranker = ProposalRanker()
         self.metric_confirmation: Action | None = None
 
@@ -447,6 +508,56 @@ class NativeTerminalPolicy:
                 and best[0] > 0
                 and scores[candidate.action] == best
             )
+        elif self.continuation == "frame":
+            result = self.kernel.flexible_terminal_counts_progressive(
+                snapshot,
+                hard,
+                4,
+                self.horizon,
+                self.horizon,
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            )
+            if result is None or result[0] != self.horizon or not result[2]:
+                raise RuntimeError("stateful frame continuation did not complete")
+            preferred, self.metric_confirmation = _terminal_preferred(
+                result[1],
+                self.metric,
+                self.metric_confirmation,
+            )
+        elif self.continuation == "hybrid":
+            base_horizon = min(8, self.horizon)
+            base_values = self.kernel.terminal_counts(
+                snapshot,
+                hard,
+                4,
+                base_horizon,
+                collision_margin=0.35,
+            )
+            base_preferred, _confirmation = _terminal_preferred(
+                base_values,
+                "count",
+                None,
+            )
+            result = self.kernel.boolean_reachability_progressive(
+                snapshot,
+                hard,
+                4,
+                base_horizon,
+                self.horizon,
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            )
+            if result is None or result[0] != self.horizon or not result[2]:
+                raise RuntimeError(
+                    "stateful hybrid continuation did not complete: "
+                    f"requested={self.horizon} result={result}"
+                )
+            winning = frozenset(
+                action for action, score in result[1].items()
+                if score > 0
+            )
+            preferred = base_preferred & winning or winning
         else:
             guidance = (
                 self.kernel.terminal_counts(
