@@ -52,9 +52,22 @@ def main() -> int:
         output["mismatch"] = {
             "seed": mismatch.seed,
             "implementation": mismatch.implementation,
+            "reduced_horizon": mismatch.horizon,
+            "differing_actions": mismatch.differing_actions,
             "expected": mismatch.expected,
             "actual": mismatch.actual,
             "reduced_bullets": len(mismatch.snapshot.bullets),
+            "player": {
+                "x": mismatch.snapshot.x,
+                "y": mismatch.snapshot.y,
+                "half_width": mismatch.snapshot.half_width,
+                "half_height": mismatch.snapshot.half_height,
+                "input_mask": mismatch.snapshot.input_mask,
+            },
+            "bullets": [
+                asdict(bullet) for bullet in mismatch.snapshot.bullets
+            ],
+            "ecl_sources": mismatch.sources,
         }
     print(json.dumps(output, indent=2, ensure_ascii=False))
     return int(mismatch is not None)

@@ -15,6 +15,7 @@ import struct
 
 _ECL_VARIABLE_IDS = frozenset(range(-10025, -10000))
 _BULLET_OPCODES = frozenset(range(67, 76))
+_CONTROL_FLOW_OPCODES = frozenset((2, 3, *range(29, 43)))
 
 
 class SourceAssetError(ValueError):
@@ -176,6 +177,12 @@ class Pbg3Archive:
 
 
 @dataclass(frozen=True)
+class BulletEffects:
+    ints: tuple[int, int, int, int]
+    floats: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
 class EclBulletOpcode:
     source: str
     subroutine: int
@@ -192,6 +199,13 @@ class EclBulletOpcode:
     angle1: float
     angle2: float
     flags: int
+    effects_by_difficulty: tuple[
+        BulletEffects | None,
+        BulletEffects | None,
+        BulletEffects | None,
+        BulletEffects | None,
+        BulletEffects | None,
+    ] = (None, None, None, None, None)
 
     @property
     def aim_mode(self) -> int:
@@ -200,21 +214,19 @@ class EclBulletOpcode:
     def executes_on(self, difficulty: int) -> bool:
         return bool(self.difficulty_mask & (1 << difficulty))
 
+    def effects_for(self, difficulty: int) -> BulletEffects | None:
+        return self.effects_by_difficulty[difficulty]
+
     @property
     def has_literal_arguments(self) -> bool:
         values = (self.count1, self.count2)
-        float_bits = struct.unpack(
-            "<iiii", struct.pack("<ffff", self.speed1, self.speed2,
-                                  self.angle1, self.angle2)
-        )
+        floats = (self.speed1, self.speed2, self.angle1, self.angle2)
         return (
-            not any(value in _ECL_VARIABLE_IDS for value in values + float_bits)
+            not any(value in _ECL_VARIABLE_IDS for value in values + floats)
             and self.count1 > 0
             and self.count2 > 0
             and self.count1 * self.count2 <= 640
-            and all(math.isfinite(value) for value in (
-                self.speed1, self.speed2, self.angle1, self.angle2
-            ))
+            and all(math.isfinite(value) for value in floats)
             and 0 <= self.sprite < 10
         )
 
@@ -233,6 +245,7 @@ def parse_ecl_bullet_opcodes(data: bytes, source: str) -> tuple[EclBulletOpcode,
             raise SourceAssetError(f"invalid ECL subroutine offset in {source}")
         offset = start
         seen = set()
+        effects_by_difficulty: list[BulletEffects | None] = [None] * 5
         while offset not in seen:
             seen.add(offset)
             if offset + 12 > len(data):
@@ -264,7 +277,29 @@ def parse_ecl_bullet_opcodes(data: bytes, source: str) -> tuple[EclBulletOpcode,
                     angle1=angle1,
                     angle2=angle2,
                     flags=flags,
+                    effects_by_difficulty=tuple(effects_by_difficulty),
                 ))
+            elif opcode == 82:
+                if size < 44:
+                    raise SourceAssetError(f"short bullet-effects instruction in {source}")
+                effect_ints = struct.unpack_from("<iiii", data, offset + 12)
+                effect_floats = struct.unpack_from("<ffff", data, offset + 28)
+                effects = (
+                    None
+                    if any(
+                        value in _ECL_VARIABLE_IDS
+                        for value in effect_ints + effect_floats
+                    ) or not all(math.isfinite(value) for value in effect_floats)
+                    else BulletEffects(effect_ints, effect_floats)
+                )
+                difficulty_mask = data[offset + 9]
+                for difficulty in range(5):
+                    if difficulty_mask & (1 << difficulty):
+                        effects_by_difficulty[difficulty] = effects
+            if opcode in _CONTROL_FLOW_OPCODES:
+                # Effects persist at runtime, but a raw linear scan cannot
+                # prove which incoming branch/callee wrote them.
+                effects_by_difficulty = [None] * 5
             offset += size
     return tuple(result)
 

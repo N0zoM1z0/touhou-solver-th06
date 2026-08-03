@@ -39,9 +39,15 @@ def native_action_names(kernel) -> Certifier:
 class SweepMismatch:
     seed: int
     implementation: str
+    horizon: int
     expected: tuple[str, ...]
     actual: tuple[str, ...]
     snapshot: Snapshot
+    sources: tuple[tuple[str, int, int], ...]
+
+    @property
+    def differing_actions(self) -> tuple[str, ...]:
+        return tuple(sorted(set(self.expected) ^ set(self.actual)))
 
 
 @dataclass(frozen=True)
@@ -55,11 +61,19 @@ class SweepSummary:
 
 def shrink_mismatch(
     mismatch: SweepMismatch,
-    horizon: int,
     certifier: Certifier,
 ) -> SweepMismatch:
-    """Delete chunks while the source-oracle disagreement remains."""
+    """Minimize horizon first, then delete bullet chunks with provenance."""
     bullets = list(mismatch.snapshot.bullets)
+
+    horizon = mismatch.horizon
+    for candidate_horizon in range(1, horizon):
+        expected = certify_linear_source(
+            mismatch.snapshot, candidate_horizon
+        ).actions
+        if expected != certifier(mismatch.snapshot, candidate_horizon):
+            horizon = candidate_horizon
+            break
 
     def differs(values) -> bool:
         snapshot = replace(mismatch.snapshot, bullets=tuple(values))
@@ -85,11 +99,17 @@ def shrink_mismatch(
             break
         granularity = min(len(bullets), granularity * 2)
     snapshot = replace(mismatch.snapshot, bullets=tuple(bullets))
+    source_by_slot = {
+        bullet.slot: source
+        for bullet, source in zip(mismatch.snapshot.bullets, mismatch.sources)
+    }
     return replace(
         mismatch,
+        horizon=horizon,
         expected=certify_linear_source(snapshot, horizon).actions,
         actual=certifier(snapshot, horizon),
         snapshot=snapshot,
+        sources=tuple(source_by_slot[bullet.slot] for bullet in bullets),
     )
 
 
@@ -113,7 +133,8 @@ def run_sweep(
             actual = certifier(case.snapshot, horizon)
             if actual != expected:
                 mismatch = SweepMismatch(
-                    seed, name, expected, actual, case.snapshot
+                    seed, name, horizon, expected, actual,
+                    case.snapshot, case.sources,
                 )
                 return (
                     SweepSummary(
@@ -121,7 +142,7 @@ def run_sweep(
                         tuple(sorted(safe_sizes.items())),
                         time.perf_counter() - started,
                     ),
-                    shrink_mismatch(mismatch, horizon, certifier),
+                    shrink_mismatch(mismatch, certifier),
                 )
     return (
         SweepSummary(

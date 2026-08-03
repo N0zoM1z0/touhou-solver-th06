@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import struct
 
 from ..model import Action, CONTROL_ACTIONS, Snapshot
@@ -11,6 +12,7 @@ from ..model import Action, CONTROL_ACTIONS, Snapshot
 _CONTROL_BITS = (0x20, 0x04, 0x40, 0x80, 0x10)
 _DELAYS = (0, 1, 2, 3)
 _DYNAMIC_FLAGS = 0xDF1
+_EXACT_DYNAMIC_FLAGS = 0x071
 
 
 def _f32(value: float) -> float:
@@ -92,23 +94,79 @@ def _step_player(snapshot: Snapshot, x: float, y: float, action: Action):
 def _bullet_boxes(snapshot: Snapshot, horizon: int):
     states = []
     for bullet in snapshot.bullets:
-        if bullet.state != 1 or bullet.ex_flags & _DYNAMIC_FLAGS:
-            raise ValueError("oracle rung supports only exact fired linear bullets")
+        if (
+            bullet.state != 1
+            or bullet.ex_flags & (_DYNAMIC_FLAGS & ~_EXACT_DYNAMIC_FLAGS)
+        ):
+            raise ValueError("oracle does not support this fired bullet motion")
         states.append([
             _f32(bullet.x), _f32(bullet.y),
             _f32(bullet.vx), _f32(bullet.vy),
             _f32(bullet.half_width), _f32(bullet.half_height),
+            _f32(bullet.angle), _f32(bullet.speed), bullet.ex_flags,
+            bullet.timer, _f32(bullet.timer_float),
+            _f32(bullet.acceleration_x), _f32(bullet.acceleration_y),
+            bullet.acceleration_duration,
+            _f32(bullet.curve_speed_acceleration),
+            _f32(bullet.curve_angular_velocity),
+            _f32(bullet.turn_speed), _f32(bullet.direction_rotation),
+            bullet.direction_interval, bullet.direction_num_times,
+            bullet.direction_max_times,
         ])
     frames = []
     for _ in range(horizon):
         boxes = []
         for state in states:
+            if state[8] & 0x01:
+                if state[9] <= 16:
+                    deceleration = _f32(
+                        5.0 - _f32(state[10] * 5.0 / 16.0)
+                    )
+                    current_speed = _f32(deceleration + state[7])
+                    state[2] = _f32(math.cos(state[6]) * current_speed)
+                    state[3] = _f32(math.sin(state[6]) * current_speed)
+                else:
+                    state[8] ^= 0x01
+            elif state[8] & 0x10:
+                if state[9] >= state[13]:
+                    state[8] &= ~0x10
+                else:
+                    state[2] = _f32(state[2] + state[11])
+                    state[3] = _f32(state[3] + state[12])
+                    state[6] = _f32(math.atan2(state[3], state[2]))
+            elif state[8] & 0x20:
+                if state[9] >= state[13]:
+                    state[8] &= ~0x20
+                else:
+                    state[6] = _f32(math.remainder(
+                        _f32(state[6] + state[15]), math.tau
+                    ))
+                    state[7] = _f32(state[7] + state[14])
+                    state[2] = _f32(math.cos(state[6]) * state[7])
+                    state[3] = _f32(math.sin(state[6]) * state[7])
+            if state[8] & 0x40:
+                if state[9] >= state[18] * (state[19] + 1):
+                    state[19] += 1
+                    if state[19] >= state[20]:
+                        state[8] &= ~0x40
+                    state[6] = _f32(state[6] + state[17])
+                    state[7] = state[16]
+                    current_speed = state[7]
+                else:
+                    phase = _f32(state[10] - state[18] * state[19])
+                    current_speed = _f32(
+                        state[7] - _f32(phase * state[7] / state[18])
+                    )
+                state[2] = _f32(math.cos(state[6]) * current_speed)
+                state[3] = _f32(math.sin(state[6]) * current_speed)
             state[0] = _f32(state[0] + state[2])
             state[1] = _f32(state[1] + state[3])
             boxes.append((
                 _f32(state[0] - state[4]), _f32(state[1] - state[5]),
                 _f32(state[0] + state[4]), _f32(state[1] + state[5]),
             ))
+            state[9] += 1
+            state[10] = _f32(state[10] + 1.0)
         frames.append(tuple(boxes))
     return tuple(frames)
 

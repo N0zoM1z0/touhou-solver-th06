@@ -1,5 +1,6 @@
 import struct
 import unittest
+from dataclasses import replace
 
 from th06.barrage_lab.assets import (
     Pbg3Archive,
@@ -7,7 +8,13 @@ from th06.barrage_lab.assets import (
 )
 from th06.barrage_lab.generator import generate_barrage_case
 from th06.barrage_lab.oracle import certify_linear_source
-from th06.barrage_lab.runner import python_action_names
+from th06.barrage_lab.runner import (
+    SweepMismatch,
+    python_action_names,
+    shrink_mismatch,
+)
+from th06.hazards.bullets import hazard_box
+from th06.model import Bullet
 
 
 class BitWriter:
@@ -60,6 +67,22 @@ def ecl_bytes():
     return header + instruction + terminal
 
 
+def ecl_effect_bytes():
+    header = struct.pack("<hhIII", 1, 0, 0, 0, 0) + struct.pack("<I", 20)
+    effects = struct.pack(
+        "<ihhBBBBiiiiffff",
+        0, 82, 44, 0, 0x04, 0, 0,
+        40, 1, -1, -1, 1.5, 2.0, -1.0, -1.0,
+    )
+    bullet = struct.pack(
+        "<ihhBBBBhhiiffffi",
+        0, 68, 44, 0, 0x04, 0, 0,
+        2, 7, 5, 3, 4.0, 1.0, 0.25, 0.1, 0x44,
+    )
+    terminal = struct.pack("<ihhBBBB", -1, -1, 12, 0, 0xFF, 0, 0)
+    return header + effects + bullet + terminal
+
+
 def pbg3_bytes(name, payload):
     compressed = literal_stream(payload)
     data_offset = 7
@@ -99,6 +122,20 @@ class BarrageLabTests(unittest.TestCase):
         opcode = parse_ecl_bullet_opcodes(bytes(raw), "vars.ecl")[0]
         self.assertFalse(opcode.has_literal_arguments)
 
+        raw = bytearray(ecl_bytes())
+        struct.pack_into("<f", raw, 20 + 24, -10005.0)
+        opcode = parse_ecl_bullet_opcodes(bytes(raw), "float-vars.ecl")[0]
+        self.assertFalse(opcode.has_literal_arguments)
+
+    def test_literal_bullet_effects_follow_their_source_instruction(self):
+        opcode = parse_ecl_bullet_opcodes(
+            ecl_effect_bytes(), "effects.ecl"
+        )[0]
+        effects = opcode.effects_for(2)
+        self.assertIsNotNone(effects)
+        self.assertEqual(effects.ints[:2], (40, 1))
+        self.assertEqual(effects.floats[:2], (1.5, 2.0))
+
     def test_seeded_source_case_matches_independent_oracle(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         first = generate_barrage_case((opcode,), 19, target_bullets=64)
@@ -107,6 +144,52 @@ class BarrageLabTests(unittest.TestCase):
         expected = certify_linear_source(first.snapshot, 8).actions
         self.assertEqual(python_action_names(first.snapshot, 8), expected)
         self.assertEqual(len(first.snapshot.bullets), 64)
+
+    def test_source_slowdown_is_projected_at_its_known_angle(self):
+        bullet = Bullet(
+            x=100.0, y=100.0, vx=0.0, vy=0.0,
+            half_width=2.0, half_height=2.0, state=1,
+            ex_flags=0x201, angle=0.0, speed=2.0,
+            timer=11, timer_float=11.0,
+        )
+        self.assertEqual(hazard_box(bullet, 1), (101.5625, 98.0, 105.5625, 102.0))
+        self.assertEqual(hazard_box(bullet, 2), (104.8125, 98.0, 108.8125, 102.0))
+
+    def test_source_dynamic_precedence_delays_acceleration(self):
+        bullet = Bullet(
+            x=100.0, y=100.0, vx=2.0, vy=0.0,
+            half_width=2.0, half_height=2.0, state=1,
+            ex_flags=0x11, angle=0.0, speed=2.0,
+            acceleration_x=1.0, acceleration_y=0.0,
+            acceleration_duration=30, timer=16, timer_float=16.0,
+        )
+        self.assertEqual(hazard_box(bullet, 1), (100.0, 98.0, 104.0, 102.0))
+        self.assertEqual(hazard_box(bullet, 2), (102.0, 98.0, 106.0, 102.0))
+        self.assertEqual(hazard_box(bullet, 3), (105.0, 98.0, 109.0, 102.0))
+
+    def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 23, target_bullets=8)
+        far_bullets = tuple(
+            replace(bullet, x=-1000.0, y=-1000.0, vx=0.0, vy=0.0)
+            for bullet in case.snapshot.bullets
+        )
+        snapshot = replace(case.snapshot, bullets=far_bullets)
+
+        def fake_certifier(state, horizon):
+            expected = certify_linear_source(state, horizon).actions
+            return expected[:-1] if horizon >= 3 and state.bullets else expected
+
+        expected = certify_linear_source(snapshot, 8).actions
+        mismatch = SweepMismatch(
+            23, "fake", 8, expected, fake_certifier(snapshot, 8),
+            snapshot, case.sources,
+        )
+        reduced = shrink_mismatch(mismatch, fake_certifier)
+        self.assertEqual(reduced.horizon, 3)
+        self.assertEqual(len(reduced.snapshot.bullets), 1)
+        self.assertEqual(len(reduced.sources), 1)
+        self.assertEqual(reduced.differing_actions, ("down_right_fast",))
 
 
 if __name__ == "__main__":

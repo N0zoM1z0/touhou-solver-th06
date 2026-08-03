@@ -3,16 +3,170 @@
 from __future__ import annotations
 
 import math
+import struct
 
 from ..model import Bullet, Snapshot
 from .geometry import signed_clearance
 
 
 DYNAMIC_EX_FLAGS = 0xDF1
+SLOWDOWN_FLAG = 0x01
 ACCELERATION_FLAG = 0x10
 CURVE_ACCELERATION_FLAG = 0x20
 COMPLEX_MOTION_FLAGS = 0xDE1
 DIRECTION_ROTATION_FLAG = 0x40
+SOURCE_EXACT_DYNAMIC_FLAGS = (
+    SLOWDOWN_FLAG
+    | ACCELERATION_FLAG
+    | CURVE_ACCELERATION_FLAG
+    | DIRECTION_ROTATION_FLAG
+)
+
+
+def _f32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def _source_dynamic_positions(
+    bullet: Bullet,
+    horizon: int,
+) -> list[tuple[float, float]]:
+    """Step the source's ordered 0x01/0x10/0x20 plus 0x40 state machine."""
+    x, y = _f32(bullet.x), _f32(bullet.y)
+    vx, vy = _f32(bullet.vx), _f32(bullet.vy)
+    angle = _f32(bullet.angle)
+    speed = _f32(bullet.speed)
+    turn_speed = _f32(bullet.turn_speed)
+    flags = bullet.ex_flags
+    timer = bullet.timer
+    timer_float = _f32(bullet.timer_float)
+    direction_num_times = bullet.direction_num_times
+    result = []
+    for _ in range(horizon):
+        if flags & SLOWDOWN_FLAG:
+            if timer <= 16:
+                slowdown = _f32(5.0 - _f32(timer_float * 5.0 / 16.0))
+                current_speed = _f32(slowdown + speed)
+                vx = _f32(math.cos(angle) * current_speed)
+                vy = _f32(math.sin(angle) * current_speed)
+            else:
+                flags ^= SLOWDOWN_FLAG
+        elif flags & ACCELERATION_FLAG:
+            if timer >= bullet.acceleration_duration:
+                flags &= ~ACCELERATION_FLAG
+            else:
+                vx = _f32(vx + bullet.acceleration_x)
+                vy = _f32(vy + bullet.acceleration_y)
+                angle = _f32(math.atan2(vy, vx))
+        elif flags & CURVE_ACCELERATION_FLAG:
+            if timer >= bullet.acceleration_duration:
+                flags &= ~CURVE_ACCELERATION_FLAG
+            else:
+                angle = _f32(math.remainder(
+                    _f32(angle + bullet.curve_angular_velocity), math.tau
+                ))
+                speed = _f32(speed + bullet.curve_speed_acceleration)
+                vx = _f32(math.cos(angle) * speed)
+                vy = _f32(math.sin(angle) * speed)
+        if flags & DIRECTION_ROTATION_FLAG:
+            if timer >= bullet.direction_interval * (direction_num_times + 1):
+                direction_num_times += 1
+                if direction_num_times >= bullet.direction_max_times:
+                    flags &= ~DIRECTION_ROTATION_FLAG
+                angle = _f32(angle + bullet.direction_rotation)
+                speed = turn_speed
+                current_speed = speed
+            else:
+                phase = _f32(
+                    timer_float - bullet.direction_interval * direction_num_times
+                )
+                current_speed = _f32(
+                    speed - _f32(phase * speed / bullet.direction_interval)
+                )
+            vx = _f32(math.cos(angle) * current_speed)
+            vy = _f32(math.sin(angle) * current_speed)
+        x = _f32(x + vx)
+        y = _f32(y + vy)
+        timer += 1
+        timer_float = _f32(timer_float + 1.0)
+        result.append((x, y))
+    return result
+
+
+def _slowdown_positions(
+    bullet: Bullet,
+    horizon: int,
+) -> list[tuple[float, float]]:
+    """Reproduce source flag 0x01's deterministic first-17-tick speed."""
+    x, y = _f32(bullet.x), _f32(bullet.y)
+    vx, vy = _f32(bullet.vx), _f32(bullet.vy)
+    angle = _f32(bullet.angle)
+    speed = _f32(bullet.speed)
+    timer = bullet.timer
+    timer_float = _f32(bullet.timer_float)
+    active = True
+    cosine = _f32(math.cos(angle))
+    sine = _f32(math.sin(angle))
+    result = []
+    for _ in range(horizon):
+        if active:
+            if timer <= 16:
+                slowdown = _f32(5.0 - _f32(timer_float * 5.0 / 16.0))
+                current_speed = _f32(slowdown + speed)
+                vx = _f32(cosine * current_speed)
+                vy = _f32(sine * current_speed)
+            else:
+                active = False
+        x = _f32(x + vx)
+        y = _f32(y + vy)
+        timer += 1
+        timer_float = _f32(timer_float + 1.0)
+        result.append((x, y))
+    return result
+
+
+def _slowdown_position(bullet: Bullet, frame: int) -> tuple[float, float]:
+    return _slowdown_positions(bullet, frame)[-1]
+
+
+def _slowdown_acceleration_positions(
+    bullet: Bullet,
+    horizon: int,
+) -> list[tuple[float, float]]:
+    """Exact source priority for the common 0x01 then 0x10 chain."""
+    x, y = _f32(bullet.x), _f32(bullet.y)
+    vx, vy = _f32(bullet.vx), _f32(bullet.vy)
+    speed = _f32(bullet.speed)
+    timer = bullet.timer
+    timer_float = _f32(bullet.timer_float)
+    slowdown_active = True
+    acceleration_active = True
+    cosine = _f32(math.cos(_f32(bullet.angle)))
+    sine = _f32(math.sin(_f32(bullet.angle)))
+    result = []
+    for _ in range(horizon):
+        if slowdown_active:
+            if timer <= 16:
+                slowdown = _f32(5.0 - _f32(timer_float * 5.0 / 16.0))
+                current_speed = _f32(slowdown + speed)
+                vx = _f32(cosine * current_speed)
+                vy = _f32(sine * current_speed)
+            else:
+                # Source clears 0x01 on this update; its else-if means 0x10
+                # begins only on the following update.
+                slowdown_active = False
+        elif acceleration_active:
+            if timer >= bullet.acceleration_duration:
+                acceleration_active = False
+            else:
+                vx = _f32(vx + bullet.acceleration_x)
+                vy = _f32(vy + bullet.acceleration_y)
+        x = _f32(x + vx)
+        y = _f32(y + vy)
+        timer += 1
+        timer_float = _f32(timer_float + 1.0)
+        result.append((x, y))
+    return result
 
 
 def _direction_rotation_positions(
@@ -92,6 +246,29 @@ def _curve_acceleration_position(bullet: Bullet, frame: int) -> tuple[float, flo
 
 
 def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
+    dynamic_flags = bullet.ex_flags & DYNAMIC_EX_FLAGS
+    if (
+        bullet.state == 1
+        and dynamic_flags == SLOWDOWN_FLAG
+    ):
+        x, y = _slowdown_position(bullet, frame)
+        return (
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
+        )
+    if (
+        bullet.state == 1
+        and dynamic_flags == (SLOWDOWN_FLAG | ACCELERATION_FLAG)
+    ):
+        x, y = _slowdown_acceleration_positions(bullet, frame)[-1]
+        return (
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
+        )
     if (
         bullet.state == 1
         and bullet.ex_flags & DIRECTION_ROTATION_FLAG
@@ -133,6 +310,18 @@ def hazard_box(bullet: Bullet, frame: int) -> tuple[float, float, float, float]:
         and not bullet.ex_flags & (COMPLEX_MOTION_FLAGS & ~CURVE_ACCELERATION_FLAG)
     ):
         x, y = _curve_acceleration_position(bullet, frame)
+        return (
+            x - bullet.half_width,
+            y - bullet.half_height,
+            x + bullet.half_width,
+            y + bullet.half_height,
+        )
+    if (
+        bullet.state == 1
+        and dynamic_flags
+        and not dynamic_flags & ~SOURCE_EXACT_DYNAMIC_FLAGS
+    ):
+        x, y = _source_dynamic_positions(bullet, frame)[-1]
         return (
             x - bullet.half_width,
             y - bullet.half_height,
@@ -208,8 +397,25 @@ def _hazard_boxes(
     """Project one bullet once while preserving ``hazard_box`` semantics."""
     state = bullet.state
     flags = bullet.ex_flags
+    dynamic_flags = flags & DYNAMIC_EX_FLAGS
     half_width = bullet.half_width
     half_height = bullet.half_height
+    if (
+        state == 1
+        and dynamic_flags == SLOWDOWN_FLAG
+    ):
+        return [
+            (x - half_width, y - half_height, x + half_width, y + half_height)
+            for x, y in _slowdown_positions(bullet, horizon)
+        ]
+    if (
+        state == 1
+        and dynamic_flags == (SLOWDOWN_FLAG | ACCELERATION_FLAG)
+    ):
+        return [
+            (x - half_width, y - half_height, x + half_width, y + half_height)
+            for x, y in _slowdown_acceleration_positions(bullet, horizon)
+        ]
     if (
         state == 1
         and flags & DIRECTION_ROTATION_FLAG
@@ -251,6 +457,15 @@ def _hazard_boxes(
                 y + half_height,
             ))
         return boxes
+    if (
+        state == 1
+        and dynamic_flags
+        and not dynamic_flags & ~SOURCE_EXACT_DYNAMIC_FLAGS
+    ):
+        return [
+            (x - half_width, y - half_height, x + half_width, y + half_height)
+            for x, y in _source_dynamic_positions(bullet, horizon)
+        ]
     if flags & DYNAMIC_EX_FLAGS:
         base_speed = max(
             math.hypot(bullet.vx, bullet.vy),
