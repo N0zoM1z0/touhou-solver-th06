@@ -5,7 +5,6 @@ from __future__ import annotations
 import ctypes
 import math
 import os
-import time
 from array import array
 from dataclasses import replace
 from pathlib import Path
@@ -14,7 +13,6 @@ from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from ..hazards.world import (
-    ForecastDeadlineExceeded,
     extend_nominal_world_births,
     forecast_world_births,
 )
@@ -248,22 +246,14 @@ class NativeSafetyKernel:
         start_frame: int,
         horizon: int,
         fail_closed_horizon: int = 4,
-        deadline: float | None = None,
     ):
         total_horizon = start_frame + horizon
-        forecast_kwargs = (
-            {"deadline": deadline} if deadline is not None else {}
-        )
         bullet_frames = bullet_hazards_by_frame(snapshot, total_horizon)[
             start_frame:
         ]
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise ForecastDeadlineExceeded
         enemy_frames = enemy_hazards_by_frame(snapshot.enemies, total_horizon)[
             start_frame:
         ]
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise ForecastDeadlineExceeded
         hard_birth_horizon = min(fail_closed_horizon, total_horizon)
         if (
             getattr(self, "_hard_birth_snapshot", None) is snapshot
@@ -275,7 +265,6 @@ class NativeSafetyKernel:
             hard_births = forecast_world_births(
                 snapshot,
                 ((snapshot.x, snapshot.y),) * hard_birth_horizon,
-                **forecast_kwargs,
             )
             self._hard_birth_snapshot = snapshot
             self._hard_birth_horizon = hard_birth_horizon
@@ -305,14 +294,12 @@ class NativeSafetyKernel:
                     ((snapshot.x, snapshot.y),) * (
                         total_horizon - self._nominal_birth_horizon
                     ),
-                    **forecast_kwargs,
                 )
             else:
                 nominal_births = forecast_world_births(
                     snapshot,
                     ((snapshot.x, snapshot.y),) * total_horizon,
                     rng_mode="nominal",
-                    **forecast_kwargs,
                 )
             self._nominal_birth_snapshot = snapshot
             self._nominal_birth_horizon = total_horizon
@@ -364,16 +351,8 @@ class NativeSafetyKernel:
             _Aabb,
             lambda value: value,
         )
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise ForecastDeadlineExceeded
-        laser_frames = laser_hazards_by_frame(
-            snapshot.lasers,
-            total_horizon,
-        )[start_frame:]
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise ForecastDeadlineExceeded
         laser_offsets, lasers = self._flatten(
-            laser_frames,
+            laser_hazards_by_frame(snapshot.lasers, total_horizon)[start_frame:],
             _LaserHazard,
             lambda value: (
                 value.origin_x,
@@ -384,8 +363,6 @@ class NativeSafetyKernel:
                 value.size_y,
             ),
         )
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise ForecastDeadlineExceeded
         return bullet_offsets, bullets, laser_offsets, lasers
 
     def _prepare(self, snapshot: Snapshot, horizon: int):
@@ -418,37 +395,6 @@ class NativeSafetyKernel:
     def prepare(self, snapshot: Snapshot, horizon: int) -> None:
         """Prepare one shared soft window before progressive frontier scans."""
         self._prepare_reusable(snapshot, horizon)
-
-    def prepare_budgeted(
-        self,
-        snapshot: Snapshot,
-        horizon: int,
-        budget_ms: float,
-    ) -> bool:
-        """Publish one complete hazard window or discard an expired build."""
-        if (
-            self._prepared_snapshot is snapshot
-            and self._prepared_horizon >= horizon
-        ):
-            return True
-        if budget_ms <= 0.0:
-            return False
-        deadline = time.perf_counter() + budget_ms / 1000.0
-        try:
-            prepared = self._prepare_window(
-                snapshot,
-                0,
-                horizon,
-                deadline=deadline,
-            )
-        except ForecastDeadlineExceeded:
-            return False
-        if time.perf_counter() >= deadline:
-            return False
-        self._prepared_snapshot = snapshot
-        self._prepared_horizon = horizon
-        self._prepared_hazards = prepared
-        return True
 
     def _certify_prepared(
         self,

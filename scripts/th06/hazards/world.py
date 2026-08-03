@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 from typing import Literal
 
 from ..model import Bullet, EnemySpawner, Snapshot
@@ -11,15 +10,6 @@ from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import forecast_ecl_births
 from .rng import RngState
-
-
-class ForecastDeadlineExceeded(RuntimeError):
-    """The caller's budget expired before a complete forecast existed."""
-
-
-def _check_deadline(deadline: float | None) -> None:
-    if deadline is not None and time.perf_counter() >= deadline:
-        raise ForecastDeadlineExceeded
 
 
 @dataclass(frozen=True)
@@ -43,16 +33,13 @@ class WorldForecastContinuation:
 def _project_hazards(
     births: list[list[Bullet]],
     radial: bool,
-    deadline: float | None = None,
 ) -> tuple[tuple[tuple[float, float, float, float], ...], ...]:
     frames: list[list[tuple[float, float, float, float]]] = [
         [] for _ in births
     ]
     for birth_frame, bullets in enumerate(births):
-        _check_deadline(deadline)
         remaining = len(frames) - birth_frame
         for bullet in bullets:
-            _check_deadline(deadline)
             hazards = (
                 (
                     radial_hazard_box(bullet, age)
@@ -73,7 +60,6 @@ def _forecast_nominal_from_state(
     rng: RngState,
     *,
     framewise: bool,
-    deadline: float | None = None,
 ) -> WorldBirthForecast:
     births: list[list[Bullet]] = [[] for _ in player_positions]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -83,7 +69,7 @@ def _forecast_nominal_from_state(
         if not emitters:
             return WorldBirthForecast(
                 tuple(tuple(frame) for frame in births),
-                _project_hazards(births, False, deadline),
+                _project_hazards(births, False),
                 len(player_positions),
                 body_hazards=tuple(tuple(frame) for frame in bodies),
                 continuation=WorldForecastContinuation(
@@ -93,7 +79,6 @@ def _forecast_nominal_from_state(
         if len(emitters) != 1:
             raise ValueError("batched nominal continuation needs one emitter")
         emitter = emitters[0]
-        _check_deadline(deadline)
         try:
             forecast = forecast_ecl_births(
                 emitter,
@@ -113,11 +98,10 @@ def _forecast_nominal_from_state(
         except UnsupportedBirthModel as error:
             return WorldBirthForecast(
                 tuple(tuple(frame) for frame in births),
-                _project_hazards(births, False, deadline),
+                _project_hazards(births, False),
                 0,
                 f"emitter {emitter.slot}: {error}",
             )
-        _check_deadline(deadline)
         for frame_index, frame_births in enumerate(forecast.births):
             births[frame_index].extend(frame_births)
         for frame_index, frame_bodies in enumerate(forecast.body_hazards):
@@ -145,7 +129,7 @@ def _forecast_nominal_from_state(
         )
         return WorldBirthForecast(
             tuple(tuple(frame) for frame in births),
-            _project_hazards(births, False, deadline),
+            _project_hazards(births, False),
             forecast.covered_frames,
             forecast.reason,
             tuple(tuple(frame) for frame in bodies),
@@ -156,7 +140,6 @@ def _forecast_nominal_from_state(
         next_emitters: list[EnemySpawner] = []
         stop_reason = ""
         for emitter in emitters:
-            _check_deadline(deadline)
             try:
                 forecast = forecast_ecl_births(
                     emitter,
@@ -172,14 +155,14 @@ def _forecast_nominal_from_state(
             except UnsupportedBirthModel as error:
                 return WorldBirthForecast(
                     tuple(tuple(frame) for frame in births),
-                    _project_hazards(births, False, deadline),
+                    _project_hazards(births, False),
                     frame_index,
                     f"emitter {emitter.slot}: {error}",
                 )
             if forecast.covered_frames < 1:
                 return WorldBirthForecast(
                     tuple(tuple(frame) for frame in births),
-                    _project_hazards(births, False, deadline),
+                    _project_hazards(births, False),
                     frame_index,
                     f"emitter {emitter.slot}: {forecast.reason}",
                 )
@@ -192,11 +175,10 @@ def _forecast_nominal_from_state(
                 )
             elif forecast.next_spawner is not None:
                 next_emitters.append(forecast.next_spawner)
-        _check_deadline(deadline)
         if stop_reason:
             return WorldBirthForecast(
                 tuple(tuple(frame) for frame in births),
-                _project_hazards(births, False, deadline),
+                _project_hazards(births, False),
                 frame_index + 1,
                 stop_reason,
             )
@@ -204,7 +186,7 @@ def _forecast_nominal_from_state(
 
     return WorldBirthForecast(
         tuple(tuple(frame) for frame in births),
-        _project_hazards(births, False, deadline),
+        _project_hazards(births, False),
         len(player_positions),
         body_hazards=tuple(tuple(frame) for frame in bodies),
         continuation=WorldForecastContinuation(
@@ -220,8 +202,6 @@ def extend_nominal_world_births(
     snapshot: Snapshot,
     prefix: WorldBirthForecast,
     player_positions: tuple[tuple[float, float], ...],
-    *,
-    deadline: float | None = None,
 ) -> WorldBirthForecast:
     """Extend one complete nominal prefix from its exact ECL/RNG state."""
     if prefix.continuation is None:
@@ -238,7 +218,6 @@ def extend_nominal_world_births(
             continuation.rng_generation,
         ),
         framewise=continuation.framewise,
-        deadline=deadline,
     )
     births = prefix.births + tail.births
     bodies = prefix.body_hazards + tail.body_hazards
@@ -250,7 +229,6 @@ def extend_nominal_world_births(
     # into the appended frames, then append the tail's newly born bullets in
     # the same source birth-frame order as one full forecast.
     for birth_frame, frame_births in enumerate(prefix.births):
-        _check_deadline(deadline)
         remaining = total_horizon - birth_frame
         for bullet in frame_births:
             projected = hazard_boxes(bullet, remaining)
@@ -277,8 +255,6 @@ def forecast_world_births(
     snapshot: Snapshot,
     player_positions: tuple[tuple[float, float], ...],
     rng_mode: Literal["fail-closed", "nominal"] = "fail-closed",
-    *,
-    deadline: float | None = None,
 ) -> WorldBirthForecast:
     """Advance emitters frame-first and slot-second, matching EnemyManager.
 
@@ -302,7 +278,6 @@ def forecast_world_births(
         covered_frames = len(player_positions)
         reason = ""
         for emitter in emitters:
-            _check_deadline(deadline)
             try:
                 forecast = forecast_ecl_births(
                     emitter,
@@ -330,10 +305,9 @@ def forecast_world_births(
             if emitter_coverage < covered_frames:
                 covered_frames = emitter_coverage
                 reason = f"emitter {emitter.slot}: {emitter_reason}"
-        _check_deadline(deadline)
         return WorldBirthForecast(
             tuple(tuple(frame) for frame in births),
-            _project_hazards(births, True, deadline),
+            _project_hazards(births, True),
             covered_frames,
             reason,
             tuple(tuple(frame) for frame in bodies),
@@ -344,5 +318,4 @@ def forecast_world_births(
         emitters,
         RngState(snapshot.rng_seed, snapshot.rng_generation),
         framewise=len(emitters) != 1,
-        deadline=deadline,
     )

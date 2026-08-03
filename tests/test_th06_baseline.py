@@ -29,7 +29,6 @@ from th06.hazards.bullets import hazard_box, hazards_by_frame as bullet_hazards_
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
 from th06.hazards.world import (
-    ForecastDeadlineExceeded,
     WorldBirthForecast,
     WorldForecastContinuation,
 )
@@ -1117,49 +1116,6 @@ class BaselineTests(unittest.TestCase):
                 second_horizon - first_horizon
             ),
         )
-
-    def test_native_budgeted_prepare_publishes_only_a_complete_window(self):
-        state = snapshot()
-        prepared = object()
-        kernel = object.__new__(NativeSafetyKernel)
-        kernel._prepared_snapshot = None
-        kernel._prepared_horizon = 0
-        kernel._prepared_hazards = None
-        kernel._prepare_window = mock.Mock(return_value=prepared)
-
-        with mock.patch(
-            "th06.kernels.safety.time.perf_counter",
-            side_effect=(1.0, 1.005),
-        ):
-            completed = kernel.prepare_budgeted(state, 8, 10.0)
-
-        self.assertTrue(completed)
-        self.assertIs(kernel._prepared_hazards, prepared)
-        kernel._prepare_window.assert_called_once_with(
-            state,
-            0,
-            8,
-            deadline=1.01,
-        )
-
-    def test_native_budgeted_prepare_discards_an_expired_window(self):
-        state = snapshot()
-        kernel = object.__new__(NativeSafetyKernel)
-        kernel._prepared_snapshot = None
-        kernel._prepared_horizon = 0
-        kernel._prepared_hazards = None
-        kernel._prepare_window = mock.Mock(
-            side_effect=ForecastDeadlineExceeded
-        )
-
-        with mock.patch(
-            "th06.kernels.safety.time.perf_counter",
-            return_value=1.0,
-        ):
-            completed = kernel.prepare_budgeted(state, 8, 3.0)
-
-        self.assertFalse(completed)
-        self.assertIsNone(kernel._prepared_hazards)
 
     def test_native_fast_pair_prepares_the_long_horizon_once(self):
         state = snapshot()
