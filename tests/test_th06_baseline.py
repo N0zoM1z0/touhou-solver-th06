@@ -794,6 +794,34 @@ class BaselineTests(unittest.TestCase):
             instruction.address for instruction in program
         })
 
+    def test_ecl_graph_is_compiled_once_per_stage_cache(self):
+        sentinel = EclInstruction(
+            0x1010, -1, 0, 12, 0xFF, bytes(12).hex()
+        )
+        start = EclInstruction(
+            0x1000, 0, 0, 16, 0xFF, (bytes(16)).hex()
+        )
+        instructions = {start.address: start, sentinel.address: sentinel}
+
+        class Process:
+            ecl_subroutines = ()
+
+            def __init__(self):
+                self.reads = 0
+                self.ecl_program_cache = {}
+
+            def read_ecl_instruction(self, address):
+                self.reads += 1
+                return instructions[address]
+
+        process = Process()
+        first = native._read_ecl_program(process, start.address)
+        reads = process.reads
+        second = native._read_ecl_program(process, start.address)
+
+        self.assertIs(first, second)
+        self.assertEqual(process.reads, reads)
+
     def test_native_spatial_replanning_matches_reference_scores(self):
         if os.name != "nt":
             self.skipTest("native kernel is loaded only by Windows Python")

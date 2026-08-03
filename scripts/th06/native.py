@@ -349,6 +349,7 @@ class NativeProcess:
             raise ctypes.WinError(ctypes.get_last_error())
         self.pid = pid
         self.ecl_instruction_cache: dict[int, EclInstruction] = {}
+        self.ecl_program_cache: dict[int, tuple[EclInstruction, ...]] = {}
         self.ecl_cache_stage: int | None = None
         self.ecl_subroutines: tuple[int, ...] = ()
 
@@ -437,6 +438,11 @@ def _read_ecl_program(
     start_address: int,
 ) -> tuple[EclInstruction, ...]:
     """Capture a bounded immutable instruction graph, including jump targets."""
+    program_cache = getattr(process, "ecl_program_cache", None)
+    if program_cache is not None:
+        cached = program_cache.get(start_address)
+        if cached is not None:
+            return cached
     pending = deque((start_address,))
     found: dict[int, EclInstruction] = {}
     while pending and len(found) < ECL_PROGRAM_INSTRUCTION_LIMIT:
@@ -464,7 +470,10 @@ def _read_ecl_program(
             if not 0 <= sub_id < len(process.ecl_subroutines):
                 raise RuntimeError(f"invalid ECL callback subroutine id {sub_id}")
             pending.append(process.ecl_subroutines[sub_id])
-    return tuple(found[address] for address in sorted(found))
+    program = tuple(found[address] for address in sorted(found))
+    if program_cache is not None:
+        program_cache[start_address] = program
+    return program
 
 
 def _read_ecl_subroutines(process: NativeProcess) -> tuple[int, ...]:
@@ -576,6 +585,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     stage = struct.unpack_from("<i", game, GAME_STAGE_OFFSET - GAME_FLAGS_OFFSET)[0]
     if process.ecl_cache_stage != stage:
         process.ecl_instruction_cache.clear()
+        process.ecl_program_cache.clear()
         process.ecl_cache_stage = stage
         process.ecl_subroutines = _read_ecl_subroutines(process)
     difficulty = struct.unpack(

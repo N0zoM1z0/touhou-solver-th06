@@ -237,6 +237,12 @@ def _compiled_program(
     return {instruction.address: instruction for instruction in instructions}
 
 
+@lru_cache(maxsize=None)
+def _instruction_raw(instruction: EclInstruction) -> bytes:
+    """Decode immutable opcode bytes once, before runtime instantiation."""
+    return bytes.fromhex(instruction.raw_hex)
+
+
 def _float_add(left: float | FloatInterval, right: float | FloatInterval) -> float | FloatInterval:
     if isinstance(left, FloatInterval) or isinstance(right, FloatInterval):
         left_low, left_high = (left.low, left.high) if isinstance(left, FloatInterval) else (left, left)
@@ -489,7 +495,7 @@ def _resolved_pattern(
     bullet_sizes: tuple[tuple[float, float], ...],
     radial_births: bool,
 ) -> BulletPattern:
-    raw = bytes.fromhex(instruction.raw_hex)
+    raw = _instruction_raw(instruction)
     sprite = struct.unpack_from("<h", raw, 0x0C)[0]
     if not 0 <= sprite < len(bullet_sizes):
         raise UnsupportedBirthModel(f"ECL bullet sprite {sprite} has no size")
@@ -823,7 +829,7 @@ def _forecast_ecl_births_single(
                 break
             execute = bool(instruction.skip_for_difficulty & (1 << difficulty))
             next_address = instruction.address + instruction.offset_to_next
-            raw = bytes.fromhex(instruction.raw_hex)
+            raw = _instruction_raw(instruction)
             if not execute or instruction.opcode == OPCODE_NOP:
                 instruction_address = next_address
                 continue
