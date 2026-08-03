@@ -370,8 +370,21 @@ class EffortController:
         elapsed_ms: float,
     ) -> None:
         """Measure only the candidate-independent hazard/ECL build."""
+        previous = self.projection_ms_per_work
+        if (
+            previous is not None
+            and self._measurement_freshness(
+                snapshot.frame,
+                self.projection_frame,
+            ) < 0.5
+        ):
+            # This sample was admitted specifically because the previous
+            # projection cost had aged out.  Keeping most of that stale value
+            # through the ordinary EMA would immediately close the rung again
+            # without allowing the new measurement to be falsifiable.
+            previous = None
         self.projection_ms_per_work = self._update_rate(
-            self.projection_ms_per_work,
+            previous,
             elapsed_ms,
             self.projection_work(snapshot, horizon),
         )

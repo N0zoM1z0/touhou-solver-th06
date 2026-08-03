@@ -1681,6 +1681,29 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(probe, BASE_POLICY_HORIZON)
         self.assertEqual(fresh, HARD_SAFETY_HORIZON)
 
+    def test_stale_projection_remeasurement_replaces_expired_rate(self):
+        controller = EffortController(12.5)
+        old_state = snapshot(frame=0)
+        current = snapshot(frame=300)
+        controller.observe_projection(
+            old_state,
+            BASE_POLICY_HORIZON,
+            20.0,
+        )
+
+        controller.observe_projection(
+            current,
+            BASE_POLICY_HORIZON,
+            1.0,
+        )
+
+        estimate = (
+            controller.projection_ms_per_work
+            * controller.projection_work(current, BASE_POLICY_HORIZON)
+        )
+        self.assertAlmostEqual(estimate, 1.0)
+        self.assertEqual(controller.projection_frame, current.frame)
+
     def test_stale_projection_probe_preserves_publication_guard(self):
         controller = EffortController(12.5)
         state = snapshot(frame=300)
