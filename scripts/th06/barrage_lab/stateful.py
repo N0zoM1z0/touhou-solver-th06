@@ -41,7 +41,13 @@ from .planner import source_terminal_counts
 
 
 SOURCE_DYNAMIC_FLAGS = 0xDF1
-SOURCE_EXACT_DYNAMIC_FLAGS = 0x071
+SOURCE_EXACT_DYNAMIC_FLAGS = 0x0F1
+# BulletManager::OnUpdate advances these three spawn states before calling the
+# installed bullet ANM script.  The standard archive completes the scripts on
+# timer 9/15/31 respectively; every physical transition in the retained
+# corpus observes those same boundaries.
+_SPAWN_DIVISOR = {2: 2.0, 3: 2.5, 4: 3.0}
+_SPAWN_FINAL_TIMER = {2: 9, 3: 15, 4: 31}
 
 
 class UnsupportedStatefulModel(ValueError):
@@ -65,7 +71,10 @@ def action_mask(action: Action) -> int:
     return mask
 
 
-def step_fired_bullet(bullet: Bullet) -> Bullet:
+def step_fired_bullet(
+    bullet: Bullet,
+    player_position: tuple[float, float] | None = None,
+) -> Bullet:
     """Run one source ``BULLET_STATE_FIRED`` update at multiplier one."""
     if bullet.state != 1:
         raise UnsupportedStatefulModel(
@@ -134,6 +143,34 @@ def step_fired_bullet(bullet: Bullet) -> Bullet:
             )
         vx = _f32(math.cos(angle) * current_speed)
         vy = _f32(math.sin(angle) * current_speed)
+    elif flags & 0x80:
+        if timer >= bullet.direction_interval * (direction_num_times + 1):
+            if player_position is None:
+                raise UnsupportedStatefulModel(
+                    f"homing bullet slot {bullet.slot} needs player state"
+                )
+            direction_num_times += 1
+            if direction_num_times >= bullet.direction_max_times:
+                flags &= ~0x80
+            relative_x = _f32(player_position[0] - x)
+            relative_y = _f32(player_position[1] - y)
+            aimed = (
+                _f32(math.pi / 2.0)
+                if relative_x == 0.0 and relative_y == 0.0
+                else _f32(math.atan2(relative_y, relative_x))
+            )
+            angle = _f32(aimed + bullet.direction_rotation)
+            speed = _f32(bullet.turn_speed)
+            current_speed = speed
+        else:
+            phase = _f32(
+                timer_float - bullet.direction_interval * direction_num_times
+            )
+            current_speed = _f32(
+                speed - _f32(phase * speed / bullet.direction_interval)
+            )
+        vx = _f32(math.cos(angle) * current_speed)
+        vy = _f32(math.sin(angle) * current_speed)
 
     return replace(
         bullet,
@@ -147,6 +184,42 @@ def step_fired_bullet(bullet: Bullet) -> Bullet:
         timer=timer + 1,
         timer_float=_f32(timer_float + 1.0),
         direction_num_times=direction_num_times,
+    )
+
+
+def step_bullet(
+    bullet: Bullet,
+    player_position: tuple[float, float] | None = None,
+) -> Bullet:
+    """Advance one source bullet state, including spawn-animation fallthrough."""
+    if bullet.state == 1:
+        return step_fired_bullet(bullet, player_position)
+    if bullet.state not in _SPAWN_DIVISOR:
+        raise UnsupportedStatefulModel(
+            f"bullet slot {bullet.slot} is in unsupported state {bullet.state}"
+        )
+    divisor = _SPAWN_DIVISOR[bullet.state]
+    spawning = replace(
+        bullet,
+        x=_f32(_f32(bullet.x) + _f32(_f32(bullet.vx) / divisor)),
+        y=_f32(_f32(bullet.y) + _f32(_f32(bullet.vy) / divisor)),
+    )
+    if bullet.timer < _SPAWN_FINAL_TIMER[bullet.state]:
+        return replace(
+            spawning,
+            timer=bullet.timer + 1,
+            timer_float=_f32(bullet.timer_float + 1.0),
+        )
+    # ExecuteScript completed: source resets the timer, changes state, and
+    # deliberately falls through into BULLET_STATE_FIRED in this same update.
+    return step_fired_bullet(
+        replace(
+            spawning,
+            state=1,
+            timer=0,
+            timer_float=0.0,
+        ),
+        player_position,
     )
 
 
@@ -175,7 +248,9 @@ def step_closed_world(snapshot: Snapshot, held: Action) -> Snapshot:
         x=x,
         y=y,
         input_mask=action_mask(held),
-        bullets=tuple(step_fired_bullet(bullet) for bullet in snapshot.bullets),
+        bullets=tuple(
+            step_bullet(bullet, (x, y)) for bullet in snapshot.bullets
+        ),
     )
 
 
@@ -394,8 +469,10 @@ class PhysicalParity:
     exact_player_steps: int
     fired_bullet_steps: int
     exact_fired_bullet_steps: int
+    spawning_bullet_steps: int
+    exact_spawning_bullet_steps: int
     maximum_player_error: float
-    maximum_fired_bullet_error: float
+    maximum_bullet_error: float
     unsupported_bullet_steps: int
     births: int
     removals: int
@@ -407,6 +484,8 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     exact_player_steps = 0
     fired_bullet_steps = 0
     exact_fired_bullet_steps = 0
+    spawning_bullet_steps = 0
+    exact_spawning_bullet_steps = 0
     unsupported_bullet_steps = 0
     births = 0
     removals = 0
@@ -430,24 +509,27 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         for slot in left_by_slot.keys() & right_by_slot.keys():
             before = left_by_slot[slot]
             after = right_by_slot[slot]
-            if before.state != 1:
-                unsupported_bullet_steps += 1
-                continue
             try:
-                expected = step_fired_bullet(before)
+                expected = step_bullet(before, (right.x, right.y))
             except UnsupportedStatefulModel:
                 unsupported_bullet_steps += 1
                 continue
-            fired_bullet_steps += 1
             error = math.hypot(expected.x - after.x, expected.y - after.y)
             maximum_bullet_error = max(maximum_bullet_error, error)
-            exact_fired_bullet_steps += error <= 1e-4
+            if before.state == 1:
+                fired_bullet_steps += 1
+                exact_fired_bullet_steps += error <= 1e-4
+            else:
+                spawning_bullet_steps += 1
+                exact_spawning_bullet_steps += error <= 1e-4
 
     return PhysicalParity(
         adjacent_pairs,
         exact_player_steps,
         fired_bullet_steps,
         exact_fired_bullet_steps,
+        spawning_bullet_steps,
+        exact_spawning_bullet_steps,
         maximum_player_error,
         maximum_bullet_error,
         unsupported_bullet_steps,

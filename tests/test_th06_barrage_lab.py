@@ -29,6 +29,7 @@ from th06.barrage_lab.stateful import (
     UnsupportedStatefulModel,
     physical_step_parity,
     run_closed_loop,
+    step_bullet,
     step_closed_world,
     step_fired_bullet,
 )
@@ -254,6 +255,36 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(second.ex_flags, 0x10)
         self.assertEqual(third.vx, 3.0)
 
+        spawning = replace(
+            bullet,
+            state=3,
+            ex_flags=0,
+            timer=14,
+            timer_float=14.0,
+        )
+        penultimate = step_bullet(spawning)
+        fired = step_bullet(penultimate)
+        self.assertEqual(penultimate.state, 3)
+        self.assertAlmostEqual(penultimate.x, 100.8, places=5)
+        self.assertEqual((fired.state, fired.timer), (1, 1))
+        self.assertAlmostEqual(fired.x, 103.6, places=4)
+
+        homing = replace(
+            bullet,
+            ex_flags=0x80,
+            speed=3.0,
+            turn_speed=2.0,
+            timer=5,
+            timer_float=5.0,
+            direction_interval=5,
+            direction_num_times=0,
+            direction_max_times=1,
+        )
+        aimed = step_bullet(homing, (100.0, 200.0))
+        self.assertAlmostEqual(aimed.x, 100.0, places=5)
+        self.assertAlmostEqual(aimed.y, 102.0, places=5)
+        self.assertEqual((aimed.ex_flags, aimed.direction_num_times), (0, 1))
+
     def test_stateful_world_and_physical_player_parity_are_closed_loop(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 7, target_bullets=8)
@@ -276,7 +307,7 @@ class BarrageLabTests(unittest.TestCase):
             parity.exact_fired_bullet_steps,
             parity.fired_bullet_steps,
         )
-        self.assertLessEqual(parity.maximum_fired_bullet_error, 1e-4)
+        self.assertLessEqual(parity.maximum_bullet_error, 1e-4)
 
         result = run_closed_loop(
             replace(start, bullets=()),
@@ -300,14 +331,14 @@ class BarrageLabTests(unittest.TestCase):
         self.assertIn(1, [call.args[1] for call in certify.call_args_list])
         self.assertNotIn(4, [call.args[1] for call in certify.call_args_list])
 
-    def test_stateful_world_rejects_unproved_spawn_animation(self):
+    def test_stateful_world_rejects_unproved_despawn_animation(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 7, target_bullets=1)
-        spawning = replace(case.snapshot.bullets[0], state=3)
+        despawning = replace(case.snapshot.bullets[0], state=5)
 
         with self.assertRaises(UnsupportedStatefulModel):
             step_closed_world(
-                replace(case.snapshot, bullets=(spawning,)),
+                replace(case.snapshot, bullets=(despawning,)),
                 CONTROL_ACTIONS[0],
             )
 
