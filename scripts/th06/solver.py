@@ -1266,55 +1266,67 @@ class Solver:
         pending_candidate = None
         acquisition_horizon = HARD_SAFETY_HORIZON
         progressive_pending_guidance = None
+        planning_candidates = hard
 
-        if limit > HARD_SAFETY_HORIZON:
-            planning_candidates = hard
-            if limit >= BASE_POLICY_HORIZON and len(hard) > 1:
-                # The ordinary local micro rung models both the action being
-                # published now and the next correction with the complete
-                # source-observed delivery/transition branch set.  It is
-                # stronger evidence than later nominal-pickup segments, so it
-                # runs first and shortlists (but never enlarges) Hard.
-                elapsed_ms = (self.clock() - started) * 1000.0
-                remaining_ms = (
-                    self.effort.budget_ms()
-                    - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
-                )
-                replanning_started = self.clock()
-                replanning = self._budgeted_replanning_scores(
+        if len(hard) > 1:
+            # This is the ordinary first continuation rung, not a predicted
+            # scene depth.  Always offer it the measured residual deadline;
+            # the native call either publishes every candidate's complete
+            # two-delivery result or is discarded.  A conservative depth
+            # estimate must not suppress a cheap correction after a transient
+            # late publication has reduced the deeper ladder.
+            elapsed_ms = (self.clock() - started) * 1000.0
+            remaining_ms = (
+                self.effort.budget_ms()
+                - elapsed_ms
+                - POLICY_DEADLINE_GUARD_MS
+            )
+            replanning_started = self.clock()
+            replanning = self._budgeted_replanning_scores(
+                snapshot,
+                hard,
+                remaining_ms,
+            )
+            replanning_ms = (
+                self.clock() - replanning_started
+            ) * 1000.0
+            if replanning is not None:
+                self.effort.observe_policy(
                     snapshot,
-                    hard,
-                    remaining_ms,
+                    len(hard),
+                    BASE_POLICY_HORIZON,
+                    replanning_ms,
                 )
-                replanning_ms = (
-                    self.clock() - replanning_started
-                ) * 1000.0
-                if replanning is not None:
-                    self.effort.observe_policy(
-                        snapshot,
-                        len(hard),
-                        BASE_POLICY_HORIZON,
-                        replanning_ms,
+                replanning_best = max(
+                    replanning.values(),
+                    default=0,
+                )
+                if replanning_best > 0:
+                    delivery_preferred = frozenset(
+                        action for action, score
+                        in replanning.items()
+                        if score == replanning_best
                     )
-                    replanning_best = max(
-                        replanning.values(),
-                        default=0,
+                    planning_candidates = tuple(
+                        candidate for candidate in hard
+                        if candidate.action in delivery_preferred
                     )
-                    if replanning_best > 0:
-                        delivery_preferred = frozenset(
-                            action for action, score
-                            in replanning.items()
-                            if score == replanning_best
-                        )
-                        planning_candidates = tuple(
-                            candidate for candidate in hard
-                            if candidate.action in delivery_preferred
-                        )
-                        policy_preferred = delivery_preferred
-                        policy_horizon = BASE_POLICY_HORIZON
-                        policy_scores = replanning
-                        terminal_completed = True
+                    policy_preferred = delivery_preferred
+                    policy_horizon = BASE_POLICY_HORIZON
+                    policy_scores = replanning
+                    terminal_completed = True
+
+        if (
+            limit > max(HARD_SAFETY_HORIZON, policy_horizon)
+            and len(planning_candidates) > 1
+        ):
+            nominal_minimum_horizon = next(
+                (
+                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                    if horizon > policy_horizon
+                ),
+                BASE_POLICY_HORIZON,
+            )
             terminal_progressive_native = (
                 getattr(
                     type(self.kernel),
@@ -1325,19 +1337,17 @@ class Solver:
                 else None
             )
             progressive_terminal_ready = bool(
-                terminal_progressive_native is not None and len(hard) > 1
+                terminal_progressive_native is not None
+                and len(planning_candidates) > 1
             )
-            # Build the one turn-capable window already selected by the
-            # budget controller, then progress h8/h12/h16 inside one native
-            # complete-or-discard call.  Splitting p8 from the deeper call
-            # rebuilt both the source projection and the exact labelled
-            # frontier; retained physical snapshots showed that duplicate
-            # prefix work could miss an affordable h12 reversal.  A low
-            # measured limit still selects h8, so deeper preparation cannot
-            # starve the ordinary rung merely because a scene is dense.
+            # Build the deeper turn-capable window selected by the budget
+            # controller.  If the delivery-aware p8 rung completed, nominal
+            # pickup starts at h12 instead of rebuilding a weaker p8 forecast.
+            # The deeper progressive call still shares its own prefixes up to
+            # h16 and remains complete-or-discard.
             soft_prepare_horizon = (
                 max(
-                    BASE_POLICY_HORIZON,
+                    nominal_minimum_horizon,
                     min(limit, TURN_CAPABLE_POLICY_HORIZONS[-1]),
                 )
                 if progressive_terminal_ready
@@ -1472,7 +1482,7 @@ class Solver:
                     return True
 
                 initial_completed = accept_progressive(
-                    BASE_POLICY_HORIZON,
+                    nominal_minimum_horizon,
                     soft_prepare_horizon,
                     (
                         pending_candidate.action
@@ -1534,7 +1544,10 @@ class Solver:
                                 else None
                             ),
                         )
-            elif terminal_native is not None and len(hard) > 1:
+            elif (
+                terminal_native is not None
+                and len(planning_candidates) > 1
+            ):
                 # Non-native test doubles and older kernels retain the same
                 # complete-or-discard contract. Production uses the shared
                 # progressive frontier above so h8/h12 are not recomputed
@@ -1545,6 +1558,8 @@ class Solver:
                 for terminal_horizon in TURN_CAPABLE_POLICY_HORIZONS:
                     if terminal_horizon > limit:
                         break
+                    if terminal_horizon <= policy_horizon:
+                        continue
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()

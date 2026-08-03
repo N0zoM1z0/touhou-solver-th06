@@ -1164,7 +1164,7 @@ class AnytimePolicyTests(unittest.TestCase):
             delivery_scores={
                 fragile.action: 0,
                 robust_winner.action: 5,
-                robust_other.action: 3,
+                robust_other.action: 5,
             },
             terminal_scores_by_horizon={
                 16: {
@@ -1200,6 +1200,51 @@ class AnytimePolicyTests(unittest.TestCase):
             ),
             kernel.calls,
         )
+
+    def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
+        for predicted_limit in (
+            HARD_SAFETY_HORIZON,
+            BASE_POLICY_HORIZON,
+        ):
+            with self.subTest(predicted_limit=predicted_limit):
+                clock = ManualClock()
+                fragile = self.hard[0]
+                robust = self.hard[1]
+                kernel = DeliveryReplanningKernel(
+                    clock,
+                    self.hard,
+                    delivery_scores={
+                        fragile.action: 0,
+                        robust.action: 5,
+                        self.hard[2].action: 3,
+                    },
+                    terminal_scores_by_horizon={},
+                    scores_by_horizon={},
+                )
+                solver = self.solver(kernel, clock)
+                solver.effort.choose_limit = (
+                    lambda *_args, value=predicted_limit: value
+                )
+
+                decision = solver.decide(snapshot())
+
+                self.assertEqual(decision.action, robust.action)
+                self.assertEqual(
+                    decision.effort_horizon,
+                    BASE_POLICY_HORIZON,
+                )
+                self.assertIn(
+                    "delivery_replanning",
+                    [call[0] for call in kernel.calls],
+                )
+                self.assertNotIn(
+                    "terminal_progressive",
+                    [call[0] for call in kernel.calls],
+                )
+                self.assertNotIn(
+                    "prepare",
+                    [call[0] for call in kernel.calls],
+                )
 
     def test_zero_delivery_continuation_keeps_nominal_fallback(self):
         clock = ManualClock()
