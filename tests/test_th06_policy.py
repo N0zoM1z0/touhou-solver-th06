@@ -1809,6 +1809,87 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(chosen.action, current)
 
+    def test_expired_directional_proposal_releases_when_neutral_is_hard(self):
+        ranker = ProposalRanker()
+        right_fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right_fast"
+        )
+        stay_fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "stay_fast"
+        )
+        candidates = (
+            SafeAction(right_fast, 10.0, 168.0, 230.0),
+            SafeAction(stay_fast, 9.0, 152.0, 230.0),
+        )
+
+        proposed = ranker.choose(
+            snapshot(input_mask=0x00),
+            candidates,
+            frozenset((right_fast,)),
+            commitment_frames=4,
+        )
+        held = ranker.choose(
+            snapshot(frame=102, input_mask=0x80),
+            candidates,
+        )
+        released = ranker.choose(
+            snapshot(frame=104, input_mask=0x80),
+            candidates,
+        )
+
+        self.assertEqual(proposed.action, right_fast)
+        self.assertEqual(held.action, right_fast)
+        self.assertEqual(released.action, stay_fast)
+
+    def test_expired_proposal_does_not_relax_hard_to_release_direction(self):
+        ranker = ProposalRanker()
+        right_fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right_fast"
+        )
+        candidate = SafeAction(right_fast, 10.0, 168.0, 230.0)
+
+        ranker.choose(
+            snapshot(input_mask=0x00),
+            (candidate,),
+            frozenset((right_fast,)),
+            commitment_frames=2,
+        )
+        held = ranker.choose(
+            snapshot(frame=102, input_mask=0x80),
+            (candidate,),
+        )
+
+        self.assertEqual(held.action, right_fast)
+
+    def test_full_fresh_tie_direction_is_still_a_bounded_soft_proposal(self):
+        ranker = ProposalRanker()
+        stay_fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "stay_fast"
+        )
+        right_fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right_fast"
+        )
+        candidates = (
+            SafeAction(stay_fast, 10.0, 152.0, 230.0),
+            SafeAction(right_fast, 10.0, 168.0, 230.0),
+        )
+
+        chosen = ranker.choose(
+            snapshot(x=152.0, y=230.0, input_mask=0x00),
+            candidates,
+            frozenset((stay_fast, right_fast)),
+            commitment_frames=4,
+        )
+
+        self.assertEqual(chosen.action, right_fast)
+        self.assertEqual(ranker.committed_action, right_fast)
+        self.assertEqual(ranker.commit_until_frame, 104)
+
     def test_equal_continuation_prefers_focused_correction_reserve(self):
         state = snapshot(input_mask=0x01)
         focused = next(

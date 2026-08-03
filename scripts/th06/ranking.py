@@ -69,8 +69,18 @@ class ProposalRanker:
             self.committed_action is not None
             and (
                 self.committed_action not in actions
-                or self.committed_action not in preferred_actions
+                or (
+                    preferred_actions
+                    and self.committed_action not in preferred_actions
+                )
             )
+        )
+        expired_without_fresh_evidence = (
+            commitment_expired
+            and not discontinuity
+            and not commitment_invalid
+            and not preferred_actions
+            and self.committed_action == current
         )
         renewable_action = (
             self.committed_action
@@ -88,9 +98,29 @@ class ProposalRanker:
         if not preferred_actions:
             # With no fresh continuation proposal, Hard clearance only proves
             # short-horizon eligibility; it does not justify issuing a new
-            # route direction.  Retain the observed input while it remains in
-            # the fresh Hard set, and fall back to clearance only when that
-            # input itself is no longer eligible.
+            # route direction.  An observed direction that came from an
+            # expired soft proposal is different: retaining it would silently
+            # turn a bounded proposal into an unbounded route.  Release only
+            # that direction, and only to the focus-matched zero-displacement
+            # action when fresh Hard has certified it.
+            if expired_without_fresh_evidence:
+                neutral = next(
+                    (
+                        candidate for candidate in candidates
+                        if (
+                            candidate.action.dx == 0
+                            and candidate.action.dy == 0
+                            and candidate.action.focused == current.focused
+                        )
+                    ),
+                    None,
+                )
+                if neutral is not None:
+                    self.last_frame = snapshot.frame
+                    return neutral
+            # Otherwise retain the observed input while it remains in the
+            # fresh Hard set, and fall back to clearance only when that input
+            # itself is no longer eligible.
             current_candidate = next(
                 (
                     candidate for candidate in candidates
@@ -99,8 +129,9 @@ class ProposalRanker:
                 None,
             )
             if current_candidate is not None:
-                self.committed_action = None
-                self.commit_until_frame = None
+                if self.committed_action != current:
+                    self.committed_action = None
+                    self.commit_until_frame = None
                 self.last_frame = snapshot.frame
                 return current_candidate
 
@@ -140,8 +171,11 @@ class ProposalRanker:
         chosen = max(candidates, key=score)
         if (
             preferred_actions
-            and len(preferred_actions) < len(actions)
             and chosen.action in preferred_actions
+            and (
+                len(preferred_actions) < len(actions)
+                or chosen.action != current
+            )
         ):
             self.committed_action = chosen.action
             self.commit_until_frame = (

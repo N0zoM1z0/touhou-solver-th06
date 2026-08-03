@@ -10,7 +10,10 @@ import os
 from pathlib import Path
 
 from th06.barrage_lab.assets import load_ecl_bullet_catalogue
-from th06.barrage_lab.generator import eligible_opcodes
+from th06.barrage_lab.generator import (
+    eligible_opcodes,
+    runtime_barrage_template,
+)
 from th06.barrage_lab.runner import (
     native_action_names,
     native_progressive_terminal_guidance,
@@ -21,12 +24,25 @@ from th06.barrage_lab.runner import (
     run_sweep,
     source_terminal_guidance,
 )
+from th06.barrage_lab.temporal import run_proposal_temporal_sweep
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path, help="path to the installed TH06 ST.DAT")
     parser.add_argument("--seeds", type=int, default=100)
+    parser.add_argument(
+        "--corpus", type=Path,
+        help="condition generated cases on an online failure artifact",
+    )
+    parser.add_argument(
+        "--corpus-density-scale", type=float, default=1.0,
+        help="multiply each sampled runtime frame's observed bullet count",
+    )
+    parser.add_argument(
+        "--temporal-seeds", type=int, default=0,
+        help="also fuzz proposal publication/expiry sequences",
+    )
     parser.add_argument("--horizon", type=int, default=8)
     parser.add_argument(
         "--planner", action="store_true",
@@ -58,6 +74,18 @@ def main() -> int:
         raise ValueError("planner segment length must be inside the horizon")
     if args.guidance and not args.planner:
         raise ValueError("--guidance requires --planner")
+    if args.corpus_density_scale <= 0.0 or args.temporal_seeds < 0:
+        raise ValueError(
+            "corpus scale must be positive and temporal seeds nonnegative"
+        )
+    runtime_templates = ()
+    if args.corpus is not None:
+        corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
+        history = corpus.get("snapshot_history") or (corpus["snapshot"],)
+        runtime_templates = tuple(
+            runtime_barrage_template(raw, args.corpus_density_scale)
+            for raw in history
+        )
     catalogue = load_ecl_bullet_catalogue(args.archive)
     kernel = None
     if args.native:
@@ -104,6 +132,7 @@ def main() -> int:
             ),
             extra_planners=extras,
             one_candidate=args.guidance,
+            runtime_templates=runtime_templates,
         )
     else:
         extras = (
@@ -114,6 +143,13 @@ def main() -> int:
             catalogue, seeds=args.seeds, horizon=args.horizon,
             placement=args.placement,
             extra_certifiers=extras,
+            runtime_templates=runtime_templates,
+        )
+    temporal_summary = None
+    temporal_mismatch = None
+    if args.temporal_seeds:
+        temporal_summary, temporal_mismatch = run_proposal_temporal_sweep(
+            args.temporal_seeds
         )
     output = {
         "archive": str(args.archive),
@@ -126,7 +162,14 @@ def main() -> int:
         "placement": args.placement,
         "catalogue_opcodes": len(catalogue),
         "exact_hard_opcodes": len(eligible_opcodes(catalogue)),
+        "runtime_templates": len(runtime_templates),
         "summary": asdict(summary),
+        "temporal_summary": (
+            asdict(temporal_summary) if temporal_summary is not None else None
+        ),
+        "temporal_mismatch": (
+            asdict(temporal_mismatch) if temporal_mismatch is not None else None
+        ),
         "mismatch": None,
     }
     if mismatch is not None:
@@ -155,7 +198,7 @@ def main() -> int:
             mismatch_output["candidate_actions"] = mismatch.candidate_names
         output["mismatch"] = mismatch_output
     print(json.dumps(output, indent=2, ensure_ascii=False))
-    return int(mismatch is not None)
+    return int(mismatch is not None or temporal_mismatch is not None)
 
 
 if __name__ == "__main__":

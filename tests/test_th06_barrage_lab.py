@@ -8,6 +8,7 @@ from th06.barrage_lab.assets import (
 )
 from th06.barrage_lab.generator import (
     generate_barrage_case,
+    runtime_barrage_template,
     stress_player_position,
 )
 from th06.barrage_lab.oracle import certify_linear_source
@@ -22,6 +23,7 @@ from th06.barrage_lab.runner import (
     shrink_mismatch,
     source_terminal_guidance,
 )
+from th06.barrage_lab.temporal import run_proposal_temporal_sweep
 from th06.hazards.bullets import hazard_box
 from th06.model import Bullet
 
@@ -168,6 +170,40 @@ class BarrageLabTests(unittest.TestCase):
                 (opcode,), 3, target_bullets=8,
                 player_position=(377.0, 432.0),
             )
+
+    def test_runtime_corpus_conditions_source_valid_dense_cases(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        template = runtime_barrage_template({
+            "x": 152.0,
+            "y": 229.941162109375,
+            "input_mask": 0x80,
+            "rank": 31,
+            "bullets": [{}] * 80,
+        }, density_scale=2.0)
+
+        case = generate_barrage_case(
+            (opcode,), 41, runtime_template=template
+        )
+
+        self.assertEqual(
+            (case.snapshot.x, case.snapshot.y),
+            (152.0, 229.941162109375),
+        )
+        self.assertEqual(case.snapshot.input_mask, 0x80)
+        self.assertEqual(case.snapshot.rank, 31)
+        self.assertEqual(len(case.snapshot.bullets), 160)
+        self.assertEqual(
+            python_action_names(case.snapshot, 4),
+            certify_linear_source(case.snapshot, 4).actions,
+        )
+
+    def test_temporal_fuzz_bounds_directional_soft_proposals(self):
+        summary, mismatch = run_proposal_temporal_sweep(512)
+
+        self.assertIsNone(mismatch)
+        self.assertEqual(summary.seeds, 512)
+        self.assertGreater(summary.focused_cases, 0)
+        self.assertGreater(summary.fast_cases, 0)
 
     def test_source_slowdown_is_projected_at_its_known_angle(self):
         bullet = Bullet(

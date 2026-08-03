@@ -6,10 +6,18 @@ from dataclasses import dataclass, replace
 import math
 import random
 import struct
+from typing import Mapping
 
 from ..hazards.births import spawn_pattern
 from ..hazards.rng import RngState
-from ..model import BUTTON_FOCUS, CONTROL_ACTIONS, Bullet, BulletPattern, Snapshot
+from ..model import (
+    BUTTON_FOCUS,
+    CONTROL_ACTIONS,
+    Bullet,
+    BulletPattern,
+    Snapshot,
+    action_from_input,
+)
 from .assets import EclBulletOpcode
 
 
@@ -192,6 +200,46 @@ class BarrageCase:
     sources: tuple[tuple[str, int, int], ...]
 
 
+@dataclass(frozen=True)
+class RuntimeBarrageTemplate:
+    """Small online state distribution used to condition source volleys."""
+
+    player_x: float
+    player_y: float
+    input_mask: int
+    rank: int
+    target_bullets: int
+
+
+def runtime_barrage_template(
+    raw: Mapping[str, object], density_scale: float = 1.0,
+) -> RuntimeBarrageTemplate:
+    """Extract non-hazard runtime context without importing a trace codec."""
+    if density_scale <= 0.0:
+        raise ValueError("corpus density scale must be positive")
+    x = float(raw["x"])
+    y = float(raw["y"])
+    if not (
+        SOURCE_PLAYER_LEFT <= x <= SOURCE_PLAYER_RIGHT
+        and SOURCE_PLAYER_TOP <= y <= SOURCE_PLAYER_BOTTOM
+    ):
+        raise ValueError("corpus player position is outside source bounds")
+    raw_bullets = raw.get("bullets", ())
+    if not isinstance(raw_bullets, (list, tuple)):
+        raise ValueError("corpus bullets must be a sequence")
+    target = max(
+        1,
+        min(SOURCE_BULLET_CAP, math.ceil(len(raw_bullets) * density_scale)),
+    )
+    return RuntimeBarrageTemplate(
+        x,
+        y,
+        int(raw.get("input_mask", BUTTON_FOCUS)),
+        int(raw.get("rank", 16)),
+        target,
+    )
+
+
 def eligible_opcodes(
     catalogue: tuple[EclBulletOpcode, ...], difficulty: int = 2
 ) -> tuple[EclBulletOpcode, ...]:
@@ -221,6 +269,7 @@ def generate_barrage_case(
     difficulty: int = 2,
     target_bullets: int | None = None,
     player_position: tuple[float, float] | None = None,
+    runtime_template: RuntimeBarrageTemplate | None = None,
 ) -> BarrageCase:
     """Compose time-shifted real volleys under the source's 640-slot cap."""
     opcodes = eligible_opcodes(catalogue, difficulty)
@@ -231,6 +280,16 @@ def generate_barrage_case(
     rank = chooser.randrange(16, 33)
     player_x = _f32(chooser.uniform(40.0, 344.0))
     player_y = _f32(chooser.uniform(120.0, 416.0))
+    current = chooser.choice(CONTROL_ACTIONS)
+    if runtime_template is not None:
+        if player_position is not None:
+            raise ValueError(
+                "runtime template and explicit player position are exclusive"
+            )
+        player_x = _f32(runtime_template.player_x)
+        player_y = _f32(runtime_template.player_y)
+        current = action_from_input(runtime_template.input_mask)
+        rank = runtime_template.rank
     if player_position is not None:
         requested_x, requested_y = player_position
         if not (
@@ -240,9 +299,15 @@ def generate_barrage_case(
             raise ValueError("player position is outside source movement bounds")
         player_x = _f32(requested_x)
         player_y = _f32(requested_y)
-    current = chooser.choice(CONTROL_ACTIONS)
     density_steps = (64, 128, 256, 384, 512, 640)
-    target = target_bullets or density_steps[seed % len(density_steps)]
+    target = (
+        target_bullets
+        or (
+            runtime_template.target_bullets
+            if runtime_template is not None
+            else density_steps[seed % len(density_steps)]
+        )
+    )
     target = max(1, min(SOURCE_BULLET_CAP, target))
     bullets: list[Bullet] = []
     sources = []

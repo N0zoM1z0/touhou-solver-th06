@@ -14,6 +14,7 @@ from ..safety import COLLISION_MARGIN, certify_actions
 from .assets import EclBulletOpcode
 from .generator import (
     BarrageCase,
+    RuntimeBarrageTemplate,
     generate_barrage_case,
     stress_player_position,
 )
@@ -479,6 +480,7 @@ def run_sweep(
     seeds: int,
     horizon: int,
     placement: str = "interior",
+    runtime_templates: tuple[RuntimeBarrageTemplate, ...] = (),
     extra_certifiers: tuple[tuple[str, Certifier], ...] = (),
 ) -> tuple[SweepSummary, SweepMismatch | None]:
     certifiers = (("python", python_action_names),) + extra_certifiers
@@ -489,7 +491,17 @@ def run_sweep(
         case: BarrageCase = generate_barrage_case(
             catalogue,
             seed,
-            player_position=stress_player_position(seed, placement),
+            player_position=(
+                None
+                if runtime_templates
+                else stress_player_position(seed, placement)
+            ),
+            runtime_template=(
+                runtime_templates[
+                    (seed * 1_315_423_911) % len(runtime_templates)
+                ]
+                if runtime_templates else None
+            ),
         )
         total_bullets += len(case.snapshot.bullets)
         expected = certify_linear_source(case.snapshot, horizon).actions
@@ -526,6 +538,7 @@ def run_planner_sweep(
     segment_length: int,
     horizon: int,
     placement: str = "interior",
+    runtime_templates: tuple[RuntimeBarrageTemplate, ...] = (),
     oracle_planner: Planner | None = None,
     base_planners: tuple[tuple[str, Planner], ...] = (
         ("python", python_terminal_counts),
@@ -547,7 +560,17 @@ def run_planner_sweep(
         case = generate_barrage_case(
             catalogue,
             seed,
-            player_position=stress_player_position(seed, placement),
+            player_position=(
+                None
+                if runtime_templates
+                else stress_player_position(seed, placement)
+            ),
+            runtime_template=(
+                runtime_templates[
+                    (seed * 1_315_423_911) % len(runtime_templates)
+                ]
+                if runtime_templates else None
+            ),
         )
         total_bullets += len(case.snapshot.bullets)
         candidate_names = certify_linear_source(
