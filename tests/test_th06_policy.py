@@ -1796,6 +1796,48 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(chosen.action, focused)
 
+    def test_fresh_preferred_commitment_renews_before_clearance_chatter(self):
+        state = snapshot(input_mask=0x04)
+        stay = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "stay"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "left"
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right"
+        )
+        preferred = frozenset((stay, left))
+        ranker = ProposalRanker()
+
+        first = ranker.choose(
+            state,
+            (
+                SafeAction(stay, 33.0, 207.865, 428.426),
+                SafeAction(left, 32.0, 205.865, 428.426),
+                SafeAction(right, 100.0, 209.865, 428.426),
+            ),
+            preferred,
+            commitment_frames=4,
+        )
+        renewed = ranker.choose(
+            replace(state, frame=104),
+            (
+                SafeAction(stay, 31.966, 207.865, 428.426),
+                SafeAction(left, 32.275, 205.865, 428.426),
+                SafeAction(right, 100.0, 209.865, 428.426),
+            ),
+            preferred,
+            commitment_frames=4,
+        )
+
+        self.assertEqual(first.action, stay)
+        self.assertEqual(renewed.action, stay)
+        self.assertEqual(ranker.commit_until_frame, 108)
+
 
 if __name__ == "__main__":
     unittest.main()

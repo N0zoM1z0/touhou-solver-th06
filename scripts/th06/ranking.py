@@ -72,6 +72,15 @@ class ProposalRanker:
                 or self.committed_action not in preferred_actions
             )
         )
+        renewable_action = (
+            self.committed_action
+            if (
+                commitment_expired
+                and not discontinuity
+                and not commitment_invalid
+            )
+            else None
+        )
         if discontinuity or commitment_expired or commitment_invalid:
             self.committed_action = None
             self.commit_until_frame = None
@@ -96,7 +105,7 @@ class ProposalRanker:
                 return current_candidate
 
         def score(candidate: SafeAction) -> tuple[
-            bool, bool, float, bool, bool, float, bool, str,
+            bool, bool, float, bool, bool, bool, float, bool, str,
         ]:
             preferred = candidate.action in preferred_actions
             return (
@@ -113,6 +122,12 @@ class ProposalRanker:
                     else 0.0
                 ),
                 candidate.action == self.committed_action,
+                # Expiry bounds a stale commitment; it need not manufacture
+                # a route switch when the same action is still present in the
+                # strongest fresh continuation set. Renew it ahead of noisy
+                # Hard-window clearance, while target/free-space evidence and
+                # any changed preferred set retain higher authority.
+                candidate.action == renewable_action,
                 # Avoid an extra Focus edge unless stronger continuation
                 # evidence selected the other mode. This is publication
                 # continuity, not a fixed preference for focused movement.
