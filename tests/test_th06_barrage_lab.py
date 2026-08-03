@@ -8,6 +8,7 @@ from th06.barrage_lab.assets import (
     parse_ecl_bullet_opcodes,
 )
 from th06.barrage_lab.generator import (
+    generate_barrage_births,
     generate_barrage_case,
     runtime_barrage_template,
     stress_player_position,
@@ -33,6 +34,7 @@ from th06.barrage_lab.stateful import (
     step_closed_world,
     step_fired_bullet,
     _terminal_metric,
+    _terminal_rungs,
 )
 from th06.hazards.bullets import hazard_box
 from th06.model import CONTROL_ACTIONS, Bullet
@@ -343,6 +345,48 @@ class BarrageLabTests(unittest.TestCase):
                 CONTROL_ACTIONS[0],
             )
 
+    def test_scheduled_ecl_birth_uses_source_chain_order_and_rng(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 7, target_bullets=1)
+        start = replace(case.snapshot, bullets=(), input_mask=0x05)
+        schedule = generate_barrage_births(
+            (opcode,), 9, start, frames=8, events=1
+        )
+        event = schedule[0]
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+
+        following = step_closed_world(
+            start, right, ((event.pattern, event.origin),)
+        )
+
+        self.assertEqual(len(following.bullets), 15)
+        self.assertEqual(
+            {bullet.slot for bullet in following.bullets}, set(range(15))
+        )
+        # ECL creates state 3 here; BulletManager then moves the newborns on
+        # the same update, while they remain non-collidable spawn animation.
+        self.assertTrue(all(bullet.state == 3 for bullet in following.bullets))
+        self.assertTrue(all(bullet.timer == 1 for bullet in following.bullets))
+        self.assertEqual(following.x, start.x + start.focus_speed)
+
+    def test_scalar_oracle_accepts_source_spawning_states(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 11, target_bullets=1)
+        spawning = replace(
+            case.snapshot.bullets[0], state=3, timer=14, timer_float=14.0
+        )
+        snapshot = replace(case.snapshot, bullets=(spawning,))
+
+        self.assertTrue(certify_linear_source(snapshot, 1).actions)
+        self.assertEqual(
+            certify_linear_source(snapshot, 2).actions,
+            certify_linear_source(step_closed_world(
+                snapshot, CONTROL_ACTIONS[0]
+            ), 1).actions,
+        )
+
     def test_stateful_terminal_metrics_keep_survival_positive(self):
         narrow_many = PlannerGuidanceValue(12, 1.0, 100.0, 100.0)
         clear_few = PlannerGuidanceValue(4, 9.0, 120.0, 100.0)
@@ -355,6 +399,7 @@ class BarrageLabTests(unittest.TestCase):
             _terminal_metric(clear_few, "clearance-count"),
             _terminal_metric(narrow_many, "clearance-count"),
         )
+        self.assertEqual(_terminal_rungs(16), (8, 12, 16))
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

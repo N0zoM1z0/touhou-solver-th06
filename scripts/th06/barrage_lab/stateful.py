@@ -26,12 +26,15 @@ from ..model import (
     CONTROL_ACTIONS,
     Action,
     Bullet,
+    BulletPattern,
     SafeAction,
     Snapshot,
     action_from_input,
 )
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
+from ..hazards.births import spawn_pattern
+from ..hazards.rng import RngState
 from .oracle import (
     _step_player,
     _within_margin,
@@ -44,6 +47,7 @@ SOURCE_DYNAMIC_FLAGS = 0xDF1
 SOURCE_EXACT_DYNAMIC_FLAGS = 0x0F1
 TERMINAL_METRICS = (
     "count",
+    "count-vector",
     "count-clearance",
     "clearance-count",
 )
@@ -228,12 +232,20 @@ def step_bullet(
     )
 
 
-def step_closed_world(snapshot: Snapshot, held: Action) -> Snapshot:
+def step_closed_world(
+    snapshot: Snapshot,
+    held: Action,
+    births: tuple[
+        tuple[BulletPattern, tuple[float, float]], ...
+    ] = (),
+) -> Snapshot:
     """Advance the first exact simulator rung by one source update.
 
-    This rung accepts fired bullets only and no live emitter/body/laser state.
-    Generated barrage cases satisfy that contract.  ECL and timeline state are
-    added only after their one-step transition has physical parity.
+    This rung accepts current bullets plus explicitly scheduled source-valid
+    volleys and no live emitter/body/laser state.  A scheduled volley is born
+    after Player::OnUpdate and before BulletManager::OnUpdate, matching source
+    chain priorities 7, 9, and 11.  It is synthetic fuzz input, not a claim
+    that a particular ECL route reaches the composed sequence.
     """
     if snapshot.frame_multiplier != 1.0:
         raise UnsupportedStatefulModel("only frame multiplier one is modeled")
@@ -245,6 +257,18 @@ def step_closed_world(snapshot: Snapshot, held: Action) -> Snapshot:
         raise UnsupportedStatefulModel("despawning bullets are not modeled")
 
     x, y = _step_player(snapshot, snapshot.x, snapshot.y, held)
+    bullets = list(snapshot.bullets)
+    used_slots = {bullet.slot for bullet in bullets if bullet.slot >= 0}
+    if len(used_slots) != len(bullets):
+        raise UnsupportedStatefulModel("bullet slots must be unique and known")
+    rng = RngState(snapshot.rng_seed, snapshot.rng_generation)
+    free_slots = (slot for slot in range(640) if slot not in used_slots)
+    for pattern, origin in births:
+        for bullet in spawn_pattern(pattern, origin, (x, y), rng):
+            slot = next(free_slots, None)
+            if slot is None:
+                break
+            bullets.append(replace(bullet, slot=slot))
     return replace(
         snapshot,
         frame=snapshot.frame + 1,
@@ -253,9 +277,9 @@ def step_closed_world(snapshot: Snapshot, held: Action) -> Snapshot:
         x=x,
         y=y,
         input_mask=action_mask(held),
-        bullets=tuple(
-            step_bullet(bullet, (x, y)) for bullet in snapshot.bullets
-        ),
+        bullets=tuple(step_bullet(bullet, (x, y)) for bullet in bullets),
+        rng_seed=rng.seed,
+        rng_generation=rng.generation_count,
     )
 
 
@@ -310,6 +334,32 @@ class ExactTerminalPolicy:
         )
         if self.horizon == 4:
             preferred = frozenset()
+        elif self.metric == "count-vector":
+            rungs = _terminal_rungs(self.horizon)
+            counts = tuple(
+                dict(source_terminal_counts(
+                    snapshot,
+                    hard.actions,
+                    4,
+                    rung,
+                ).counts)
+                for rung in rungs
+            )
+            scores = {
+                candidate.action.name: tuple(
+                    float(values[candidate.action.name])
+                    for values in reversed(counts)
+                )
+                for candidate in candidates
+            }
+            best = max(scores.values(), default=None)
+            preferred = frozenset(
+                candidate.action
+                for candidate in candidates
+                if best is not None
+                and best[0] > 0
+                and scores[candidate.action.name] == best
+            )
         else:
             guidance = dict(source_terminal_counts(
                 snapshot,
@@ -365,6 +415,33 @@ class NativeTerminalPolicy:
             return None
         if self.horizon == 4:
             preferred = frozenset()
+        elif self.metric == "count-vector":
+            rungs = _terminal_rungs(self.horizon)
+            counts = tuple(
+                self.kernel.terminal_counts(
+                    snapshot,
+                    hard,
+                    4,
+                    rung,
+                    collision_margin=0.35,
+                )
+                for rung in rungs
+            )
+            scores = {
+                candidate.action: tuple(
+                    float(values[candidate.action])
+                    for values in reversed(counts)
+                )
+                for candidate in hard
+            }
+            best = max(scores.values(), default=None)
+            preferred = frozenset(
+                candidate.action
+                for candidate in hard
+                if best is not None
+                and best[0] > 0
+                and scores[candidate.action] == best
+            )
         else:
             guidance = (
                 self.kernel.terminal_counts(
@@ -410,6 +487,11 @@ def _terminal_metric(value, metric: str) -> tuple[float, ...]:
     raise ValueError(f"unknown terminal metric {metric!r}")
 
 
+def _terminal_rungs(horizon: int) -> tuple[int, ...]:
+    """Return the ordinary four-frame ladder ending at ``horizon``."""
+    return tuple((*range(8, horizon, 4), horizon))
+
+
 @dataclass(frozen=True)
 class ClosedLoopResult:
     outcome: str
@@ -421,6 +503,7 @@ class ClosedLoopResult:
     final_x: float
     final_y: float
     actions: tuple[str, ...]
+    born_bullets: int
 
 
 def _delivery_choice(
@@ -444,6 +527,7 @@ def run_closed_loop(
     *,
     frames: int,
     delivery_seed: int,
+    birth_schedule=(),
 ) -> ClosedLoopResult:
     """Run solver decisions through bounded pickup and source bullet updates."""
     if frames <= 0:
@@ -456,8 +540,17 @@ def run_closed_loop(
     decisions = 0
     commands = 0
     action_trace: list[str] = []
+    born_bullets = 0
+    births_by_update = {
+        update: tuple(
+            (event.pattern, event.origin)
+            for event in birth_schedule
+            if event.update == update
+        )
+        for update in {event.update for event in birth_schedule}
+    }
 
-    for _ in range(frames):
+    for update in range(frames):
         if collides_now(state):
             outcome = "hit"
             break
@@ -497,7 +590,15 @@ def run_closed_loop(
                     step_action = pending_prefix
                 pending_delay -= 1
         action_trace.append(step_action.name)
-        state = step_closed_world(state, step_action)
+        before_slots = {bullet.slot for bullet in state.bullets}
+        state = step_closed_world(
+            state,
+            step_action,
+            births_by_update.get(update, ()),
+        )
+        born_bullets += sum(
+            bullet.slot not in before_slots for bullet in state.bullets
+        )
     else:
         outcome = "survived"
 
@@ -511,6 +612,7 @@ def run_closed_loop(
         state.x,
         state.y,
         tuple(action_trace),
+        born_bullets,
     )
 
 
@@ -597,7 +699,10 @@ class StatefulSweepSummary:
     horizons: tuple[int, ...]
     outcomes: tuple[tuple[int, tuple[tuple[str, int], ...]], ...]
     mean_survival: tuple[tuple[int, float], ...]
+    mean_commands: tuple[tuple[int, float], ...]
+    mean_decisions: tuple[tuple[int, float], ...]
     deeper_wins: tuple[tuple[int, int, int], ...]
+    birth_events_per_case: int
 
 
 @dataclass(frozen=True)
@@ -608,6 +713,7 @@ class HorizonAdvantage:
     shallow: ClosedLoopResult
     deep: ClosedLoopResult
     snapshot: Snapshot
+    birth_schedule: tuple = ()
 
 
 def _deeper_better(
@@ -630,7 +736,9 @@ def shrink_horizon_advantage(
     """Delta-debug bullets while preserving a closed-loop deep-policy win."""
     bullets = list(advantage.snapshot.bullets)
 
-    def evaluate(values: list[Bullet]):
+    events = list(advantage.birth_schedule)
+
+    def evaluate(values: list[Bullet], schedule=events):
         state = replace(advantage.snapshot, bullets=tuple(values))
         if not certify_linear_source(state, 4).actions:
             return None
@@ -639,12 +747,14 @@ def shrink_horizon_advantage(
             policy_factory(advantage.shallow_horizon),
             frames=frames,
             delivery_seed=delivery_seed,
+            birth_schedule=schedule,
         )
         deep = run_closed_loop(
             state,
             policy_factory(advantage.deep_horizon),
             frames=frames,
             delivery_seed=delivery_seed,
+            birth_schedule=schedule,
         )
         return shallow, deep
 
@@ -668,13 +778,32 @@ def shrink_horizon_advantage(
             break
         granularity = min(len(bullets), granularity * 2)
 
+    granularity = 2
+    while events:
+        chunk = max(1, (len(events) + granularity - 1) // granularity)
+        reduced = False
+        for start in range(0, len(events), chunk):
+            candidate = events[:start] + events[start + chunk:]
+            result = evaluate(bullets, candidate)
+            if result is not None and _deeper_better(*result):
+                events = candidate
+                granularity = max(2, granularity - 1)
+                reduced = True
+                break
+        if reduced:
+            continue
+        if granularity >= len(events):
+            break
+        granularity = min(len(events), granularity * 2)
+
     state = replace(advantage.snapshot, bullets=tuple(bullets))
-    shallow, deep = evaluate(bullets)
+    shallow, deep = evaluate(bullets, events)
     return replace(
         advantage,
         shallow=shallow,
         deep=deep,
         snapshot=state,
+        birth_schedule=tuple(events),
     )
 
 
@@ -686,17 +815,20 @@ def run_stateful_sweep(
     horizons: tuple[int, ...],
     runtime_templates=(),
     policy_factory=ExactTerminalPolicy,
+    birth_events_per_case: int = 0,
 ) -> tuple[StatefulSweepSummary, HorizonAdvantage | None]:
     """Fuzz complete decision/pickup/world sequences, not isolated queries."""
-    from .generator import generate_barrage_case
+    from .generator import generate_barrage_births, generate_barrage_case
 
-    if seeds <= 0 or frames <= 0 or not horizons:
+    if seeds <= 0 or frames <= 0 or not horizons or birth_events_per_case < 0:
         raise ValueError("stateful sweep dimensions must be positive")
     if tuple(sorted(set(horizons))) != horizons or horizons[0] < 4:
         raise ValueError("stateful horizons must be unique, sorted, and >= 4")
 
     outcomes = {horizon: Counter() for horizon in horizons}
     survival = {horizon: 0 for horizon in horizons}
+    commands = {horizon: 0 for horizon in horizons}
+    decisions = {horizon: 0 for horizon in horizons}
     wins = Counter()
     viable_cases = 0
     first_advantage = None
@@ -714,6 +846,13 @@ def run_stateful_sweep(
         )
         if not certify_linear_source(case.snapshot, 4).actions:
             continue
+        birth_schedule = generate_barrage_births(
+            catalogue,
+            seed,
+            case.snapshot,
+            frames=frames,
+            events=birth_events_per_case,
+        )
         viable_cases += 1
         results = {}
         for horizon in horizons:
@@ -722,10 +861,13 @@ def run_stateful_sweep(
                 policy_factory(horizon),
                 frames=frames,
                 delivery_seed=seed,
+                birth_schedule=birth_schedule,
             )
             results[horizon] = result
             outcomes[horizon][result.outcome] += 1
             survival[horizon] += result.survived_frames
+            commands[horizon] += result.commands
+            decisions[horizon] += result.decisions
         for shallow_horizon, deep_horizon in zip(horizons, horizons[1:]):
             shallow = results[shallow_horizon]
             deep = results[deep_horizon]
@@ -739,6 +881,7 @@ def run_stateful_sweep(
                         shallow,
                         deep,
                         case.snapshot,
+                        birth_schedule,
                     )
 
     return StatefulSweepSummary(
@@ -758,7 +901,22 @@ def run_stateful_sweep(
             for horizon in horizons
         ),
         tuple(
+            (
+                horizon,
+                commands[horizon] / viable_cases if viable_cases else 0.0,
+            )
+            for horizon in horizons
+        ),
+        tuple(
+            (
+                horizon,
+                decisions[horizon] / viable_cases if viable_cases else 0.0,
+            )
+            for horizon in horizons
+        ),
+        tuple(
             (shallow, deep, count)
             for (shallow, deep), count in sorted(wins.items())
         ),
+        birth_events_per_case,
     ), first_advantage

@@ -34,6 +34,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", type=int, default=32)
     parser.add_argument("--frames", type=int, default=24)
     parser.add_argument(
+        "--birth-events", type=int, default=3,
+        help="source-valid synthetic ECL volleys scheduled per sequence",
+    )
+    parser.add_argument(
         "--horizons", default="8,12,16",
         help="sorted exact terminal horizons to compare",
     )
@@ -56,7 +60,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     horizons = tuple(int(value) for value in args.horizons.split(","))
-    if args.seeds <= 0 or args.frames <= 0:
+    if args.seeds <= 0 or args.frames <= 0 or args.birth_events < 0:
         raise ValueError("seeds and frames must be positive")
     if args.corpus_density_scale <= 0.0:
         raise ValueError("corpus density scale must be positive")
@@ -93,6 +97,7 @@ def main() -> int:
             horizons=horizons,
             runtime_templates=templates,
             policy_factory=policy_factory,
+            birth_events_per_case=args.birth_events,
         )
         output["stateful_sweep"] = asdict(summary)
         output["terminal_metric"] = args.metric
@@ -111,6 +116,10 @@ def main() -> int:
                 "shallow": asdict(advantage.shallow),
                 "deep": asdict(advantage.deep),
                 "reduced_bullets": len(advantage.snapshot.bullets),
+                "birth_schedule": (
+                    [asdict(event) for event in advantage.birth_schedule]
+                    if args.shrink else len(advantage.birth_schedule)
+                ),
                 "snapshot": asdict(advantage.snapshot) if args.shrink else None,
             }
     print(json.dumps(output, indent=2, ensure_ascii=False))

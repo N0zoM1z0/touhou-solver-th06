@@ -13,6 +13,8 @@ _CONTROL_BITS = (0x20, 0x04, 0x40, 0x80, 0x10)
 _DELAYS = (0, 1, 2, 3)
 _DYNAMIC_FLAGS = 0xDF1
 _EXACT_DYNAMIC_FLAGS = 0x071
+_SPAWN_DIVISOR = {2: 2.0, 3: 2.5, 4: 3.0}
+_SPAWN_FINAL_TIMER = {2: 9, 3: 15, 4: 31}
 
 
 def _f32(value: float) -> float:
@@ -95,10 +97,10 @@ def _bullet_boxes(snapshot: Snapshot, horizon: int):
     states = []
     for bullet in snapshot.bullets:
         if (
-            bullet.state != 1
+            bullet.state not in (1, 2, 3, 4)
             or bullet.ex_flags & (_DYNAMIC_FLAGS & ~_EXACT_DYNAMIC_FLAGS)
         ):
-            raise ValueError("oracle does not support this fired bullet motion")
+            raise ValueError("oracle does not support this bullet motion")
         states.append([
             _f32(bullet.x), _f32(bullet.y),
             _f32(bullet.vx), _f32(bullet.vy),
@@ -112,11 +114,25 @@ def _bullet_boxes(snapshot: Snapshot, horizon: int):
             _f32(bullet.turn_speed), _f32(bullet.direction_rotation),
             bullet.direction_interval, bullet.direction_num_times,
             bullet.direction_max_times,
+            bullet.state,
         ])
     frames = []
     for _ in range(horizon):
         boxes = []
         for state in states:
+            if state[21] in _SPAWN_DIVISOR:
+                divisor = _SPAWN_DIVISOR[state[21]]
+                state[0] = _f32(state[0] + _f32(state[2] / divisor))
+                state[1] = _f32(state[1] + _f32(state[3] / divisor))
+                if state[9] < _SPAWN_FINAL_TIMER[state[21]]:
+                    state[9] += 1
+                    state[10] = _f32(state[10] + 1.0)
+                    continue
+                # The source changes state, resets the timer, and falls
+                # through into the fired update on the completion tick.
+                state[21] = 1
+                state[9] = 0
+                state[10] = 0.0
             if state[8] & 0x01:
                 if state[9] <= 16:
                     deceleration = _f32(

@@ -211,6 +211,16 @@ class RuntimeBarrageTemplate:
     target_bullets: int
 
 
+@dataclass(frozen=True)
+class ScheduledBarrageBirth:
+    """One synthetic event whose volley is literal source ECL semantics."""
+
+    update: int
+    pattern: BulletPattern
+    origin: tuple[float, float]
+    source: tuple[str, int, int]
+
+
 def runtime_barrage_template(
     raw: Mapping[str, object], density_scale: float = 1.0,
 ) -> RuntimeBarrageTemplate:
@@ -370,3 +380,55 @@ def generate_barrage_case(
         rng_generation=th06_rng.generation_count,
     )
     return BarrageCase(seed, target, snapshot, tuple(sources))
+
+
+def generate_barrage_births(
+    catalogue: tuple[EclBulletOpcode, ...],
+    seed: int,
+    snapshot: Snapshot,
+    *,
+    frames: int,
+    events: int,
+) -> tuple[ScheduledBarrageBirth, ...]:
+    """Schedule source-valid ECL volleys inside a synthetic state sequence.
+
+    The individual literal patterns and update semantics are authoritative;
+    their composition is deliberately fuzzed and is not claimed reachable in
+    a named scene. Animated births are preferred because they expose the same
+    source warning interval that online play receives.
+    """
+    if frames <= 0 or events < 0:
+        raise ValueError("birth schedule dimensions are invalid")
+    if events == 0:
+        return ()
+    candidates = eligible_opcodes(catalogue, snapshot.difficulty)
+    animated = tuple(opcode for opcode in candidates if opcode.flags & 0x0E)
+    candidates = animated or candidates
+    if not candidates:
+        raise ValueError("catalogue has no exact source volley for schedule")
+
+    chooser = random.Random(seed ^ 0xB17A5EED)
+    result = []
+    # Leave at least one complete solver decision before the first birth.
+    available = tuple(range(1, frames))
+    updates = sorted(chooser.sample(available, min(events, len(available))))
+    for update in updates:
+        opcode = chooser.choice(candidates)
+        pattern = _resolved_pattern(
+            opcode, snapshot.rank, snapshot.difficulty
+        )
+        bearing = chooser.uniform(-math.pi, math.pi)
+        radius = chooser.uniform(56.0, 192.0)
+        origin = (
+            _f32(min(400.0, max(-16.0,
+                snapshot.x + math.cos(bearing) * radius))),
+            _f32(min(320.0, max(-24.0,
+                snapshot.y + math.sin(bearing) * radius))),
+        )
+        result.append(ScheduledBarrageBirth(
+            update,
+            pattern,
+            origin,
+            (opcode.source, opcode.subroutine, opcode.offset),
+        ))
+    return tuple(result)
