@@ -287,6 +287,20 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
         )
 
 
+class BudgetedPreparationKernel(TerminalRefinementKernel):
+    def __init__(self, *args, prepare_ms, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.prepare_ms = prepare_ms
+
+    def prepare_budgeted(self, _state, horizon, budget_ms):
+        self.calls.append(("prepare_budgeted", horizon, budget_ms))
+        if self.prepare_ms > budget_ms:
+            self.clock.advance_ms(max(0.0, budget_ms))
+            return False
+        self.clock.advance_ms(self.prepare_ms)
+        return True
+
+
 class CoarseMacroKernel(TerminalRefinementKernel):
     def __init__(
         self,
@@ -1519,6 +1533,57 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
         self.assertEqual([call[0] for call in kernel.calls], ["hard"])
 
+    def test_budgeted_base_preparation_bypasses_a_stale_cost_estimate(self):
+        clock = ManualClock()
+        expected = self.hard[1].action
+        kernel = BudgetedPreparationKernel(
+            clock,
+            self.hard,
+            prepare_ms=3.0,
+            terminal_scores_by_horizon={
+                8: {
+                    self.hard[0].action: 2,
+                    expected: 9,
+                    self.hard[2].action: 1,
+                },
+            },
+        )
+        solver = self.solver(kernel, clock, budget=12.5)
+        state = snapshot()
+        solver.effort.rollout_ms_per_work = 100.0 / (
+            solver.effort.rollout_work(state, len(self.hard), 8)
+        )
+        solver.effort.rollout_frame = state.frame
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, expected)
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertIn(
+            "prepare_budgeted",
+            [call[0] for call in kernel.calls],
+        )
+
+    def test_expired_base_preparation_is_discarded_before_terminal_search(self):
+        clock = ManualClock()
+        kernel = BudgetedPreparationKernel(
+            clock,
+            self.hard,
+            prepare_ms=20.0,
+            terminal_scores_by_horizon={
+                8: {candidate.action: 1 for candidate in self.hard},
+            },
+        )
+        solver = self.solver(kernel, clock, budget=12.5)
+
+        decision = solver.decide(snapshot())
+
+        call_names = [call[0] for call in kernel.calls]
+        self.assertEqual(decision.effort_horizon, HARD_SAFETY_HORIZON)
+        self.assertIn("prepare_budgeted", call_names)
+        self.assertNotIn("terminal_progressive", call_names)
+        self.assertLessEqual(clock.seconds * 1000.0, 11.0)
+
     def test_first_soft_probe_uses_measured_hard_cost(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(clock, self.hard, hard_ms=6.0)
@@ -1613,42 +1678,6 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(first, HARD_SAFETY_HORIZON)
         self.assertEqual(second, 8)
-
-    def test_measured_projection_reopens_only_an_affordable_base_rung(self):
-        controller = EffortController(12.5)
-        bullets = tuple(
-            Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
-            for _ in range(180)
-        )
-        state = snapshot(bullets=bullets)
-        controller.rollout_ms_per_work = 20.0 / controller.rollout_work(
-            state,
-            18,
-            BASE_POLICY_HORIZON,
-        )
-        controller.rollout_frame = state.frame
-        controller.observe_projection(
-            state,
-            BASE_POLICY_HORIZON,
-            3.4,
-        )
-
-        first = controller.choose_limit(state, 18, 4.5)
-        second = controller.choose_limit(
-            replace(state, frame=state.frame + 1),
-            18,
-            4.5,
-        )
-        dense = replace(
-            state,
-            frame=state.frame + 2,
-            bullets=bullets * 4,
-        )
-        rejected_dense = controller.choose_limit(dense, 18, 9.9)
-
-        self.assertEqual(first, HARD_SAFETY_HORIZON)
-        self.assertEqual(second, BASE_POLICY_HORIZON)
-        self.assertEqual(rejected_dense, HARD_SAFETY_HORIZON)
 
     def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
         controller = EffortController(10.0)

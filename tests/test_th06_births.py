@@ -14,6 +14,7 @@ from th06.hazards.bullets import hazard_box
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
 from th06.hazards.world import (
+    ForecastDeadlineExceeded,
     _project_hazards,
     extend_nominal_world_births,
     forecast_world_births,
@@ -481,6 +482,17 @@ class EclBirthTests(unittest.TestCase):
                 )
 
                 self.assertEqual(extended, direct)
+
+    def test_nominal_forecast_discards_an_expired_budget(self):
+        state = snapshot(10)
+
+        with self.assertRaises(ForecastDeadlineExceeded):
+            forecast_world_births(
+                state,
+                ((state.x, state.y),) * 8,
+                rng_mode="nominal",
+                deadline=0.0,
+            )
 
     def test_nominal_batch_keeps_no_damage_callback_semantics(self):
         waiting = self.instruction(

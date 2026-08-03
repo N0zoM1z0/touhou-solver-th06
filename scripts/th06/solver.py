@@ -43,6 +43,10 @@ POLICY_DEADLINE_GUARD_MS = 0.5
 # Exact terminal layers poll their deadline in batches; leave room for the
 # final poll overshoot as well as the ordinary publication handoff.
 TERMINAL_DEADLINE_GUARD_MS = 1.5
+# Constant scans poll cheaply but can still return across a Windows scheduling
+# slice. They are weaker residual evidence after a completed terminal rung, so
+# reserve enough time to publish that stronger result first.
+CONSTANT_DEADLINE_GUARD_MS = 4.5
 BASE_RECOVERY_CONFIRMATIONS = 2
 PUBLICATION_RECOVERY_CONFIRMATIONS = 2
 
@@ -58,7 +62,6 @@ class EffortController:
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
         self.rollout_frame: int | None = None
-        self.projection_ms_per_work: float | None = None
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
@@ -99,17 +102,6 @@ class EffortController:
             * max(1, candidate_count)
             * horizon
         )
-
-    @staticmethod
-    def projection_work(snapshot: Snapshot, horizon: int) -> int:
-        """Work proxy for candidate-independent hazard/ECL preparation."""
-        sources = (
-            len(snapshot.bullets)
-            + len(snapshot.enemies)
-            + len(snapshot.lasers)
-            + len(snapshot.spawners)
-        )
-        return (sources + FIXED_WORK_EQUIVALENT) * horizon
 
     @staticmethod
     def _update_rate(
@@ -194,30 +186,11 @@ class EffortController:
             candidate_count,
             BASE_POLICY_HORIZON,
         )
-        projection_estimate = (
-            self.projection_ms_per_work
-            * self.projection_work(snapshot, BASE_POLICY_HORIZON)
-            if self.projection_ms_per_work is not None
-            else None
-        )
-        # Projection is independent of the number of candidate actions and
-        # is not a horizon-scaled copy of Hard certification.  Once measured,
-        # use that causal cost to decide whether the uninterruptible p8 hazard
-        # build fits.  The native terminal search receives only the residual
-        # budget and remains complete-or-discard.
-        base_projection_affordable = (
-            projection_estimate is not None
-            and projection_estimate
-            <= max(0.0, remaining_ms - TERMINAL_DEADLINE_GUARD_MS)
-        )
         if (
             self.rollout_ms_per_work is not None
             and self.last_limit < BASE_POLICY_HORIZON
-            and (
-                base_projection_affordable
-                or base_bootstrap_estimate
-                <= remaining_ms * PROMOTION_BUDGET_FRACTION
-            )
+            and base_bootstrap_estimate
+            <= remaining_ms * PROMOTION_BUDGET_FRACTION
         ):
             if (
                 self.base_recovery_last_frame is None
@@ -259,12 +232,6 @@ class EffortController:
                     break
                 proposed = horizon
 
-        if (
-            self.last_limit >= BASE_POLICY_HORIZON
-            and base_projection_affordable
-        ):
-            proposed = max(proposed, BASE_POLICY_HORIZON)
-
         # A recent expensive projection remains authoritative after one cheap
         # Hard sample.  Two independent current samples can reopen p8 under
         # the same promotion reserve; otherwise one transient spike can lock
@@ -285,13 +252,6 @@ class EffortController:
                     horizon <= self.last_limit
                     or horizon > proposed
                 ):
-                    continue
-                if (
-                    base_recovery_confirmed
-                    and base_projection_affordable
-                    and horizon <= BASE_POLICY_HORIZON
-                ):
-                    promoted = horizon
                     continue
                 promotion_rate = (
                     bootstrap_rate
@@ -331,19 +291,6 @@ class EffortController:
             work,
         )
         self.rollout_frame = snapshot.frame
-
-    def observe_projection(
-        self,
-        snapshot: Snapshot,
-        horizon: int,
-        elapsed_ms: float,
-    ) -> None:
-        """Measure only the candidate-independent hazard/ECL build."""
-        self.projection_ms_per_work = self._update_rate(
-            self.projection_ms_per_work,
-            elapsed_ms,
-            self.projection_work(snapshot, horizon),
-        )
 
     def _effective_policy_rate(
         self,
@@ -823,6 +770,21 @@ class Solver:
         if native is not None:
             native(self.kernel, snapshot, horizon)
 
+    def _prepare_soft_budgeted(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        budget_ms: float,
+    ) -> bool | None:
+        native = (
+            getattr(type(self.kernel), "prepare_budgeted", None)
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(self.kernel, snapshot, horizon, budget_ms)
+
     def _policy_scores(self, snapshot: Snapshot, candidates, horizon: int):
         native = (
             getattr(type(self.kernel), "nominal_policy_counts", None)
@@ -1194,19 +1156,47 @@ class Solver:
         acquisition_horizon = HARD_SAFETY_HORIZON
         progressive_pending_guidance = None
 
+        terminal_progressive_native = (
+            getattr(
+                type(self.kernel),
+                "segment_terminal_counts_progressive",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        progressive_terminal_ready = bool(
+            terminal_progressive_native is not None and len(hard) > 1
+        )
+        base_prepare_ms = None
+        if progressive_terminal_ready:
+            elapsed_ms = (self.clock() - started) * 1000.0
+            prepare_budget_ms = (
+                self.effort.budget_ms()
+                - elapsed_ms
+                - TERMINAL_DEADLINE_GUARD_MS
+            )
+            prepare_started = self.clock()
+            prepared = self._prepare_soft_budgeted(
+                snapshot,
+                BASE_POLICY_HORIZON,
+                prepare_budget_ms,
+            )
+            if prepared is not None:
+                base_prepare_ms = (
+                    self.clock() - prepare_started
+                ) * 1000.0
+                if prepared:
+                    limit = max(limit, BASE_POLICY_HORIZON)
+                    self.effort.last_limit = max(
+                        self.effort.last_limit,
+                        BASE_POLICY_HORIZON,
+                    )
+                else:
+                    limit = HARD_SAFETY_HORIZON
+                    self.effort.last_limit = HARD_SAFETY_HORIZON
+
         if limit > HARD_SAFETY_HORIZON:
-            terminal_progressive_native = (
-                getattr(
-                    type(self.kernel),
-                    "segment_terminal_counts_progressive",
-                    None,
-                )
-                if self.kernel is not None
-                else None
-            )
-            progressive_terminal_ready = bool(
-                terminal_progressive_native is not None and len(hard) > 1
-            )
             # Complete p8 before any deeper projection.  Once that ordinary
             # rung exists, coalesce the affordable h12/h16 projection into one
             # fresh window: rebuilding the same fired bullets and ECL prefix
@@ -1216,17 +1206,15 @@ class Solver:
                 if progressive_terminal_ready
                 else limit
             )
-            operation_started = self.clock()
-            self._prepare_soft(snapshot, soft_prepare_horizon)
-            soft_prepare_ms = (
-                self.clock() - operation_started
-            ) * 1000.0
+            if base_prepare_ms is None:
+                operation_started = self.clock()
+                self._prepare_soft(snapshot, soft_prepare_horizon)
+                soft_prepare_ms = (
+                    self.clock() - operation_started
+                ) * 1000.0
+            else:
+                soft_prepare_ms = base_prepare_ms
             rollout_ms += soft_prepare_ms
-            self.effort.observe_projection(
-                snapshot,
-                soft_prepare_horizon,
-                soft_prepare_ms,
-            )
             observed_held = action_from_input(snapshot.input_mask)
             pending_candidate = next(
                 (
@@ -1374,21 +1362,32 @@ class Solver:
                             deepest_affordable = terminal_horizon
                     if deepest_affordable is not None:
                         operation_started = self.clock()
-                        self._prepare_soft(snapshot, deepest_affordable)
+                        deep_prepared = self._prepare_soft_budgeted(
+                            snapshot,
+                            deepest_affordable,
+                            remaining_ms,
+                        )
+                        if deep_prepared is None:
+                            self._prepare_soft(
+                                snapshot,
+                                deepest_affordable,
+                            )
+                            deep_prepared = True
                         deep_prepare_ms = (
                             self.clock() - operation_started
                         ) * 1000.0
                         rollout_ms += deep_prepare_ms
-                        soft_prepare_horizon = deepest_affordable
-                        accept_progressive(
-                            TURN_CAPABLE_POLICY_HORIZONS[1],
-                            deepest_affordable,
-                            (
-                                pending_candidate.action
-                                if pending_candidate is not None
-                                else None
-                            ),
-                        )
+                        if deep_prepared:
+                            soft_prepare_horizon = deepest_affordable
+                            accept_progressive(
+                                TURN_CAPABLE_POLICY_HORIZONS[1],
+                                deepest_affordable,
+                                (
+                                    pending_candidate.action
+                                    if pending_candidate is not None
+                                    else None
+                                ),
+                            )
             elif terminal_native is not None and len(hard) > 1:
                 # Non-native test doubles and older kernels retain the same
                 # complete-or-discard contract. Production uses the shared
@@ -1461,7 +1460,7 @@ class Solver:
                 remaining_ms = (
                     self.effort.budget_ms()
                     - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
+                    - CONSTANT_DEADLINE_GUARD_MS
                 )
                 if remaining_ms <= 0.0:
                     break
@@ -1779,7 +1778,7 @@ class Solver:
                 remaining_ms = (
                     self.effort.budget_ms()
                     - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
+                    - CONSTANT_DEADLINE_GUARD_MS
                 )
                 if remaining_ms <= 0.0:
                     break
