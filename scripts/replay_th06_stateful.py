@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from functools import partial
 import json
 from pathlib import Path
+import time
 
 from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.corpus import load_failure_history
@@ -14,11 +16,16 @@ from th06.barrage_lab.generator import runtime_barrage_template
 from th06.barrage_lab.stateful import (
     ExactTerminalPolicy,
     NativeTerminalPolicy,
+    PolicyAdvantage,
     TERMINAL_METRICS,
     physical_step_parity,
+    run_closed_loop,
     run_stateful_sweep,
     shrink_horizon_advantage,
+    shrink_policy_advantage,
+    step_closed_world,
 )
+from th06.model import CONTROL_ACTIONS
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,8 +58,20 @@ def parse_args() -> argparse.Namespace:
         help="soft terminal ranking to evaluate in the closed loop",
     )
     parser.add_argument(
+        "--compare-metrics",
+        help="comma-separated terminal metrics to run on identical cases",
+    )
+    parser.add_argument(
         "--shrink", action="store_true",
         help="minimize the first closed-loop deeper-horizon advantage",
+    )
+    parser.add_argument(
+        "--shrink-comparison", choices=TERMINAL_METRICS,
+        help="minimize the first win over the first compared metric",
+    )
+    parser.add_argument(
+        "--shrink-seed", type=int,
+        help="specific winning comparison seed to minimize",
     )
     return parser.parse_args()
 
@@ -73,16 +92,19 @@ def main() -> int:
         "first_advantage": None,
     }
     if args.archive is not None:
+        metrics = (
+            tuple(args.compare_metrics.split(","))
+            if args.compare_metrics
+            else (args.metric,)
+        )
+        if not metrics or len(set(metrics)) != len(metrics):
+            raise ValueError("comparison metrics must be unique")
+        unknown = set(metrics) - set(TERMINAL_METRICS)
+        if unknown:
+            raise ValueError(f"unknown terminal metrics: {sorted(unknown)}")
         if args.native:
             from th06.kernels.safety import NativeSafetyKernel
             kernel = NativeSafetyKernel()
-            policy_factory = lambda horizon: NativeTerminalPolicy(
-                horizon, kernel, args.metric
-            )
-        else:
-            policy_factory = lambda horizon: ExactTerminalPolicy(
-                horizon, args.metric
-            )
         raw = json.loads(args.artifact.read_text(encoding="utf-8"))
         raw_history = raw.get("snapshot_history") or (raw["snapshot"],)
         templates = tuple(
@@ -90,17 +112,229 @@ def main() -> int:
             for item in raw_history
         )
         catalogue = load_ecl_bullet_catalogue(args.archive)
-        summary, advantage = run_stateful_sweep(
-            catalogue,
-            seeds=args.seeds,
-            frames=args.frames,
-            horizons=horizons,
-            runtime_templates=templates,
-            policy_factory=policy_factory,
-            birth_events_per_case=args.birth_events,
-        )
+        comparisons = {}
+        summaries = {}
+        factories = {}
+        selected = None
+        for metric in metrics:
+            policy_factory = (
+                partial(NativeTerminalPolicy, kernel=kernel, metric=metric)
+                if args.native
+                else partial(ExactTerminalPolicy, metric=metric)
+            )
+            factories[metric] = policy_factory
+            started = time.perf_counter()
+            summary, advantage = run_stateful_sweep(
+                catalogue,
+                seeds=args.seeds,
+                frames=args.frames,
+                horizons=horizons,
+                runtime_templates=templates,
+                policy_factory=policy_factory,
+                birth_events_per_case=args.birth_events,
+            )
+            comparisons[metric] = {
+                "elapsed_seconds": time.perf_counter() - started,
+                "summary": asdict(summary),
+            }
+            summaries[metric] = summary
+            if selected is None or metric == args.metric:
+                selected = (metric, summary, advantage, policy_factory)
+        baseline_metric = metrics[0]
+        baseline_summary = summaries[baseline_metric]
+        baseline_by_horizon = {
+            horizon: {seed: values for seed, *values in cases}
+            for horizon, cases in baseline_summary.case_metrics
+        }
+        for metric in metrics[1:]:
+            paired = []
+            for horizon, cases in summaries[metric].case_metrics:
+                baseline = baseline_by_horizon[horizon]
+                wins = []
+                losses = []
+                survival_delta = 0
+                command_delta = 0
+                for seed, _outcome, survived, commands in cases:
+                    _base_outcome, base_survived, base_commands = baseline[seed]
+                    survival_delta += survived - base_survived
+                    command_delta += commands - base_commands
+                    if survived > base_survived:
+                        wins.append(seed)
+                    elif survived < base_survived:
+                        losses.append(seed)
+                paired.append({
+                    "horizon": horizon,
+                    "wins": wins,
+                    "losses": losses,
+                    "ties": len(cases) - len(wins) - len(losses),
+                    "survival_frame_delta": survival_delta,
+                    "command_delta": command_delta,
+                })
+            comparisons[metric]["paired_vs_first"] = paired
+        if args.shrink_comparison:
+            candidate_metric = args.shrink_comparison
+            if candidate_metric == baseline_metric or candidate_metric not in metrics:
+                raise ValueError(
+                    "shrink comparison must be a non-baseline compared metric"
+                )
+            paired = comparisons[candidate_metric]["paired_vs_first"]
+            first_win = next(
+                (
+                    (
+                        item["horizon"],
+                        args.shrink_seed
+                        if args.shrink_seed is not None
+                        else item["wins"][0],
+                    )
+                    for item in paired
+                    if (
+                        args.shrink_seed in item["wins"]
+                        if args.shrink_seed is not None
+                        else bool(item["wins"])
+                    )
+                ),
+                None,
+            )
+            if args.shrink_seed is not None and first_win is None:
+                raise ValueError("requested shrink seed is not a policy win")
+            if first_win is not None:
+                from th06.barrage_lab.generator import (
+                    generate_barrage_births,
+                    generate_barrage_case,
+                )
+                horizon, seed = first_win
+                case = generate_barrage_case(
+                    catalogue,
+                    seed,
+                    runtime_template=templates[
+                        (seed * 1_315_423_911) % len(templates)
+                    ],
+                )
+                schedule = generate_barrage_births(
+                    catalogue,
+                    seed,
+                    case.snapshot,
+                    frames=args.frames,
+                    events=args.birth_events,
+                )
+                baseline_result = run_closed_loop(
+                    case.snapshot,
+                    factories[baseline_metric](horizon),
+                    frames=args.frames,
+                    delivery_seed=seed,
+                    birth_schedule=schedule,
+                )
+                candidate_result = run_closed_loop(
+                    case.snapshot,
+                    factories[candidate_metric](horizon),
+                    frames=args.frames,
+                    delivery_seed=seed,
+                    birth_schedule=schedule,
+                )
+                reduced = shrink_policy_advantage(
+                    PolicyAdvantage(
+                        seed,
+                        horizon,
+                        baseline_metric,
+                        candidate_metric,
+                        baseline_result,
+                        candidate_result,
+                        case.snapshot,
+                        schedule,
+                    ),
+                    frames=args.frames,
+                    delivery_seed=seed,
+                    baseline_factory=factories[baseline_metric],
+                    candidate_factory=factories[candidate_metric],
+                )
+                output["reduced_policy_advantage"] = {
+                    "seed": reduced.seed,
+                    "horizon": reduced.horizon,
+                    "baseline_metric": reduced.baseline_name,
+                    "candidate_metric": reduced.candidate_name,
+                    "baseline": asdict(reduced.baseline),
+                    "candidate": asdict(reduced.candidate),
+                    "snapshot": asdict(reduced.snapshot),
+                    "birth_schedule": [
+                        asdict(event) for event in reduced.birth_schedule
+                    ],
+                }
+                decision_divergence = next(
+                    (
+                        (left, right)
+                        for left, right in zip(
+                            reduced.baseline.decision_trace,
+                            reduced.candidate.decision_trace,
+                        )
+                        if left != right
+                    ),
+                    None,
+                )
+                if decision_divergence is not None and args.native:
+                    left, right = decision_divergence
+                    decision_frame = min(left[0], right[0])
+                    state = reduced.snapshot
+                    births_by_update = {
+                        update: tuple(
+                            (event.pattern, event.origin)
+                            for event in reduced.birth_schedule
+                            if event.update == update
+                        )
+                        for update in {
+                            event.update for event in reduced.birth_schedule
+                        }
+                    }
+                    action_by_name = {
+                        action.name: action for action in CONTROL_ACTIONS
+                    }
+                    for update in range(
+                        decision_frame - reduced.snapshot.frame
+                    ):
+                        state = step_closed_world(
+                            state,
+                            action_by_name[reduced.baseline.actions[update]],
+                            births_by_update.get(update, ()),
+                        )
+                    hard = kernel.certify_selected(
+                        state,
+                        4,
+                        CONTROL_ACTIONS,
+                        collision_margin=0.35,
+                    )
+                    counts = kernel.terminal_counts(
+                        state,
+                        hard,
+                        4,
+                        horizon,
+                        collision_margin=0.35,
+                    )
+                    guidance = kernel.terminal_guidance(
+                        state,
+                        hard,
+                        4,
+                        horizon,
+                        collision_margin=0.35,
+                    )
+                    output["reduced_policy_advantage"][
+                        "first_decision_divergence"
+                    ] = {
+                        "baseline": left,
+                        "candidate": right,
+                        "x": state.x,
+                        "y": state.y,
+                        "bullets": len(state.bullets),
+                        "terminal": {
+                            action.name: {
+                                "count": counts[action],
+                                "free_clearance": guidance[action].free_clearance,
+                            }
+                            for action in counts
+                        },
+                    }
+        output["stateful_comparisons"] = comparisons
+        metric, summary, advantage, policy_factory = selected
         output["stateful_sweep"] = asdict(summary)
-        output["terminal_metric"] = args.metric
+        output["terminal_metric"] = metric
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
                 advantage,

@@ -34,6 +34,8 @@ from th06.barrage_lab.stateful import (
     step_closed_world,
     step_fired_bullet,
     _terminal_metric,
+    _terminal_action_metric,
+    _terminal_preferred,
     _terminal_rungs,
 )
 from th06.hazards.bullets import hazard_box
@@ -400,6 +402,31 @@ class BarrageLabTests(unittest.TestCase):
             _terminal_metric(narrow_many, "clearance-count"),
         )
         self.assertEqual(_terminal_rungs(16), (8, 12, 16))
+        focused = next(action for action in CONTROL_ACTIONS if action.name == "up")
+        fast = next(
+            action for action in CONTROL_ACTIONS if action.name == "up_fast"
+        )
+        self.assertGreater(
+            _terminal_action_metric(
+                narrow_many, "count-focus-clearance", focused
+            ),
+            _terminal_action_metric(
+                replace(narrow_many, free_clearance=9.0),
+                "count-focus-clearance",
+                fast,
+            ),
+        )
+        guidance = {focused: narrow_many, fast: replace(
+            narrow_many, free_clearance=9.0
+        )}
+        first, confirmation = _terminal_preferred(
+            guidance, "count-clearance-confirmed", None
+        )
+        second, _ = _terminal_preferred(
+            guidance, "count-clearance-confirmed", confirmation
+        )
+        self.assertEqual(first, frozenset(guidance))
+        self.assertEqual(second, frozenset((fast,)))
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

@@ -49,6 +49,9 @@ TERMINAL_METRICS = (
     "count",
     "count-vector",
     "count-clearance",
+    "count-clearance-confirmed",
+    "count-focus-clearance",
+    "count-focus-clearance-confirmed",
     "clearance-count",
 )
 # BulletManager::OnUpdate advances these three spawn states before calling the
@@ -315,6 +318,7 @@ class ExactTerminalPolicy:
         self.horizon = horizon
         self.metric = metric
         self.ranker = ProposalRanker()
+        self.metric_confirmation: Action | None = None
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
         hard = certify_linear_source(snapshot, 4)
@@ -368,17 +372,17 @@ class ExactTerminalPolicy:
                 self.horizon,
                 include_guidance=self.metric != "count",
             ).counts)
-            scores = {
-                name: _terminal_metric(value, self.metric)
+            guidance_by_action = {
+                next(
+                    action for action in CONTROL_ACTIONS
+                    if action.name == name
+                ): value
                 for name, value in guidance.items()
             }
-            best = max(scores.values(), default=None)
-            preferred = frozenset(
-                candidate.action
-                for candidate in candidates
-                if best is not None
-                and best[0] > 0
-                and scores[candidate.action.name] == best
+            preferred, self.metric_confirmation = _terminal_preferred(
+                guidance_by_action,
+                self.metric,
+                self.metric_confirmation,
             )
         return self.ranker.choose(snapshot, candidates, preferred).action
 
@@ -403,6 +407,7 @@ class NativeTerminalPolicy:
         self.kernel = kernel
         self.metric = metric
         self.ranker = ProposalRanker()
+        self.metric_confirmation: Action | None = None
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
         hard = self.kernel.certify_selected(
@@ -460,17 +465,10 @@ class NativeTerminalPolicy:
                     collision_margin=0.35,
                 )
             )
-            scores = {
-                action: _terminal_metric(value, self.metric)
-                for action, value in guidance.items()
-            }
-            best = max(scores.values(), default=None)
-            preferred = frozenset(
-                candidate.action
-                for candidate in hard
-                if best is not None
-                and best[0] > 0
-                and scores[candidate.action] == best
+            preferred, self.metric_confirmation = _terminal_preferred(
+                guidance,
+                self.metric,
+                self.metric_confirmation,
             )
         return self.ranker.choose(snapshot, hard, preferred).action
 
@@ -480,11 +478,68 @@ def _terminal_metric(value, metric: str) -> tuple[float, ...]:
     if metric == "count":
         return (float(count),)
     clearance = value.free_clearance
-    if metric == "count-clearance":
+    if metric in (
+        "count-clearance",
+        "count-clearance-confirmed",
+        "count-focus-clearance",
+        "count-focus-clearance-confirmed",
+    ):
         return (float(count), clearance)
     if metric == "clearance-count":
         return (float(count > 0), clearance, float(count))
     raise ValueError(f"unknown terminal metric {metric!r}")
+
+
+def _terminal_action_metric(
+    value,
+    metric: str,
+    action: Action,
+) -> tuple[float, ...]:
+    if metric in (
+        "count-focus-clearance",
+        "count-focus-clearance-confirmed",
+    ):
+        count = value.terminal_count
+        return (float(count), float(action.focused), value.free_clearance)
+    return _terminal_metric(value, metric)
+
+
+def _terminal_preferred(
+    guidance: dict[Action, object],
+    metric: str,
+    previous_confirmation: Action | None,
+) -> tuple[frozenset[Action], Action | None]:
+    scores = {
+        action: _terminal_action_metric(value, metric, action)
+        for action, value in guidance.items()
+    }
+    best = max(scores.values(), default=None)
+    if best is None or best[0] <= 0:
+        return frozenset(), None
+    winners = frozenset(
+        action for action, score in scores.items() if score == best
+    )
+    if not metric.endswith("-confirmed"):
+        return winners, None
+
+    unique = next(iter(winners)) if len(winners) == 1 else None
+    if unique is not None and unique == previous_confirmation:
+        return winners, unique
+    best_count = max(
+        (
+            value if isinstance(value, int) else value.terminal_count
+            for value in guidance.values()
+        ),
+        default=0,
+    )
+    count_winners = frozenset(
+        action
+        for action, value in guidance.items()
+        if (
+            value if isinstance(value, int) else value.terminal_count
+        ) == best_count
+    )
+    return count_winners, unique
 
 
 def _terminal_rungs(horizon: int) -> tuple[int, ...]:
@@ -504,6 +559,7 @@ class ClosedLoopResult:
     final_y: float
     actions: tuple[str, ...]
     born_bullets: int
+    decision_trace: tuple[tuple[int, str], ...]
 
 
 def _delivery_choice(
@@ -540,6 +596,7 @@ def run_closed_loop(
     decisions = 0
     commands = 0
     action_trace: list[str] = []
+    decision_trace: list[tuple[int, str]] = []
     born_bullets = 0
     births_by_update = {
         update: tuple(
@@ -560,6 +617,7 @@ def run_closed_loop(
             if target is None:
                 outcome = "authority-stop"
                 break
+            decision_trace.append((state.frame, target.name))
             if target != held:
                 pending = target
                 pending_delay, pending_prefix = _delivery_choice(
@@ -613,6 +671,7 @@ def run_closed_loop(
         state.y,
         tuple(action_trace),
         born_bullets,
+        tuple(decision_trace),
     )
 
 
@@ -703,6 +762,9 @@ class StatefulSweepSummary:
     mean_decisions: tuple[tuple[int, float], ...]
     deeper_wins: tuple[tuple[int, int, int], ...]
     birth_events_per_case: int
+    case_metrics: tuple[
+        tuple[int, tuple[tuple[int, str, int, int], ...]], ...
+    ]
 
 
 @dataclass(frozen=True)
@@ -712,6 +774,18 @@ class HorizonAdvantage:
     deep_horizon: int
     shallow: ClosedLoopResult
     deep: ClosedLoopResult
+    snapshot: Snapshot
+    birth_schedule: tuple = ()
+
+
+@dataclass(frozen=True)
+class PolicyAdvantage:
+    seed: int
+    horizon: int
+    baseline_name: str
+    candidate_name: str
+    baseline: ClosedLoopResult
+    candidate: ClosedLoopResult
     snapshot: Snapshot
     birth_schedule: tuple = ()
 
@@ -807,6 +881,76 @@ def shrink_horizon_advantage(
     )
 
 
+def shrink_policy_advantage(
+    advantage: PolicyAdvantage,
+    *,
+    frames: int,
+    delivery_seed: int,
+    baseline_factory,
+    candidate_factory,
+) -> PolicyAdvantage:
+    """Delta-debug initial bullets and births preserving a policy win."""
+    bullets = list(advantage.snapshot.bullets)
+    events = list(advantage.birth_schedule)
+
+    def evaluate(values: list[Bullet], schedule):
+        state = replace(advantage.snapshot, bullets=tuple(values))
+        if not certify_linear_source(state, 4).actions:
+            return None
+        baseline = run_closed_loop(
+            state,
+            baseline_factory(advantage.horizon),
+            frames=frames,
+            delivery_seed=delivery_seed,
+            birth_schedule=schedule,
+        )
+        candidate = run_closed_loop(
+            state,
+            candidate_factory(advantage.horizon),
+            frames=frames,
+            delivery_seed=delivery_seed,
+            birth_schedule=schedule,
+        )
+        return baseline, candidate
+
+    def reduce(values, other, values_are_bullets):
+        current = list(values)
+        granularity = 2
+        while current:
+            chunk = max(1, (len(current) + granularity - 1) // granularity)
+            reduced = False
+            for start in range(0, len(current), chunk):
+                candidate_values = current[:start] + current[start + chunk:]
+                result = (
+                    evaluate(candidate_values, other)
+                    if values_are_bullets
+                    else evaluate(other, candidate_values)
+                )
+                if result is not None and _deeper_better(*result):
+                    current = candidate_values
+                    granularity = max(2, granularity - 1)
+                    reduced = True
+                    break
+            if reduced:
+                continue
+            if granularity >= len(current):
+                break
+            granularity = min(len(current), granularity * 2)
+        return current
+
+    bullets = reduce(bullets, events, True)
+    events = reduce(events, bullets, False)
+    state = replace(advantage.snapshot, bullets=tuple(bullets))
+    baseline, candidate = evaluate(bullets, events)
+    return replace(
+        advantage,
+        baseline=baseline,
+        candidate=candidate,
+        snapshot=state,
+        birth_schedule=tuple(events),
+    )
+
+
 def run_stateful_sweep(
     catalogue,
     *,
@@ -829,6 +973,7 @@ def run_stateful_sweep(
     survival = {horizon: 0 for horizon in horizons}
     commands = {horizon: 0 for horizon in horizons}
     decisions = {horizon: 0 for horizon in horizons}
+    case_metrics = {horizon: [] for horizon in horizons}
     wins = Counter()
     viable_cases = 0
     first_advantage = None
@@ -868,6 +1013,12 @@ def run_stateful_sweep(
             survival[horizon] += result.survived_frames
             commands[horizon] += result.commands
             decisions[horizon] += result.decisions
+            case_metrics[horizon].append((
+                seed,
+                result.outcome,
+                result.survived_frames,
+                result.commands,
+            ))
         for shallow_horizon, deep_horizon in zip(horizons, horizons[1:]):
             shallow = results[shallow_horizon]
             deep = results[deep_horizon]
@@ -919,4 +1070,8 @@ def run_stateful_sweep(
             for (shallow, deep), count in sorted(wins.items())
         ),
         birth_events_per_case,
+        tuple(
+            (horizon, tuple(case_metrics[horizon]))
+            for horizon in horizons
+        ),
     ), first_advantage
