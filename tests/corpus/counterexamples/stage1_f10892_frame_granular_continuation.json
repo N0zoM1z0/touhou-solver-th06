@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "id": "stage1-f10892-frame-granular-continuation",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 10892,
+    "failure_frame": 10907,
+    "artifact": "th06_failure_stage1_f10907_fixed_turn_grid.json",
+    "trace": "th06_practice_stage1_f10907_fixed_turn_grid.csv"
+  },
+  "runner": "flexible_reachability_divergence",
+  "contract": "After the four-frame physical delivery prefix, survival continuation may choose a fresh focused control every frame; a fixed replanning-relative four-frame turn grid must not override the deeper complete frame-granular rung.",
+  "summary": "The f10907 bottom-right Hard-empty stop was an effect. At the earliest preserved consequential divergence f10892, all six listed actions remained Hard-certified and p8 uniquely preferred up, but fixed-grid h20 uniquely preferred the physically retained up-right action. Replanning reset that grid every snapshot and postponed its modeled turn until no fixed-grid terminal state remained. Exact frame-granular h8 also uniquely prefers up. Two current bullets and three source-defined dormant lasers are one-removal-minimal for the Hard, shallow, fixed-grid, and frame-granular ranking contract; enemies and future ECL births are irrelevant.",
+  "input": {
+    "segment_length": 4,
+    "fixed_horizon": 20,
+    "flexible_horizon": 8,
+    "observed_action": "up_right",
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [[2.0,2.0],[3.0,3.0],[2.0,2.0],[3.0,3.0],[2.5,2.5],[2.0,2.0],[8.0,8.0],[5.5,5.5],[4.5,4.5],[16.0,16.0],[0.0,0.0],[0.0,0.0],[0.0,0.0],[0.0,0.0],[0.0,0.0],[0.0,0.0]],
+      "bullets": [
+        {"acceleration":0.0,"acceleration_duration":0,"acceleration_x":0.0,"acceleration_y":0.0,"angle":1.0636898279190063,"curve_angular_velocity":0.0,"curve_speed_acceleration":0.0,"direction_interval":0,"direction_max_times":0,"direction_num_times":0,"direction_rotation":0.0,"ex_flags":4,"half_height":3.0,"half_width":3.0,"slot":576,"speed":3.21875,"state":1,"timer":128,"timer_float":128.0,"turn_speed":0.0,"vx":1.563185691833496,"vy":2.813681125640869,"x":375.86865234375,"y":414.3291320800781},
+        {"acceleration":0.0,"acceleration_duration":0,"acceleration_x":0.0,"acceleration_y":0.0,"angle":1.0636898279190063,"curve_angular_velocity":0.0,"curve_speed_acceleration":0.0,"direction_interval":0,"direction_max_times":0,"direction_num_times":0,"direction_rotation":0.0,"ex_flags":4,"half_height":3.0,"half_width":3.0,"slot":581,"speed":2.9375,"state":1,"timer":128,"timer_float":128.0,"turn_speed":0.0,"vx":1.4265966415405273,"vy":2.5678255558013916,"x":357.51226806640625,"y":381.28656005859375}
+      ],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 10892,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 149,
+      "laser_count": 3,
+      "lasers": [
+        {"angle":1.2030351161956787,"angular_velocity":0.0,"despawn_duration":16,"duration":60,"end_offset":500.0,"flags":0,"hitbox_end_delay":14,"hitbox_start_time":120,"motion_known":true,"slot":2,"speed":0.0,"start_length":500.0,"start_offset":0.0,"start_time":120,"state":0,"timer":119,"timer_float":119.0,"width":16.0,"x":208.97695922851562,"y":36.396915435791016},
+        {"angle":1.205459713935852,"angular_velocity":0.0,"despawn_duration":16,"duration":60,"end_offset":500.0,"flags":0,"hitbox_end_delay":14,"hitbox_start_time":120,"motion_known":true,"slot":3,"speed":0.0,"start_length":500.0,"start_offset":0.0,"start_time":120,"state":0,"timer":111,"timer_float":111.0,"width":16.0,"x":216.97683715820312,"y":36.43891525268555},
+        {"angle":1.2004441022872925,"angular_velocity":0.0,"despawn_duration":16,"duration":60,"end_offset":500.0,"flags":0,"hitbox_end_delay":14,"hitbox_start_time":120,"motion_known":true,"slot":4,"speed":0.0,"start_length":500.0,"start_offset":0.0,"start_time":120,"state":0,"timer":103,"timer_float":103.0,"width":16.0,"x":221.77676391601562,"y":36.464115142822266}
+      ],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 32,
+      "replay_or_demo": false,
+      "rng_generation": 8617,
+      "rng_seed": 43261,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 370.61029052734375,
+      "y": 425.313720703125
+    }
+  },
+  "expect": {
+    "hard_actions": ["stay","up","down","up_left","up_right","down_right"],
+    "shallow_scores": {"stay":7,"up":9,"down":4,"up_left":5,"up_right":8,"down_right":7},
+    "shallow_actions": ["up"],
+    "fixed_counts": {"stay":5,"up":9,"down":2,"up_left":2,"up_right":11,"down_right":2},
+    "fixed_actions": ["up_right"],
+    "flexible_counts": {"stay":302,"up":320,"down":227,"up_left":224,"up_right":277,"down_right":253},
+    "flexible_actions": ["up"]
+  }
+}

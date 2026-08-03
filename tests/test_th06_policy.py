@@ -98,9 +98,18 @@ class ProgressiveKernel:
 
 
 class BudgetedProgressiveKernel(ProgressiveKernel):
-    def __init__(self, *args, budgeted_ms_by_horizon=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        budgeted_ms_by_horizon=None,
+        flexible_completed_horizon=None,
+        flexible_reached_maximum=True,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.budgeted_ms_by_horizon = budgeted_ms_by_horizon or {}
+        self.flexible_completed_horizon = flexible_completed_horizon
+        self.flexible_reached_maximum = flexible_reached_maximum
 
     def nominal_policy_counts_budgeted(
         self,
@@ -125,6 +134,58 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
             action: score for action, score in scores.items()
             if action in allowed
         }
+
+    def flexible_terminal_counts_progressive(
+        self,
+        state,
+        candidates,
+        segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append((
+            "progressive",
+            minimum_horizon,
+            maximum_horizon,
+            budget_ms,
+            tuple(candidates),
+        ))
+        available_horizons = tuple(
+            horizon for horizon in self.scores_by_horizon
+            if minimum_horizon <= horizon <= maximum_horizon
+        )
+        if self.flexible_completed_horizon is not None:
+            affordable_horizons = (self.flexible_completed_horizon,)
+        else:
+            affordable_horizons = tuple(
+                horizon for horizon in available_horizons
+                if self.budgeted_ms_by_horizon.get(horizon, 1.0)
+                <= budget_ms
+            )
+        if not affordable_horizons:
+            self.clock.advance_ms(budget_ms)
+            return None
+        completed_horizon = max(affordable_horizons)
+        required_ms = self.budgeted_ms_by_horizon.get(
+            completed_horizon, 1.0
+        )
+        self.clock.advance_ms(required_ms)
+        scores = self.scores_by_horizon.get(
+            completed_horizon,
+            self.scores_by_horizon.get(minimum_horizon, self.scores),
+        )
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return (
+            completed_horizon,
+            {
+                action: score for action, score in scores.items()
+                if action in allowed
+            },
+            self.flexible_reached_maximum
+            and completed_horizon == maximum_horizon,
+        )
 
 
 class AnytimePolicyTests(unittest.TestCase):
@@ -263,7 +324,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertLess(calls.index(("policy", 8)), calls.index(("frontier", 12)))
         self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 12)))
 
-    def test_budgeted_deep_policy_uses_fresh_completed_evidence(self):
+    def test_progressive_reachability_uses_fresh_completed_evidence(self):
         clock = ManualClock()
         deep_action = self.hard[2].action
         kernel = BudgetedProgressiveKernel(
@@ -296,16 +357,13 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[1] for call in kernel.calls if call[0] == "policy"],
             [8],
         )
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
-            [16],
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
         )
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "frontier"],
-            [16],
-        )
+        self.assertEqual(progressive[1:3], (8, 20))
+        self.assertEqual(progressive[4], self.hard)
 
-    def test_fresh_completed_deep_probe_skips_redundant_intermediate_base(self):
+    def test_completed_progressive_rung_needs_no_intermediate_recompute(self):
         clock = ManualClock()
         deep_action = self.hard[2].action
         kernel = BudgetedProgressiveKernel(
@@ -349,11 +407,11 @@ class AnytimePolicyTests(unittest.TestCase):
             [8],
         )
         self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
-            [16],
+            [call[0] for call in kernel.calls].count("progressive"),
+            1,
         )
 
-    def test_timed_out_deep_policy_discards_partial_result(self):
+    def test_progressive_timeout_publishes_last_complete_rung(self):
         clock = ManualClock()
         base_action = self.hard[0].action
         fallback_action = self.hard[1].action
@@ -385,23 +443,15 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        self.assertEqual(decision.action, base_action)
-        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(decision.action, fallback_action)
+        self.assertEqual(decision.effort_horizon, 12)
         self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
-            [16, 12],
-        )
-        self.assertEqual(
-            solver.effort.policy_probe_timeout_frame_by_horizon[16],
-            snapshot().frame,
+            [call[0] for call in kernel.calls].count("progressive"),
+            1,
         )
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "frontier"],
-            [16],
-        )
 
-    def test_constant_hold_cannot_reject_turn_capable_fallback(self):
+    def test_frame_granular_rung_can_retain_nonconstant_action(self):
         clock = ManualClock()
         retained_action = self.hard[0].action
         excluded_action = self.hard[1].action
@@ -436,13 +486,10 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, excluded_action)
         self.assertNotEqual(decision.action, retained_action)
-        self.assertEqual(decision.effort_horizon, 16)
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "frontier"],
-            [16],
-        )
+        self.assertEqual(decision.effort_horizon, 12)
+        self.assertNotIn("frontier", [call[0] for call in kernel.calls])
 
-    def test_deep_probe_adjudicates_lower_current_and_constant_evidence(self):
+    def test_progressive_reachability_evaluates_every_hard_action(self):
         clock = ManualClock()
         current = self.hard[0]
         lower_winner = self.hard[1]
@@ -475,22 +522,16 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        deep_call = next(
-            call for call in kernel.calls
-            if call[0] == "budgeted_policy" and call[1] == 16
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
         )
         self.assertEqual(
-            {candidate.action for candidate in deep_call[3]},
-            {
-                current.action,
-                lower_winner.action,
-                constant_winner.action,
-            },
+            {candidate.action for candidate in progressive[4]},
+            {candidate.action for candidate in hard},
         )
-        self.assertEqual(decision.action, lower_winner.action)
-        self.assertNotEqual(decision.action, omitted.action)
+        self.assertEqual(decision.action, omitted.action)
 
-    def test_adjacent_lower_probe_retains_current_for_deep_reversal(self):
+    def test_deepest_complete_progressive_rung_can_reverse_shallow_choice(self):
         clock = ManualClock()
         current = self.hard[0]
         lower_winner = self.hard[1]
@@ -520,12 +561,11 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        deep_call = next(
-            call for call in kernel.calls
-            if call[0] == "budgeted_policy" and call[1] == 16
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
         )
         self.assertEqual(
-            {candidate.action for candidate in deep_call[3]},
+            {candidate.action for candidate in progressive[4]},
             {
                 current.action,
                 lower_winner.action,
@@ -534,7 +574,7 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(decision.action, current.action)
 
-    def test_empty_deep_constant_scan_retains_current_as_comparator(self):
+    def test_empty_constant_frontier_cannot_shorten_flexible_candidates(self):
         clock = ManualClock()
         current = self.hard[0]
         lower_winner = self.hard[1]
@@ -562,17 +602,16 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        deep_call = next(
-            call for call in kernel.calls
-            if call[0] == "budgeted_policy" and call[1] == 16
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
         )
         self.assertEqual(
-            {candidate.action for candidate in deep_call[3]},
-            {current.action, lower_winner.action},
+            {candidate.action for candidate in progressive[4]},
+            {candidate.action for candidate in self.hard},
         )
-        self.assertEqual(decision.action, current.action)
+        self.assertEqual(decision.action, self.hard[2].action)
 
-    def test_timed_out_deep_policy_yields_to_lower_rung_next_frame(self):
+    def test_partial_progressive_rung_is_stable_on_next_frame(self):
         clock = ManualClock()
         base_action = self.hard[0].action
         lower_action = self.hard[1].action
@@ -606,24 +645,16 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel.calls.clear()
         second = solver.decide(snapshot(frame=101))
 
-        self.assertEqual(first.action, base_action)
-        self.assertEqual(first.effort_horizon, 8)
+        self.assertEqual(first.action, lower_action)
+        self.assertEqual(first.effort_horizon, 12)
         self.assertEqual(second.action, lower_action)
         self.assertEqual(second.effort_horizon, 12)
         self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "policy"],
-            [],
-        )
-        self.assertEqual(
-            [
-                call[1]
-                for call in kernel.calls
-                if call[0] == "budgeted_policy"
-            ],
-            [12, 16],
+            [call[0] for call in kernel.calls].count("progressive"),
+            1,
         )
 
-    def test_deep_timeout_measures_adjacent_rung_before_retry(self):
+    def test_newly_affordable_progressive_rung_publishes_next_frame(self):
         clock = ManualClock()
         base_action = self.hard[0].action
         lower_action = self.hard[1].action
@@ -679,20 +710,19 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(second.action, lower_action)
         self.assertEqual(second.effort_horizon, 12)
         self.assertEqual(
-            [
-                call[1]
-                for call in kernel.calls
-                if call[0] == "budgeted_policy"
-            ],
-            [12, 16],
+            [call[0] for call in kernel.calls].count("progressive"),
+            1,
         )
-        self.assertNotIn("policy", [call[0] for call in kernel.calls])
+        self.assertLess(
+            [call[0] for call in kernel.calls].index("policy"),
+            [call[0] for call in kernel.calls].index("progressive"),
+        )
         self.assertLessEqual(
             clock.seconds * 1000.0 - second_started_ms,
             12.5,
         )
 
-    def test_fresh_deep_cost_caps_probe_and_preserves_lower_rung(self):
+    def test_progressive_deadline_preserves_completed_lower_rung(self):
         clock = ManualClock()
         fallback_action = self.hard[1].action
         kernel = BudgetedProgressiveKernel(
@@ -726,22 +756,17 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, fallback_action)
         self.assertEqual(decision.effort_horizon, 12)
-        budgeted_calls = [
-            call for call in kernel.calls if call[0] == "budgeted_policy"
-        ]
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
+        )
         self.assertEqual(
             [call[1] for call in kernel.calls if call[0] == "policy"],
             [8],
         )
-        self.assertEqual([call[1] for call in budgeted_calls], [16, 12])
-        self.assertAlmostEqual(budgeted_calls[0][2], 2.0)
+        self.assertEqual(progressive[1:3], (8, 20))
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "frontier"],
-            [16],
-        )
 
-    def test_completed_probe_cost_does_not_shrink_with_shared_cache_shortlist(self):
+    def test_progressive_reachability_never_uses_shallow_shortlist(self):
         clock = ManualClock()
         state = snapshot()
         hard = tuple(
@@ -784,12 +809,10 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(state)
 
-        deep_call = next(
-            call for call in kernel.calls
-            if call[0] == "budgeted_policy" and call[1] == 16
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
         )
-        self.assertEqual(len(deep_call[3]), 3)
-        self.assertAlmostEqual(deep_call[2], 6.0)
+        self.assertEqual(progressive[4], hard)
         self.assertEqual(decision.action, retained)
         self.assertEqual(decision.effort_horizon, 16)
 
@@ -852,7 +875,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
 
-    def test_stale_base_cost_uses_residual_budget_after_constant_frontier(self):
+    def test_stale_base_cost_uses_residual_before_progressive_rung(self):
         clock = ManualClock()
         expected = self.hard[1].action
         kernel = BudgetedProgressiveKernel(
@@ -881,10 +904,10 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(state)
 
-        calls = [(call[0], call[1]) for call in kernel.calls]
+        call_names = [call[0] for call in kernel.calls]
         self.assertLess(
-            calls.index(("frontier", 8)),
-            calls.index(("budgeted_policy", 8)),
+            call_names.index("budgeted_policy"),
+            call_names.index("progressive"),
         )
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
         self.assertEqual(decision.action, expected)

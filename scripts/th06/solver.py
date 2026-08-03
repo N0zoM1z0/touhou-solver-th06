@@ -27,7 +27,6 @@ HARD_SAFETY_HORIZON = 4
 HARD_CURRENT_HOLD_HORIZON = HARD_SAFETY_HORIZON + 1
 EFFORT_HORIZONS = (6, 8, 12, 16, 20)
 TURN_CAPABLE_POLICY_HORIZONS = (8, 12, 16)
-REACHABILITY_HORIZONS = (20,)
 BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
@@ -751,17 +750,17 @@ class Solver:
             budget_ms=budget_ms,
         )
 
-    def _budgeted_terminal_counts(
+    def _budgeted_flexible_terminal_counts(
         self,
         snapshot: Snapshot,
         candidates,
-        horizon: int,
+        maximum_horizon: int,
         budget_ms: float,
     ):
         native = (
             getattr(
                 type(self.kernel),
-                "terminal_counts_budgeted",
+                "flexible_terminal_counts_progressive",
                 None,
             )
             if self.kernel is not None
@@ -774,7 +773,8 @@ class Solver:
             snapshot,
             candidates,
             HARD_SAFETY_HORIZON,
-            horizon,
+            BASE_POLICY_HORIZON,
+            maximum_horizon,
             collision_margin=0.35,
             budget_ms=budget_ms,
         )
@@ -932,7 +932,6 @@ class Solver:
         target_invalid = False
         acquired_pending_target = False
         policy_probe_ready = False
-        deep_constant_actions: frozenset[Action] = frozenset()
 
         if limit > HARD_SAFETY_HORIZON:
             operation_started = self.clock()
@@ -1024,334 +1023,139 @@ class Solver:
                 allowed = frozenset(
                     candidate.action for candidate in hard
                 )
-                policy_horizons = tuple(
-                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
-                    if BASE_POLICY_HORIZON <= horizon <= limit
-                )
-                deepest_horizon = max(policy_horizons)
-                budgeted_reachability = (
-                    getattr(
-                        type(self.kernel),
-                        "terminal_counts_budgeted",
-                        None,
-                    )
-                    if self.kernel is not None
-                    else None
-                )
-                reachability_horizon = max(
-                    (
-                        horizon for horizon in REACHABILITY_HORIZONS
-                        if (
-                            deepest_horizon < horizon <= limit
-                            and budgeted_reachability is not None
-                        )
-                    ),
-                    default=0,
-                )
-                intermediate_horizon = max(
-                    (
-                        horizon for horizon in policy_horizons
-                        if horizon < deepest_horizon
-                    ),
-                    default=BASE_POLICY_HORIZON,
-                )
                 elapsed_ms = (self.clock() - started) * 1000.0
                 base_policy_horizon = BASE_POLICY_HORIZON
-                prioritize_intermediate = (
-                    not reachability_horizon
-                    and
-                    intermediate_horizon > BASE_POLICY_HORIZON
-                    and self.effort.policy_probe_timeout_fresh(
-                        snapshot,
-                        deepest_horizon,
-                    )
-                )
-                if prioritize_intermediate:
-                    base_policy_horizon = intermediate_horizon
                 base_policy_affordable = self.effort.policy_affordable(
                     snapshot,
                     len(hard),
                     base_policy_horizon,
                     elapsed_ms,
                 )
-                if base_policy_affordable or prioritize_intermediate:
-                    policy_started = self.clock()
-                    base_probe_attempted = False
-                    if prioritize_intermediate:
-                        # A fresh timeout at the deepest rung makes its adjacent
-                        # lower rung the next measurement.  Complete it within
-                        # the residual budget even when the older cost estimate
-                        # says no; retrying the deeper rung first can otherwise
-                        # starve a cheaper continuation forever.  A completed
-                        # deep sample instead caps an ordinary retry, avoiding
-                        # redundant lower-rung work before known-affordable
-                        # depth.
-                        base_budget_ms = (
-                            self.effort.budget_ms()
-                            - elapsed_ms
-                            - POLICY_DEADLINE_GUARD_MS
-                        )
-                        scores = None
-                        if base_budget_ms > 0.0:
-                            base_probe_attempted = True
-                            scores = self._budgeted_policy_scores(
-                                snapshot,
-                                hard,
-                                base_policy_horizon,
-                                base_budget_ms,
-                            )
-                    else:
-                        scores = self._policy_scores(
+                policy_started = self.clock()
+                base_probe_attempted = False
+                scores = None
+                if base_policy_affordable:
+                    scores = self._policy_scores(
+                        snapshot,
+                        hard,
+                        base_policy_horizon,
+                    )
+                else:
+                    base_budget_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - 2.0 * POLICY_DEADLINE_GUARD_MS
+                    )
+                    if base_budget_ms > 0.0:
+                        base_probe_attempted = True
+                        scores = self._budgeted_policy_scores(
                             snapshot,
                             hard,
                             base_policy_horizon,
+                            base_budget_ms,
                         )
-                    policy_ms = (
-                        self.clock() - policy_started
-                    ) * 1000.0
-                    base_policy_completed = scores is not None
-                    if base_policy_completed:
-                        self.effort.observe_policy(
-                            snapshot,
-                            len(hard),
-                            base_policy_horizon,
-                            policy_ms,
-                        )
-                    elif base_probe_attempted:
-                        self.effort.observe_policy_timeout(
-                            snapshot,
-                            base_policy_horizon,
-                        )
-                    policy_exhausted = True
-                    best_score = max(
-                        (
-                            score for action, score in (
-                                scores or {}
-                            ).items()
-                            if action in allowed
-                        ),
-                        default=0,
+                policy_ms = (
+                    self.clock() - policy_started
+                ) * 1000.0
+                base_policy_completed = scores is not None
+                if base_policy_completed:
+                    self.effort.observe_policy(
+                        snapshot,
+                        len(hard),
+                        base_policy_horizon,
+                        policy_ms,
                     )
-                    if best_score > 0:
-                        policy_preferred = frozenset(
-                            action for action, score in scores.items()
-                            if score == best_score and action in allowed
-                        )
-                        policy_horizon = base_policy_horizon
-                        policy_scores = scores
-                        policy_guidance = None
+                elif base_probe_attempted:
+                    self.effort.observe_policy_timeout(
+                        snapshot,
+                        base_policy_horizon,
+                    )
+                policy_exhausted = True
+                best_score = max(
+                    (
+                        score for action, score in (
+                            scores or {}
+                        ).items()
+                        if action in allowed
+                    ),
+                    default=0,
+                )
+                if best_score > 0:
+                    policy_preferred = frozenset(
+                        action for action, score in scores.items()
+                        if score == best_score and action in allowed
+                    )
+                    policy_horizon = base_policy_horizon
+                    policy_scores = scores
+                    policy_guidance = None
 
-                    if (
-                        base_policy_completed
-                        and deepest_horizon > base_policy_horizon
-                    ):
-                        # The deep turn-capable probe may consume its entire
-                        # deadline and fall back to a shallower ranking.  One
-                        # selected constant scan reuses the already-prepared
-                        # deepest projection and preserves stronger fresh
-                        # continuation evidence when that happens.
-                        elapsed_ms = (
-                            self.clock() - started
-                        ) * 1000.0
-                        if (
-                            elapsed_ms
-                            < self.effort.budget_ms()
-                            - POLICY_DEADLINE_GUARD_MS
-                        ):
-                            operation_started = self.clock()
-                            deep_frontier = self._certify_selected(
+                progressive_reachability = (
+                    getattr(
+                        type(self.kernel),
+                        "flexible_terminal_counts_progressive",
+                        None,
+                    )
+                    if self.kernel is not None
+                    else None
+                )
+                if (
+                    base_policy_completed
+                    and progressive_reachability is not None
+                ):
+                    elapsed_ms = (
+                        self.clock() - started
+                    ) * 1000.0
+                    reachability_budget_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - 2.0 * POLICY_DEADLINE_GUARD_MS
+                    )
+                    if reachability_budget_ms > 0.0:
+                        policy_started = self.clock()
+                        progressive = (
+                            self._budgeted_flexible_terminal_counts(
                                 snapshot,
-                                deepest_horizon,
-                                tuple(
-                                    candidate.action for candidate in frontier
-                                ),
+                                hard,
+                                limit,
+                                reachability_budget_ms,
                             )
-                            deep_constant_actions = frozenset(
-                                candidate.action
-                                for candidate in deep_frontier
-                            )
-                            rollout_ms += (
-                                self.clock() - operation_started
-                            ) * 1000.0
-                            rollout_horizon = deepest_horizon
-                            if (
-                                deep_frontier
-                                and len(deep_frontier) < len(frontier)
-                            ):
-                                contracted = True
-                                frontier = deep_frontier
-                                frontier_horizon = deepest_horizon
-
-                    if (
-                        base_policy_completed
-                        and deepest_horizon > base_policy_horizon
-                    ):
-                        fallback_horizon = max(
-                            horizon for horizon in policy_horizons
-                            if horizon < deepest_horizon
                         )
-                        elapsed_ms = (
-                            self.clock() - started
+                        policy_ms = (
+                            self.clock() - policy_started
                         ) * 1000.0
-                        remaining_ms = (
-                            self.effort.budget_ms()
-                            - elapsed_ms
-                            - POLICY_DEADLINE_GUARD_MS
-                        )
-                        # After a completed lower rung, spend the residual
-                        # deadline on the deepest ordinary continuation that
-                        # fits the current ladder.  At h20 this uses unique
-                        # reachable terminal states, so aliased action paths do
-                        # not masquerade as independent robustness.  A timeout
-                        # is discarded and leaves the completed lower evidence
-                        # intact.
-                        deep_action_set = (
-                            frozenset(policy_preferred)
-                            | deep_constant_actions
-                            | frozenset((observed_held,))
-                        )
-                        deep_candidates = tuple(
-                            candidate for candidate in hard
-                            if candidate.action in deep_action_set
-                        )
-                        deep_scores = None
-                        deep_evidence_horizon = deepest_horizon
-                        if reachability_horizon:
-                            probe_budget_ms = (
-                                remaining_ms
-                                - 2.0 * POLICY_DEADLINE_GUARD_MS
-                            )
-                            if probe_budget_ms > 0.0:
-                                policy_started = self.clock()
-                                deep_scores = (
-                                    self._budgeted_terminal_counts(
-                                        snapshot,
-                                        deep_candidates,
-                                        reachability_horizon,
-                                        probe_budget_ms,
-                                    )
-                                )
-                                policy_ms = (
-                                    self.clock() - policy_started
-                                ) * 1000.0
-                                if deep_scores is not None:
-                                    self.effort.observe_target(
-                                        "survival",
-                                        snapshot,
-                                        len(deep_candidates),
-                                        reachability_horizon,
-                                        policy_ms,
-                                    )
-                                    deep_evidence_horizon = (
-                                        reachability_horizon
-                                    )
-                        else:
-                            # Reserve the return/fallback guard from the
-                            # available frame time, not from the last measured
-                            # completion.  Subtracting it after applying the
-                            # measurement cap would guarantee a same-cost
-                            # retry less time than the work already needed.
-                            available_probe_ms = (
-                                remaining_ms
-                                - 2.0 * POLICY_DEADLINE_GUARD_MS
-                            )
-                            probe_budget_ms = self.effort.policy_probe_budget_ms(
-                                snapshot,
-                                len(deep_candidates),
-                                deepest_horizon,
-                                available_probe_ms,
-                            )
-                            if probe_budget_ms > 0.0:
-                                policy_started = self.clock()
-                                deep_scores = self._budgeted_policy_scores(
-                                    snapshot,
-                                    deep_candidates,
-                                    deepest_horizon,
-                                    probe_budget_ms,
-                                )
-                                policy_ms = (
-                                    self.clock() - policy_started
-                                ) * 1000.0
-                                if deep_scores is not None:
-                                    self.effort.observe_policy(
-                                        snapshot,
-                                        len(deep_candidates),
-                                        deepest_horizon,
-                                        policy_ms,
-                                    )
-                                else:
-                                    self.effort.observe_policy_timeout(
-                                        snapshot,
-                                        deepest_horizon,
-                                    )
-                        deep_best = max(
+                        if progressive is not None:
                             (
-                                score
-                                for action, score in (
-                                    deep_scores or {}
-                                ).items()
-                                if action in allowed
-                            ),
-                            default=0,
-                        )
-                        if deep_best > 0:
-                            policy_preferred = frozenset(
-                                action
-                                for action, score in deep_scores.items()
-                                if score == deep_best and action in allowed
+                                completed_horizon,
+                                flexible_scores,
+                                _reached_maximum,
+                            ) = progressive
+                            self.effort.observe_target(
+                                "survival",
+                                snapshot,
+                                len(hard),
+                                completed_horizon,
+                                policy_ms,
                             )
-                            policy_horizon = deep_evidence_horizon
-                            policy_scores = deep_scores
-                            policy_guidance = None
-                        elif fallback_horizon > base_policy_horizon:
-                            elapsed_ms = (
-                                self.clock() - started
-                            ) * 1000.0
-                            fallback_budget_ms = (
-                                self.effort.budget_ms()
-                                - elapsed_ms
-                                - POLICY_DEADLINE_GUARD_MS
+                            flexible_best = max(
+                                (
+                                    score for action, score
+                                    in flexible_scores.items()
+                                    if action in allowed
+                                ),
+                                default=0,
                             )
-                            if fallback_budget_ms > 0.0:
-                                policy_started = self.clock()
-                                fallback_scores = (
-                                    self._budgeted_policy_scores(
-                                        snapshot,
-                                        hard,
-                                        fallback_horizon,
-                                        fallback_budget_ms,
+                            if flexible_best > 0:
+                                policy_preferred = frozenset(
+                                    action for action, score
+                                    in flexible_scores.items()
+                                    if (
+                                        score == flexible_best
+                                        and action in allowed
                                     )
                                 )
-                                policy_ms = (
-                                    self.clock() - policy_started
-                                ) * 1000.0
-                                if fallback_scores is not None:
-                                    self.effort.observe_policy(
-                                        snapshot,
-                                        len(hard),
-                                        fallback_horizon,
-                                        policy_ms,
-                                    )
-                                    fallback_best = max(
-                                        (
-                                            score for action, score
-                                            in fallback_scores.items()
-                                            if action in allowed
-                                        ),
-                                        default=0,
-                                    )
-                                    if fallback_best > 0:
-                                        policy_preferred = frozenset(
-                                            action for action, score
-                                            in fallback_scores.items()
-                                            if (
-                                                score == fallback_best
-                                                and action in allowed
-                                            )
-                                        )
-                                        policy_horizon = fallback_horizon
-                                        policy_scores = fallback_scores
-                                        policy_guidance = None
+                                policy_horizon = completed_horizon
+                                policy_scores = flexible_scores
+                                policy_guidance = None
                 policy_probe_ready = bool(policy_preferred)
 
                 if (

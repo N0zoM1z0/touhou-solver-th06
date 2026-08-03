@@ -7,6 +7,7 @@ from th06.guidance import (
     TerminalGuidance,
     preferred_target_actions,
     terminal_guidance_scores,
+    terminal_reachability_counts,
 )
 from th06.kernels.safety import NativeSafetyKernel
 from th06.model import ACTIONS, SafeAction, Snapshot, action_from_input
@@ -220,6 +221,29 @@ class RankedDeepFrontierGuidanceKernel(GuidanceKernel):
             for item in candidates
         }
 
+    def flexible_terminal_counts_progressive(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("progressive_counts", maximum_horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        return (
+            16,
+            {
+                item.action: (
+                    2 if item.action.name in ("left", "up_right") else 1
+                )
+                for item in candidates
+            },
+            maximum_horizon == 16,
+        )
+
 
 class SurvivalBeforeShallowTargetKernel(GuidanceKernel):
     def certify_selected(self, _state, horizon, actions, collision_margin):
@@ -252,6 +276,27 @@ class SurvivalBeforeShallowTargetKernel(GuidanceKernel):
             item.action: 10 if item.action.name == "stay" else 1
             for item in candidates
         }
+
+    def flexible_terminal_counts_progressive(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("progressive_counts", maximum_horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        return (
+            16,
+            {
+                item.action: 10 if item.action.name == "stay" else 1
+                for item in candidates
+            },
+            maximum_horizon == 16,
+        )
 
 
 class BudgetedReachabilityKernel(GuidanceKernel):
@@ -293,6 +338,32 @@ class BudgetedReachabilityKernel(GuidanceKernel):
             for item in candidates
         }
 
+    def flexible_terminal_counts_progressive(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append((
+            "progressive_counts",
+            minimum_horizon,
+            maximum_horizon,
+            tuple(item.action.name for item in candidates),
+        ))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        return (
+            maximum_horizon,
+            {
+                item.action: 5 if item.action.name == "down" else 4
+                for item in candidates
+            },
+            True,
+        )
+
 
 class TimedOutReachabilityKernel(BudgetedReachabilityKernel):
     def nominal_policy_counts_budgeted(
@@ -318,6 +389,22 @@ class TimedOutReachabilityKernel(BudgetedReachabilityKernel):
         budget_ms,
     ):
         self.calls.append(("budgeted_counts", horizon, ()))
+        self.clock.advance_ms(budget_ms)
+        return None
+
+    def flexible_terminal_counts_progressive(
+        self,
+        _state,
+        _candidates,
+        _segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append((
+            "progressive_counts", minimum_horizon, maximum_horizon, ()
+        ))
         self.clock.advance_ms(budget_ms)
         return None
 
@@ -544,6 +631,167 @@ class TerminalGuidanceTests(unittest.TestCase):
         )
 
         self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
+
+    def replay_flexible_reachability_case(self, case, kernel=None):
+        values = case["input"]
+        state = decode_snapshot(values["snapshot"])
+        if kernel is None:
+            hard = certify_actions(state, 4)
+            shallow = nominal_policy_scores(
+                state,
+                hard,
+                values["segment_length"],
+                values["flexible_horizon"],
+            )
+            fixed = {
+                action: value.terminal_count
+                for action, value in terminal_guidance_scores(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    values["fixed_horizon"],
+                ).items()
+            }
+            flexible = terminal_reachability_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["flexible_horizon"],
+            )
+        else:
+            hard = kernel.certify(state, 4, collision_margin=0.35)
+            shallow = kernel.nominal_policy_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["flexible_horizon"],
+                collision_margin=0.35,
+            )
+            fixed = kernel.terminal_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["fixed_horizon"],
+                collision_margin=0.35,
+            )
+            result = kernel.flexible_terminal_counts_progressive(
+                state,
+                hard,
+                values["segment_length"],
+                values["flexible_horizon"],
+                values["flexible_horizon"],
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            )
+            self.assertIsNotNone(result)
+            completed, flexible, reached_maximum = result
+            self.assertEqual(completed, values["flexible_horizon"])
+            self.assertTrue(reached_maximum)
+
+        expected = case["expect"]
+        self.assertEqual(
+            [item.action.name for item in hard],
+            expected["hard_actions"],
+        )
+        self.assertEqual(
+            {action.name: score for action, score in shallow.items()},
+            expected["shallow_scores"],
+        )
+        self.assertEqual(
+            sorted(
+                action.name for action, score in shallow.items()
+                if score == max(shallow.values())
+            ),
+            sorted(expected["shallow_actions"]),
+        )
+        self.assertEqual(
+            {action.name: score for action, score in fixed.items()},
+            expected["fixed_counts"],
+        )
+        self.assertEqual(
+            sorted(
+                action.name for action, score in fixed.items()
+                if score == max(fixed.values())
+            ),
+            sorted(expected["fixed_actions"]),
+        )
+        self.assertEqual(
+            {action.name: score for action, score in flexible.items()},
+            expected["flexible_counts"],
+        )
+        self.assertEqual(
+            sorted(
+                action.name for action, score in flexible.items()
+                if score == max(flexible.values())
+            ),
+            sorted(expected["flexible_actions"]),
+        )
+        self.assertIn(values["observed_action"], expected["fixed_actions"])
+        self.assertNotIn(
+            values["observed_action"], expected["flexible_actions"]
+        )
+
+    def test_reference_flexible_reachability_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "flexible_reachability_divergence"
+        )
+        self.assertTrue(cases, "flexible reachability corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_flexible_reachability_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_flexible_reachability_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "flexible_reachability_divergence"
+        )
+        self.assertTrue(cases, "flexible reachability corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_flexible_reachability_case(case, kernel)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_progressive_flexible_counts_are_complete_or_discarded(self):
+        case = next(
+            case for case in load_cases()
+            if case.get("runner") == "flexible_reachability_divergence"
+        )
+        values = case["input"]
+        state = decode_snapshot(values["snapshot"])
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify(state, 4, collision_margin=0.35)
+
+        completed = kernel.flexible_terminal_counts_progressive(
+            state,
+            hard,
+            4,
+            8,
+            10,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.flexible_terminal_counts_progressive(
+            state,
+            hard,
+            4,
+            8,
+            20,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertIsNotNone(completed)
+        horizon, counts, reached_maximum = completed
+        self.assertEqual(horizon, 10)
+        self.assertTrue(reached_maximum)
+        self.assertEqual(
+            counts,
+            terminal_reachability_counts(state, hard, 4, horizon),
+        )
         self.assertIsNone(expired)
 
     def replay_terminal_reachability_case(self, case, kernel=None):
@@ -1172,9 +1420,9 @@ class TerminalGuidanceTests(unittest.TestCase):
             ],
         )
         deep_call = next(
-            call for call in kernel.calls if call[0] == "budgeted_policy"
+            call for call in kernel.calls if call[0] == "progressive_counts"
         )
-        self.assertEqual(deep_call, ("budgeted_policy", 16))
+        self.assertEqual(deep_call, ("progressive_counts", 20))
         self.assertLess(
             kernel.calls.index(deep_call),
             kernel.calls.index(("target", 16)),
@@ -1204,18 +1452,14 @@ class TerminalGuidanceTests(unittest.TestCase):
         decision = solver.decide(state)
 
         self.assertEqual(
-            [
-                call[1]
-                for call in kernel.calls
-                if call[0] == "budgeted_policy"
-            ],
-            [12, 16],
+            [call[1] for call in kernel.calls if call[0] == "progressive_counts"],
+            [20],
         )
         self.assertNotIn("target", {call[0] for call in kernel.calls})
         self.assertEqual(decision.action.name, "stay")
         self.assertEqual(decision.effort_horizon, 16)
 
-    def test_h20_terminal_counts_precede_path_volume_and_soft_target(self):
+    def test_progressive_counts_precede_path_volume_and_soft_target(self):
         state = snapshot(x=364.0, y=161.858, input_mask=0x14)
         hard = tuple(
             SafeAction(action, 10.0, state.x, state.y)
@@ -1234,11 +1478,12 @@ class TerminalGuidanceTests(unittest.TestCase):
         decision = solver.decide(state)
 
         self.assertEqual(
-            [call for call in kernel.calls if call[0] == "budgeted_counts"],
+            [call for call in kernel.calls if call[0] == "progressive_counts"],
             [(
-                "budgeted_counts",
+                "progressive_counts",
+                8,
                 20,
-                ("stay", "up", "down", "right"),
+                tuple(action.name for action in ACTIONS),
             )],
         )
         self.assertNotIn(
@@ -1249,7 +1494,7 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertEqual(decision.action.name, "down")
         self.assertEqual(decision.effort_horizon, 20)
 
-    def test_h20_timeout_keeps_completed_lower_survival_rung(self):
+    def test_progressive_timeout_keeps_completed_base_survival_rung(self):
         state = snapshot(x=364.0, y=161.858, input_mask=0x14)
         hard = tuple(
             SafeAction(action, 10.0, state.x, state.y)
@@ -1266,12 +1511,12 @@ class TerminalGuidanceTests(unittest.TestCase):
         decision = solver.decide(state)
 
         self.assertEqual(
-            [call[0] for call in kernel.calls].count("budgeted_counts"),
+            [call[0] for call in kernel.calls].count("progressive_counts"),
             1,
         )
         self.assertEqual(
             [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
-            [12],
+            [],
         )
         self.assertEqual(decision.action.name, "right")
         self.assertEqual(decision.effort_horizon, 8)

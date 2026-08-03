@@ -71,10 +71,15 @@ def terminal_guidance_scores(
     segment_length: int,
     horizon: int,
     target: tuple[float, float] | None = None,
+    continuation_length: int | None = None,
 ) -> dict[Action, TerminalGuidance]:
     """Deduplicate nominal terminal positions behind each Hard first action."""
     if segment_length <= 0 or horizon < segment_length:
         raise ValueError("terminal guidance horizon must cover one segment")
+    if continuation_length is None:
+        continuation_length = segment_length
+    if continuation_length <= 0:
+        raise ValueError("continuation length must be positive")
     bullet_frames = bullet_hazards_by_frame(snapshot, horizon)
     enemy_frames = enemy_hazards_by_frame(snapshot.enemies, horizon)
     laser_frames = laser_hazards_by_frame(snapshot.lasers, horizon)
@@ -158,8 +163,10 @@ def terminal_guidance_scores(
     @lru_cache(maxsize=None)
     def terminal_stats(start_x: float, start_y: float) -> TerminalGuidance:
         states = {(start_x, start_y)}
-        for start_frame in range(segment_length, horizon, segment_length):
-            end_frame = min(horizon, start_frame + segment_length)
+        for start_frame in range(
+            segment_length, horizon, continuation_length
+        ):
+            end_frame = min(horizon, start_frame + continuation_length)
             next_states = set()
             for state_x, state_y in states:
                 for action in ACTIONS:
@@ -268,3 +275,29 @@ def terminal_guidance_scores(
             worst_distance,
         )
     return result
+
+
+def terminal_reachability_counts(
+    snapshot: Snapshot,
+    candidates: tuple[SafeAction, ...],
+    segment_length: int,
+    horizon: int,
+) -> dict[Action, int]:
+    """Count exact terminal states after frame-granular continuation.
+
+    The first segment retains every physical delivery/transition branch.
+    Later frames use a proposal-only nominal focused choice at each frame,
+    avoiding a replanning-relative turn grid. Every physical publication still
+    requires fresh Hard delivery authority in the online solver.
+    """
+    guidance = terminal_guidance_scores(
+        snapshot,
+        candidates,
+        segment_length,
+        horizon,
+        continuation_length=1,
+    )
+    return {
+        action: value.terminal_count
+        for action, value in guidance.items()
+    }
