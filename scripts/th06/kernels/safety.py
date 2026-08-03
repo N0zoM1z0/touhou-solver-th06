@@ -1641,11 +1641,19 @@ class NativeSafetyKernel:
         budget_ms: float,
     ) -> tuple[int, dict[Action, int], bool] | None:
         """Return deepest complete robust Boolean viability membership."""
+        if budget_ms <= 0.0:
+            return None
+        started = time.perf_counter()
         bullet_offsets, bullets, laser_offsets, lasers = (
             self._prepare_reusable(
                 snapshot, maximum_horizon, collision_margin
             )
         )
+        remaining_ms = (
+            budget_ms - (time.perf_counter() - started) * 1000.0
+        )
+        if remaining_ms <= 0.0:
+            return None
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
             1 << index
@@ -1673,7 +1681,7 @@ class NativeSafetyKernel:
             laser_offsets,
             lasers,
             collision_margin,
-            budget_ms,
+            remaining_ms,
             ctypes.byref(completed_horizon),
             membership,
         )

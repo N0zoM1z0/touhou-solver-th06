@@ -1,6 +1,7 @@
 import os
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from th06.model import ACTIONS, CONTROL_ACTIONS, Bullet, SafeAction, Snapshot
 from th06.kernels.safety import NativeSafetyKernel
@@ -448,6 +449,34 @@ class AnytimePolicyTests(unittest.TestCase):
         solver.backend = "test"
         return solver
 
+    def test_boolean_reachability_charges_projection_to_native_budget(self):
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepare_reusable = lambda *_args: (None, None, None, None)
+        received_budgets = []
+
+        def progressive(*arguments):
+            received_budgets.append(arguments[18])
+            return 1
+
+        kernel.progressive_viability_function = progressive
+        with patch(
+            "th06.kernels.safety.time.perf_counter",
+            side_effect=(10.0, 10.003),
+        ):
+            result = kernel.boolean_reachability_progressive(
+                snapshot(),
+                self.hard,
+                HARD_SAFETY_HORIZON,
+                BASE_POLICY_HORIZON,
+                20,
+                collision_margin=0.35,
+                budget_ms=10.0,
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(len(received_budgets), 1)
+        self.assertAlmostEqual(received_budgets[0], 7.0)
+
     def test_hard_authority_is_computed_before_soft_work(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(clock, self.hard)
@@ -854,6 +883,49 @@ class AnytimePolicyTests(unittest.TestCase):
             [8, 16],
         )
         self.assertNotIn("coarse_frontier", {call[0] for call in kernel.calls})
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
+    def test_coarse_projection_extends_only_while_each_rung_fits(self):
+        clock = ManualClock()
+        local = self.hard[0].action
+        witness = self.hard[1].action
+
+        class GrowingProjectionKernel(CoarseMacroKernel):
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms({
+                    16: 1.0,
+                    24: 2.0,
+                    32: 3.0,
+                    40: 4.0,
+                    48: 5.0,
+                }[horizon])
+
+        kernel = GrowingProjectionKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                16: {
+                    local: 9,
+                    witness: 5,
+                    self.hard[2].action: 1,
+                },
+            },
+            flexible_completed_horizon=16,
+            coarse_frontier=(self.hard[1],),
+            macro_scores={local: 0, witness: 1},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, witness)
+        self.assertEqual(decision.effort_horizon, 32)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "prepare"],
+            [16, 24, 32],
+        )
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_budgeted_coarse_macro_adjudicates_local_winner_and_long_witness(self):

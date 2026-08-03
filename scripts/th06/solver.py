@@ -390,6 +390,23 @@ class EffortController:
         )
         self.projection_frame = snapshot.frame
 
+    def observe_projection_extension(
+        self,
+        snapshot: Snapshot,
+        previous_horizon: int,
+        horizon: int,
+        elapsed_ms: float,
+    ) -> None:
+        """Record cached extension work as an equivalent full projection."""
+        span = horizon - previous_horizon
+        if span <= 0:
+            return
+        self.observe_projection(
+            snapshot,
+            horizon,
+            elapsed_ms * horizon / span,
+        )
+
     def _effective_policy_rate(
         self,
         snapshot: Snapshot,
@@ -1410,6 +1427,12 @@ class Solver:
             soft_prepare_ms = (
                 self.clock() - operation_started
             ) * 1000.0
+            soft_prepare_step_ms = soft_prepare_ms
+            soft_prepare_step_span = max(
+                1,
+                soft_prepare_horizon - BASE_POLICY_HORIZON,
+            )
+            soft_prepare_step_growth = 1.0
             rollout_ms += soft_prepare_ms
             self.effort.observe_projection(
                 snapshot,
@@ -1593,6 +1616,9 @@ class Solver:
                             deepest_affordable - previous_horizon
                         )
                         if promoted_span > 0:
+                            soft_prepare_step_ms = deep_prepare_ms
+                            soft_prepare_step_span = promoted_span
+                            soft_prepare_step_growth = 1.0
                             soft_prepare_ms = max(
                                 soft_prepare_ms
                                     * deepest_affordable
@@ -1601,8 +1627,9 @@ class Solver:
                                     * deepest_affordable
                                     / promoted_span,
                             )
-                        self.effort.observe_projection(
+                        self.effort.observe_projection_extension(
                             snapshot,
+                            previous_horizon,
                             deepest_affordable,
                             deep_prepare_ms,
                         )
@@ -1761,35 +1788,75 @@ class Solver:
                 and policy_preferred
                 and len(hard) > 1
             ):
-                elapsed_ms = (self.clock() - started) * 1000.0
-                remaining_ms = (
-                    self.effort.budget_ms()
-                    - elapsed_ms
-                    - 2.0 * POLICY_DEADLINE_GUARD_MS
-                )
-                coarse_horizon = max(
-                    (
-                        horizon for horizon in COARSE_GLOBAL_HORIZONS
-                        if (
-                            horizon > policy_horizon
-                            and soft_prepare_ms
-                            * horizon
-                            / max(1, soft_prepare_horizon)
-                            <= remaining_ms
+                coarse_horizon = None
+                # Projection is cached, so each call below extends only the
+                # newly requested frames.  Admit those extensions one rung at
+                # a time from the latest measured marginal rate.  A linear
+                # h16 -> h48 jump hid source-driven growth in future hazards
+                # and could consume the publication deadline after the exact
+                # local result was already complete.
+                for horizon in COARSE_GLOBAL_HORIZONS:
+                    if horizon <= soft_prepare_horizon:
+                        continue
+                    elapsed_ms = (self.clock() - started) * 1000.0
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - 2.0 * POLICY_DEADLINE_GUARD_MS
+                    )
+                    extension_span = horizon - soft_prepare_horizon
+                    # The first transition from the local window has no
+                    # coarse-scale sample yet.  Reserve at the equivalent
+                    # full-window rate; after one contiguous coarse rung is
+                    # measured, its marginal rate and latest observed growth
+                    # predict the next rung.
+                    extension_estimate_ms = (
+                        soft_prepare_step_ms
+                        * (
+                            horizon
+                            if coarse_horizon is None
+                            else extension_span
                         )
-                    ),
-                    default=None,
-                )
-                if coarse_horizon is not None:
+                        / max(1, soft_prepare_step_span)
+                        * soft_prepare_step_growth
+                    )
+                    if (
+                        remaining_ms <= 0.0
+                        or extension_estimate_ms
+                            > remaining_ms * PROMOTION_BUDGET_FRACTION
+                    ):
+                        break
+                    previous_horizon = soft_prepare_horizon
                     operation_started = self.clock()
-                    self._prepare_soft(snapshot, coarse_horizon)
-                    rollout_ms += (
+                    self._prepare_soft(snapshot, horizon)
+                    extension_ms = (
                         self.clock() - operation_started
                     ) * 1000.0
-                    soft_prepare_horizon = max(
-                        soft_prepare_horizon,
-                        coarse_horizon,
+                    rollout_ms += extension_ms
+                    previous_step_rate = (
+                        soft_prepare_step_ms
+                        / max(1, soft_prepare_step_span)
                     )
+                    current_step_rate = extension_ms / extension_span
+                    soft_prepare_step_growth = max(
+                        1.0,
+                        (
+                            current_step_rate / previous_step_rate
+                            if previous_step_rate > 0.0
+                            else 1.0
+                        ),
+                    )
+                    soft_prepare_step_ms = extension_ms
+                    soft_prepare_step_span = extension_span
+                    soft_prepare_horizon = horizon
+                    coarse_horizon = horizon
+                    self.effort.observe_projection_extension(
+                        snapshot,
+                        previous_horizon,
+                        horizon,
+                        extension_ms,
+                    )
+                if coarse_horizon is not None:
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
