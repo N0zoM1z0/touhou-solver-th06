@@ -283,6 +283,8 @@ class Snapshot:
     timeline_time_float: float = 0.0
     timeline_instructions: tuple[StageTimelineInstruction, ...] = ()
     timeline_complete: bool = False
+    timeline_emitter_subs: tuple[int, ...] = ()
+    timeline_boss_subs: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -304,6 +306,10 @@ class Decision:
     effort_safe_count: int = 0
     repairable_count: int = 0
     held_horizon: int = 0
+    suppression_target_x: float | None = None
+    suppression_deadline: int | None = None
+    suppression_life: int = 0
+    suppression_source: str = ""
 
 
 def action_from_input(mask: int) -> Action:

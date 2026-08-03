@@ -21,6 +21,7 @@ from th06.model import (
     Laser,
     SafeAction,
     Snapshot,
+    StageTimelineInstruction,
     action_from_input,
 )
 from th06.ranking import ProposalRanker
@@ -71,6 +72,7 @@ from th06.native import (
     RESULT_SCREEN_ON_UPDATE,
     _decode_bullet_tail,
     _read_stage_timeline,
+    _timeline_subroutine_traits,
     read_result_screen,
 )
 from th06.replay import ALPHABET, _move_character, _next_character_key, validate_replay_bytes
@@ -166,6 +168,36 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(decoded[1].raw_hex, second.hex())
         self.assertIs(_read_stage_timeline(process, 0x10000), decoded)
         self.assertEqual(process.reads, first_read_count)
+
+    def test_timeline_subroutine_traits_are_source_graph_properties(self):
+        timeline = (
+            StageTimelineInstruction(0x3000, 10, 0, 0, 8, "00" * 8),
+            StageTimelineInstruction(0x3008, 20, 1, 0, 8, "00" * 8),
+        )
+        emitter = EclInstruction(0x1000, 0, 76, 16, 0xFF, "00" * 16)
+        boss_raw = bytearray(16)
+        struct.pack_into("<i", boss_raw, 0x0C, 0)
+        boss = EclInstruction(0x2000, 0, 101, 16, 0xFF, boss_raw.hex())
+
+        class Process:
+            ecl_subroutines = (0x1000, 0x2000)
+            ecl_subroutine_traits = {}
+
+        process = Process()
+        with mock.patch.object(
+            native,
+            "_read_ecl_program",
+            side_effect=((emitter,), (boss,)),
+        ) as read_program:
+            emitter_subs, boss_subs = _timeline_subroutine_traits(
+                process, timeline
+            )
+            cached = _timeline_subroutine_traits(process, timeline)
+
+        self.assertEqual(emitter_subs, (0,))
+        self.assertEqual(boss_subs, (1,))
+        self.assertEqual(cached, (emitter_subs, boss_subs))
+        self.assertEqual(read_program.call_count, 2)
 
     def test_snapshot_read_retries_a_torn_game_frame(self):
         first = snapshot()

@@ -6,6 +6,7 @@ import math
 import os
 import time
 
+from .attack import preferred_suppression_actions, suppression_target
 from .guidance import preferred_target_actions, terminal_guidance_scores
 from .hazards.lasers import unknown_motion_may_reach_player
 from .kernels.safety import NativeSafetyKernel
@@ -2205,6 +2206,18 @@ class Solver:
                 )
             )
 
+        attack_target = None
+        if len(preferred) > 1:
+            attack_target = suppression_target(snapshot)
+            if attack_target is not None:
+                attack_preferred = preferred_suppression_actions(
+                    hard,
+                    preferred,
+                    attack_target,
+                )
+                if attack_preferred:
+                    preferred = attack_preferred
+
         chosen = self.ranker.choose(
             snapshot,
             hard,
@@ -2260,4 +2273,16 @@ class Solver:
             len(preferred),
             0,
             held_horizon,
+            (
+                attack_target.x
+                if attack_target is not None
+                else None
+            ),
+            (
+                attack_target.deadline
+                if attack_target is not None
+                else None
+            ),
+            attack_target.life if attack_target is not None else 0,
+            attack_target.source if attack_target is not None else "",
         )

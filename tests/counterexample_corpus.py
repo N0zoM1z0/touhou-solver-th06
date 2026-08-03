@@ -15,6 +15,7 @@ from th06.model import (
     EclInstruction,
     Laser,
     Snapshot,
+    StageTimelineInstruction,
 )
 CORPUS_DIR = Path(__file__).with_name("corpus") / "counterexamples"
 ACTION_BY_NAME = {action.name: action for action in CONTROL_ACTIONS}
@@ -61,5 +62,9 @@ def decode_snapshot(raw: dict) -> Snapshot:
             }
         )
         for item in values.get("spawners", ())
+    )
+    values["timeline_instructions"] = tuple(
+        StageTimelineInstruction(**item)
+        for item in values.get("timeline_instructions", ())
     )
     return Snapshot(**values)

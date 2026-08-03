@@ -221,6 +221,7 @@ def run(args: argparse.Namespace) -> int:
                 "frame_multiplier", "action", "safe", "horizon", "held_horizon",
                 "effort_horizon",
                 "effort_safe", "repairable",
+                "attack_x", "attack_deadline", "attack_life", "attack_source",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
@@ -521,6 +522,16 @@ def run(args: argparse.Namespace) -> int:
                     len(decision.safe_actions), decision.horizon, decision.held_horizon,
                     decision.effort_horizon,
                     decision.effort_safe_count, decision.repairable_count,
+                    (
+                        "" if decision.suppression_target_x is None
+                        else f"{decision.suppression_target_x:.3f}"
+                    ),
+                    (
+                        "" if decision.suppression_deadline is None
+                        else decision.suppression_deadline
+                    ),
+                    decision.suppression_life,
+                    decision.suppression_source,
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}",
                     int(dialogue.active),

@@ -368,6 +368,7 @@ class NativeProcess:
         ] = {}
         self.ecl_cache_stage: int | None = None
         self.ecl_subroutines: tuple[int, ...] = ()
+        self.ecl_subroutine_traits: dict[int, tuple[bool, bool]] = {}
 
     def close(self) -> None:
         if self.handle:
@@ -596,6 +597,54 @@ def _read_stage_timeline(
     raise RuntimeError("ECL stage timeline exceeds bounded instruction limit")
 
 
+def _timeline_subroutine_traits(
+    process: NativeProcess,
+    instructions: tuple[StageTimelineInstruction, ...],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Classify source ECL graphs without embedding route strategy.
+
+    The first bit records a graph that can configure or directly create an
+    enemy bullet/laser source.  The second records BOSSSET with a non-negative
+    slot.  Calls and registered callbacks are already included by the bounded
+    immutable program reader.
+    """
+    spawn_subs = sorted({
+        instruction.arg0
+        for instruction in instructions
+        if 0 <= instruction.opcode <= 7
+        and 0 <= instruction.arg0 < len(process.ecl_subroutines)
+    })
+    for sub_id in spawn_subs:
+        if sub_id in process.ecl_subroutine_traits:
+            continue
+        program = _read_ecl_program(
+            process,
+            process.ecl_subroutines[sub_id],
+        )
+        emits = any(
+            67 <= instruction.opcode <= 86 for instruction in program
+        )
+        sets_boss = False
+        for instruction in program:
+            if instruction.opcode != 101:
+                continue
+            raw = bytes.fromhex(instruction.raw_hex)
+            if len(raw) >= 16 and struct.unpack_from("<i", raw, 0x0C)[0] >= 0:
+                sets_boss = True
+                break
+        process.ecl_subroutine_traits[sub_id] = (emits, sets_boss)
+    return (
+        tuple(
+            sub_id for sub_id in spawn_subs
+            if process.ecl_subroutine_traits[sub_id][0]
+        ),
+        tuple(
+            sub_id for sub_id in spawn_subs
+            if process.ecl_subroutine_traits[sub_id][1]
+        ),
+    )
+
+
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
     api = _kernel32()
 
@@ -694,6 +743,7 @@ def _read_snapshot_once(
         process.ecl_program_cache.clear()
         process.ecl_timeline_instruction_cache.clear()
         process.ecl_timeline_cache.clear()
+        process.ecl_subroutine_traits.clear()
         process.ecl_cache_stage = stage
         process.ecl_subroutines = _read_ecl_subroutines(process)
     difficulty = struct.unpack(
@@ -791,6 +841,9 @@ def _read_snapshot_once(
     timeline_complete = bool(
         timeline_instructions
         and timeline_instructions[-1].time < 0
+    )
+    timeline_emitter_subs, timeline_boss_subs = (
+        _timeline_subroutine_traits(process, timeline_instructions)
     )
 
     bullets: list[Bullet] = []
@@ -1278,6 +1331,7 @@ def _read_snapshot_once(
         difficulty, rank, bullet_sizes, rng_seed, rng_generation,
         current_power, timeline_time, timeline_time + timeline_subframe,
         timeline_instructions, timeline_complete,
+        timeline_emitter_subs, timeline_boss_subs,
     )
 
 
