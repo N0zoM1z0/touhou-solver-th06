@@ -1226,7 +1226,7 @@ class Solver:
                                 deep_scores = (
                                     self._budgeted_terminal_counts(
                                         snapshot,
-                                        hard,
+                                        deep_candidates,
                                         reachability_horizon,
                                         probe_budget_ms,
                                     )
@@ -1238,7 +1238,7 @@ class Solver:
                                     self.effort.observe_target(
                                         "survival",
                                         snapshot,
-                                        len(hard),
+                                        len(deep_candidates),
                                         reachability_horizon,
                                         policy_ms,
                                     )

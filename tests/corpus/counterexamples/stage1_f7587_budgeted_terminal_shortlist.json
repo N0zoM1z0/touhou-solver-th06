@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "id": "stage1-f7587-budgeted-terminal-shortlist",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 7587,
+    "failure_frame": 7598,
+    "artifact": "th06_failure_stage1_f7598_post_stale_frontier_loss.json"
+  },
+  "runner": "terminal_reachability_shortlist",
+  "contract": "After a shallow policy rung and deeper constant scan complete, the budgeted h20 survival rung evaluates their generic union plus the held action. It ranks exact deduplicated terminal states inside that shortlist; unused Hard actions must not consume the residual deadline and force a shallower fallback.",
+  "summary": "At f7587 the current input was stay. The completed p8 rung uniquely preferred right, while c16 retained stay/down and h20 terminal reachability uniquely preferred stay within their union. The live solver passed all seven Hard actions to h20, timed out, fell back to right, and first lost Hard authority at f7598. Four source-linear bullets are one-removal-minimal for the shallow/constant/deep disagreement; the enemy and ECL spawner are irrelevant.",
+  "input": {
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2.5,
+          2.5
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          5.5,
+          5.5
+        ],
+        [
+          4.5,
+          4.5
+        ],
+        [
+          16,
+          16
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "bullets": [
+        {
+          "acceleration": 0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0,
+          "acceleration_y": 0,
+          "angle": 1.131521463394165,
+          "curve_angular_velocity": 0,
+          "curve_speed_acceleration": 0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0,
+          "ex_flags": 4,
+          "half_height": 3,
+          "half_width": 3,
+          "slot": 77,
+          "speed": 3.2109375,
+          "state": 1,
+          "timer": 114,
+          "timer_float": 114,
+          "turn_speed": 0,
+          "vx": 1.3655580282211304,
+          "vy": 2.9060919284820557,
+          "x": 350.50421142578125,
+          "y": 385.8939208984375
+        },
+        {
+          "acceleration": 0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0,
+          "acceleration_y": 0,
+          "angle": 1.1845896244049072,
+          "curve_angular_velocity": 0,
+          "curve_speed_acceleration": 0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0,
+          "ex_flags": 4,
+          "half_height": 3,
+          "half_width": 3,
+          "slot": 90,
+          "speed": 3.625,
+          "state": 1,
+          "timer": 106,
+          "timer_float": 106,
+          "turn_speed": 0,
+          "vx": 1.365454912185669,
+          "vy": 3.357999086380005,
+          "x": 335.7340087890625,
+          "y": 413.4393615722656
+        },
+        {
+          "acceleration": 0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0,
+          "acceleration_y": 0,
+          "angle": 1.1402817964553833,
+          "curve_angular_velocity": 0,
+          "curve_speed_acceleration": 0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0,
+          "ex_flags": 4,
+          "half_height": 3,
+          "half_width": 3,
+          "slot": 114,
+          "speed": 3.625,
+          "state": 1,
+          "timer": 98,
+          "timer_float": 98,
+          "turn_speed": 0,
+          "vx": 1.5128518342971802,
+          "vy": 3.294222831726074,
+          "x": 337.89923095703125,
+          "y": 379.9165954589844
+        },
+        {
+          "acceleration": 0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0,
+          "acceleration_y": 0,
+          "angle": 1.183756709098816,
+          "curve_angular_velocity": 0,
+          "curve_speed_acceleration": 0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0,
+          "ex_flags": 4,
+          "half_height": 3,
+          "half_width": 3,
+          "slot": 144,
+          "speed": 4.0390625,
+          "state": 1,
+          "timer": 90,
+          "timer_float": 90,
+          "turn_speed": 0,
+          "vx": 1.5245387554168701,
+          "vy": 3.740295171737671,
+          "x": 326.1565246582031,
+          "y": 396.564453125
+        }
+      ],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2,
+      "frame": 7587,
+      "frame_multiplier": 1,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 5,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4,
+      "player_state": 0,
+      "rank": 28,
+      "replay_or_demo": false,
+      "rng_generation": 4374,
+      "rng_seed": 8686,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 349.85784912109375,
+      "y": 427.7573547363281
+    },
+    "segment_length": 4,
+    "shallow_horizon": 8,
+    "constant_horizon": 16,
+    "reachability_horizon": 20,
+    "observed_action": "right"
+  },
+  "expect": {
+    "hard_actions": [
+      "stay",
+      "up",
+      "down",
+      "right",
+      "up_right",
+      "down_left",
+      "down_right"
+    ],
+    "shallow_scores": {
+      "down": 5,
+      "down_left": 0,
+      "down_right": 7,
+      "right": 9,
+      "stay": 7,
+      "up": 8,
+      "up_right": 8
+    },
+    "shallow_actions": [
+      "right"
+    ],
+    "constant_actions": [
+      "stay",
+      "down"
+    ],
+    "deep_candidate_actions": [
+      "stay",
+      "down",
+      "right"
+    ],
+    "terminal_counts": {
+      "down": 218,
+      "right": 249,
+      "stay": 315
+    },
+    "terminal_actions": [
+      "stay"
+    ]
+  }
+}

@@ -9,7 +9,7 @@ from th06.guidance import (
     terminal_guidance_scores,
 )
 from th06.kernels.safety import NativeSafetyKernel
-from th06.model import ACTIONS, SafeAction, Snapshot
+from th06.model import ACTIONS, SafeAction, Snapshot, action_from_input
 from th06.safety import certify_actions
 from th06.solver import Solver
 from th06.viability import nominal_policy_scores
@@ -280,7 +280,13 @@ class BudgetedReachabilityKernel(GuidanceKernel):
         collision_margin,
         budget_ms,
     ):
-        self.calls.append(("budgeted_counts", horizon))
+        self.calls.append(
+            (
+                "budgeted_counts",
+                horizon,
+                tuple(item.action.name for item in candidates),
+            )
+        )
         self.clock.advance_ms(min(1.0, budget_ms))
         return {
             item.action: 5 if item.action.name == "down" else 4
@@ -311,9 +317,23 @@ class TimedOutReachabilityKernel(BudgetedReachabilityKernel):
         collision_margin,
         budget_ms,
     ):
-        self.calls.append(("budgeted_counts", horizon))
+        self.calls.append(("budgeted_counts", horizon, ()))
         self.clock.advance_ms(budget_ms)
         return None
+
+
+class ShortlistedReachabilityKernel(BudgetedReachabilityKernel):
+    def certify_selected(self, _state, horizon, actions, collision_margin):
+        allowed = frozenset(actions)
+        candidates = tuple(
+            item for item in self.hard if item.action in allowed
+        )
+        if horizon >= 16:
+            return tuple(
+                item for item in candidates
+                if item.action.name in ("stay", "down")
+            )
+        return candidates
 
 
 class TerminalGuidanceTests(unittest.TestCase):
@@ -642,6 +662,127 @@ class TerminalGuidanceTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case["id"]):
                 self.replay_terminal_reachability_case(case, kernel)
+
+    def replay_terminal_shortlist_case(self, case, kernel=None):
+        values = case["input"]
+        state = decode_snapshot(values["snapshot"])
+        if kernel is None:
+            hard = certify_actions(state, 4)
+            shallow = nominal_policy_scores(
+                state,
+                hard,
+                values["segment_length"],
+                values["shallow_horizon"],
+            )
+            constant = certify_actions(
+                state,
+                values["constant_horizon"],
+                actions=tuple(item.action for item in hard),
+            )
+        else:
+            hard = kernel.certify(state, 4, collision_margin=0.35)
+            shallow = kernel.nominal_policy_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["shallow_horizon"],
+                collision_margin=0.35,
+            )
+            constant = kernel.certify_selected(
+                state,
+                values["constant_horizon"],
+                tuple(item.action for item in hard),
+                collision_margin=0.35,
+            )
+
+        shallow_best = max(shallow.values())
+        deep_actions = {
+            action for action, score in shallow.items()
+            if score == shallow_best
+        }
+        deep_actions.update(item.action for item in constant)
+        deep_actions.add(action_from_input(state.input_mask))
+        deep = tuple(
+            item for item in hard if item.action in deep_actions
+        )
+        if kernel is None:
+            guidance = terminal_guidance_scores(
+                state,
+                deep,
+                values["segment_length"],
+                values["reachability_horizon"],
+            )
+            counts = {
+                action: value.terminal_count
+                for action, value in guidance.items()
+            }
+        else:
+            counts = kernel.terminal_counts(
+                state,
+                deep,
+                values["segment_length"],
+                values["reachability_horizon"],
+                collision_margin=0.35,
+            )
+
+        expected = case["expect"]
+        self.assertEqual(
+            [item.action.name for item in hard],
+            expected["hard_actions"],
+        )
+        self.assertEqual(
+            {action.name: score for action, score in shallow.items()},
+            expected["shallow_scores"],
+        )
+        self.assertEqual(
+            [
+                action.name for action, score in shallow.items()
+                if score == shallow_best
+            ],
+            expected["shallow_actions"],
+        )
+        self.assertEqual(
+            [item.action.name for item in constant],
+            expected["constant_actions"],
+        )
+        self.assertEqual(
+            [item.action.name for item in deep],
+            expected["deep_candidate_actions"],
+        )
+        self.assertEqual(
+            {action.name: score for action, score in counts.items()},
+            expected["terminal_counts"],
+        )
+        terminal_best = max(counts.values())
+        terminal_actions = [
+            action.name for action, score in counts.items()
+            if score == terminal_best
+        ]
+        self.assertEqual(terminal_actions, expected["terminal_actions"])
+        self.assertIn(values["observed_action"], expected["shallow_actions"])
+        self.assertNotIn(values["observed_action"], terminal_actions)
+
+    def test_reference_terminal_shortlist_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "terminal_reachability_shortlist"
+        )
+        self.assertTrue(cases, "terminal shortlist corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_terminal_shortlist_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_terminal_shortlist_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "terminal_reachability_shortlist"
+        )
+        self.assertTrue(cases, "terminal shortlist corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_terminal_shortlist_case(case, kernel)
 
     def replay_frontier_rerank_case(self, case, kernel=None):
         values = case["input"]
@@ -1081,7 +1222,7 @@ class TerminalGuidanceTests(unittest.TestCase):
             for action in ACTIONS
         )
         clock = ManualClock()
-        kernel = BudgetedReachabilityKernel(clock, hard)
+        kernel = ShortlistedReachabilityKernel(clock, hard)
         solver = Solver(decision_budget_ms=12.5, clock=clock)
         solver.kernel = kernel
         solver.backend = "test"
@@ -1094,7 +1235,11 @@ class TerminalGuidanceTests(unittest.TestCase):
 
         self.assertEqual(
             [call for call in kernel.calls if call[0] == "budgeted_counts"],
-            [("budgeted_counts", 20)],
+            [(
+                "budgeted_counts",
+                20,
+                ("stay", "up", "down", "right"),
+            )],
         )
         self.assertNotIn(
             "budgeted_policy",
