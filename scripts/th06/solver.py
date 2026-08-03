@@ -30,6 +30,7 @@ TURN_CAPABLE_POLICY_HORIZONS = (8, 12, 16)
 BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
+SAME_FRAME_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.5
 FIXED_WORK_EQUIVALENT = 32
 MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
@@ -48,6 +49,7 @@ class EffortController:
         if decision_budget_ms <= 0.0:
             raise ValueError("decision budget must be positive")
         self.decision_budget_ms = decision_budget_ms
+        self.decision_budget_cap_ms: float | None = None
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
         self.rollout_frame: int | None = None
@@ -107,7 +109,16 @@ class EffortController:
         )
 
     def budget_ms(self) -> float:
-        return self.decision_budget_ms * self.publication_scale
+        budget = self.decision_budget_ms * self.publication_scale
+        if self.decision_budget_cap_ms is not None:
+            budget = min(budget, self.decision_budget_cap_ms)
+        return budget
+
+    def begin_decision(self) -> None:
+        self.decision_budget_cap_ms = None
+
+    def require_same_frame_publication(self) -> None:
+        self.decision_budget_cap_ms = SAME_FRAME_DECISION_BUDGET_MS
 
     @staticmethod
     def _measurement_freshness(
@@ -828,6 +839,7 @@ class Solver:
         snapshot: Snapshot,
         required_action: Action | None = None,
     ) -> Decision:
+        self.effort.begin_decision()
         if (
             self.guidance_last_frame is not None
             and snapshot.frame <= self.guidance_last_frame
@@ -910,6 +922,31 @@ class Solver:
                 "hard-safe-set-empty",
                 HARD_SAFETY_HORIZON,
             )
+
+        extended_delivery = (
+            getattr(
+                type(self.kernel),
+                "certify_selected_extended_delivery",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if extended_delivery is not None:
+            extended = extended_delivery(
+                self.kernel,
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                tuple(candidate.action for candidate in hard),
+                collision_margin=0.35,
+            )
+            if len(extended) < len(hard):
+                # Some otherwise-Hard action cannot tolerate publication one
+                # frame later.  Keep the exact Hard set unchanged, but reserve
+                # enough wall time to publish from this snapshot rather than
+                # discovering after soft work that its winner lacks delay-4
+                # authority.
+                self.effort.require_same_frame_publication()
 
         elapsed_ms = (self.clock() - started) * 1000.0
         limit = self.effort.choose_limit(

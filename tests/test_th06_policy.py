@@ -9,6 +9,7 @@ from th06.solver import (
     BASE_POLICY_HORIZON,
     EFFORT_HORIZONS,
     HARD_SAFETY_HORIZON,
+    SAME_FRAME_DECISION_BUDGET_MS,
     EffortController,
     Solver,
 )
@@ -188,6 +189,29 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
         )
 
 
+class PublicationFragileKernel(BudgetedProgressiveKernel):
+    def __init__(self, *args, extended_safe=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.extended_safe = extended_safe
+
+    def certify_selected_extended_delivery(
+        self,
+        _state,
+        _horizon,
+        actions,
+        collision_margin,
+    ):
+        self.calls.append(("extended", tuple(actions)))
+        self.clock.advance_ms(0.1)
+        if not self.extended_safe:
+            return ()
+        allowed = frozenset(actions)
+        return tuple(
+            candidate for candidate in self.hard
+            if candidate.action in allowed
+        )
+
+
 class AnytimePolicyTests(unittest.TestCase):
     def setUp(self):
         state = snapshot()
@@ -359,6 +383,55 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(progressive[1:3], (8, 20))
         self.assertEqual(progressive[4], self.hard)
+
+    def test_missing_extended_authority_caps_only_current_effort(self):
+        clock = ManualClock()
+        shallow_action = self.hard[0].action
+        deep_action = self.hard[1].action
+        kernel = PublicationFragileKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    shallow_action: 9,
+                    deep_action: 2,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    shallow_action: 2,
+                    deep_action: 9,
+                    self.hard[2].action: 1,
+                },
+            },
+            budgeted_ms_by_horizon={8: 5.0, 12: 8.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 12
+
+        fragile = solver.decide(snapshot())
+        progressive = next(
+            call for call in kernel.calls if call[0] == "progressive"
+        )
+
+        self.assertEqual(fragile.safe_actions, self.hard)
+        self.assertEqual(fragile.action, shallow_action)
+        self.assertEqual(fragile.effort_horizon, 8)
+        self.assertLess(progressive[3], SAME_FRAME_DECISION_BUDGET_MS)
+        self.assertLessEqual(clock.seconds * 1000.0, SAME_FRAME_DECISION_BUDGET_MS)
+
+        kernel.extended_safe = True
+        kernel.calls.clear()
+        second_started_ms = clock.seconds * 1000.0
+        robust = solver.decide(snapshot(frame=101))
+
+        self.assertEqual(robust.safe_actions, self.hard)
+        self.assertEqual(robust.action, deep_action)
+        self.assertEqual(robust.effort_horizon, 12)
+        self.assertLessEqual(
+            clock.seconds * 1000.0 - second_started_ms,
+            12.5,
+        )
 
     def test_completed_progressive_rung_needs_no_intermediate_recompute(self):
         clock = ManualClock()
