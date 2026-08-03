@@ -50,6 +50,7 @@ SOURCE_EXACT_DYNAMIC_FLAGS = 0x0F1
 TERMINAL_METRICS = (
     "count",
     "count-vector",
+    "local-count-vector",
     "count-clearance",
     "count-clearance-confirmed",
     "count-focus-clearance",
@@ -375,7 +376,7 @@ class ExactTerminalPolicy:
         )
         if self.horizon == 4:
             preferred = frozenset()
-        elif self.metric == "count-vector":
+        elif self.metric in ("count-vector", "local-count-vector"):
             rungs = _terminal_rungs(self.horizon)
             counts = tuple(
                 dict(source_terminal_counts(
@@ -389,7 +390,11 @@ class ExactTerminalPolicy:
             scores = {
                 candidate.action.name: tuple(
                     float(values[candidate.action.name])
-                    for values in reversed(counts)
+                    for values in (
+                        counts
+                        if self.metric == "local-count-vector"
+                        else reversed(counts)
+                    )
                 )
                 for candidate in candidates
             }
@@ -505,7 +510,7 @@ class NativeTerminalPolicy:
             return None
         if self.horizon == 4:
             preferred = frozenset()
-        elif self.metric == "count-vector":
+        elif self.metric in ("count-vector", "local-count-vector"):
             rungs = _terminal_rungs(self.horizon)
             counts = tuple(
                 self.kernel.terminal_counts(
@@ -520,7 +525,11 @@ class NativeTerminalPolicy:
             scores = {
                 candidate.action: tuple(
                     float(values[candidate.action])
-                    for values in reversed(counts)
+                    for values in (
+                        counts
+                        if self.metric == "local-count-vector"
+                        else reversed(counts)
+                    )
                 )
                 for candidate in hard
             }

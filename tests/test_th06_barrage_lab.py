@@ -475,6 +475,39 @@ class BarrageLabTests(unittest.TestCase):
                 continuation="frame",
             )
 
+    def test_local_count_vector_keeps_the_earliest_complete_rung_primary(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+
+        def counts_at_horizon(_snapshot, actions, _delay, horizon):
+            values = {name: 1 for name in actions}
+            values[right.name] = 3 if horizon == 8 else 1
+            values[left.name] = 1 if horizon == 8 else 3
+            return mock.Mock(counts=tuple(values.items()))
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.source_terminal_counts",
+            side_effect=counts_at_horizon,
+        ):
+            deep_first = ExactTerminalPolicy(
+                16, metric="count-vector"
+            )(snapshot)
+            local_first = ExactTerminalPolicy(
+                16, metric="local-count-vector"
+            )(snapshot)
+
+        self.assertEqual(deep_first, left)
+        self.assertEqual(local_first, right)
+
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 23, target_bullets=8)
