@@ -1205,6 +1205,75 @@ class BaselineTests(unittest.TestCase):
             collision_margin=0.35,
         )
 
+    def test_native_hard_reserve_reuses_exact_fail_closed_window(self):
+        state = snapshot()
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        held = action_from_input(state.input_mask)
+        held_effort = tuple(
+            candidate for candidate in hard if candidate.action == held
+        )
+        prepared = object()
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepared_snapshot = None
+        kernel._prepared_horizon = 0
+        kernel._prepared_collision_margin = -float("inf")
+        kernel._prepared_fail_closed_horizon = 0
+        kernel._prepared_hazards = None
+        kernel._prepare_window = mock.Mock(return_value=prepared)
+        kernel._certify_prepared = mock.Mock(side_effect=(
+            (hard, hard, ()),
+            (held_effort, (), ()),
+        ))
+
+        combined = kernel.certify_delivery_sets_with_selected_reserved(
+            state,
+            HARD_SAFETY_HORIZON,
+            HARD_SAFETY_HORIZON + 1,
+            8,
+            (held,),
+            collision_margin=0.35,
+        )
+        reused = kernel._prepare_fail_closed(state, 8, 0.35)
+
+        self.assertEqual(combined, (hard, hard, held_effort))
+        self.assertIs(reused, prepared)
+        kernel._prepare_window.assert_called_once_with(
+            state,
+            0,
+            8,
+            fail_closed_horizon=8,
+            collision_margin=0.35,
+        )
+
+    @unittest.skipUnless(os.name == "nt", "native kernel needs Windows")
+    def test_native_reserved_window_preserves_hard_and_held_results(self):
+        state = snapshot(
+            Bullet(192.0, 360.0, 0.25, 1.0, 3.0, 3.0, 1),
+            Bullet(170.0, 378.0, 0.8, 0.0, 2.0, 2.0, 1),
+            input_mask=BUTTON_FOCUS | BUTTON_LEFT,
+        )
+        held = action_from_input(state.input_mask)
+        ordinary = NativeSafetyKernel().certify_delivery_sets_with_selected(
+            state,
+            HARD_SAFETY_HORIZON,
+            HARD_SAFETY_HORIZON + 1,
+            (held,),
+            collision_margin=0.35,
+        )
+        reserved = (
+            NativeSafetyKernel()
+            .certify_delivery_sets_with_selected_reserved(
+                state,
+                HARD_SAFETY_HORIZON,
+                HARD_SAFETY_HORIZON + 1,
+                8,
+                (held,),
+                collision_margin=0.35,
+            )
+        )
+
+        self.assertEqual(reserved, ordinary)
+
     def test_native_empty_selected_prefix_rechecks_exact_hard_window(self):
         state = snapshot()
         hard = certify_actions(state, HARD_SAFETY_HORIZON)

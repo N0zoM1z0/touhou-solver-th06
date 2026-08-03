@@ -237,6 +237,7 @@ class NativeSafetyKernel:
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
         self._prepared_collision_margin = -math.inf
+        self._prepared_fail_closed_horizon = 0
         self._prepared_hazards = None
         self._hard_birth_snapshot: Snapshot | None = None
         self._hard_birth_horizon = 0
@@ -504,6 +505,21 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
     ):
+        if (
+            self._prepared_snapshot is snapshot
+            and self._prepared_horizon >= horizon
+            and getattr(
+                self,
+                "_prepared_fail_closed_horizon",
+                0,
+            ) >= horizon
+            and getattr(
+                self,
+                "_prepared_collision_margin",
+                -math.inf,
+            ) >= collision_margin
+        ):
+            return self._prepared_hazards
         prepared = self._prepare_window(
             snapshot,
             0,
@@ -514,6 +530,7 @@ class NativeSafetyKernel:
         self._prepared_snapshot = snapshot
         self._prepared_horizon = horizon
         self._prepared_collision_margin = collision_margin
+        self._prepared_fail_closed_horizon = horizon
         self._prepared_hazards = prepared
         return prepared
 
@@ -537,6 +554,7 @@ class NativeSafetyKernel:
         self._prepared_snapshot = snapshot
         self._prepared_horizon = horizon
         self._prepared_collision_margin = collision_margin
+        self._prepared_fail_closed_horizon = min(4, horizon)
         self._prepared_hazards = prepared
         return prepared
 
@@ -776,8 +794,57 @@ class NativeSafetyKernel:
         tuple[SafeAction, ...],
         tuple[SafeAction, ...],
     ]:
+        return self._certify_delivery_sets_with_selected_prepared(
+            snapshot,
+            hard_horizon,
+            selected_horizon,
+            selected_horizon,
+            actions,
+            collision_margin,
+        )
+
+    def certify_delivery_sets_with_selected_reserved(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        selected_horizon: int,
+        reserve_horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> tuple[
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+    ]:
+        """Prepare one wider Hard window without widening either result."""
+        if reserve_horizon < selected_horizon:
+            raise ValueError("reserve horizon must cover selected horizon")
+        return self._certify_delivery_sets_with_selected_prepared(
+            snapshot,
+            hard_horizon,
+            selected_horizon,
+            reserve_horizon,
+            actions,
+            collision_margin,
+        )
+
+    def _certify_delivery_sets_with_selected_prepared(
+        self,
+        snapshot: Snapshot,
+        hard_horizon: int,
+        selected_horizon: int,
+        reserve_horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+    ) -> tuple[
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+        tuple[SafeAction, ...],
+    ]:
         if selected_horizon < hard_horizon:
             raise ValueError("selected horizon must cover the hard horizon")
+        if reserve_horizon < selected_horizon:
+            raise ValueError("reserve horizon must cover selected horizon")
         selected = frozenset(actions)
         candidate_mask = sum(
             1 << index
@@ -789,7 +856,7 @@ class NativeSafetyKernel:
         # fails before the Hard boundary, the inserted unknown-world box
         # erases every candidate; only then rebuild the exact shorter window.
         prepared_horizon = (
-            selected_horizon if candidate_mask else hard_horizon
+            reserve_horizon if candidate_mask else hard_horizon
         )
         selected_prepared = self._prepare_fail_closed(
             snapshot, prepared_horizon, collision_margin
@@ -805,6 +872,7 @@ class NativeSafetyKernel:
             # Failure of a wider authority request is not proof that the
             # ordinary Hard window lacks authority.  Recompute that exact
             # boundary before publishing an empty Hard set.
+            self._prepared_fail_closed_horizon = 0
             hard_prepared = self._prepare_fail_closed(
                 snapshot, hard_horizon, collision_margin
             )

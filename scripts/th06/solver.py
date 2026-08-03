@@ -799,6 +799,28 @@ class Solver:
 
     def _hard_authority(self, snapshot: Snapshot):
         held = action_from_input(snapshot.input_mask)
+        reserved = (
+            getattr(
+                type(self.kernel),
+                "certify_delivery_sets_with_selected_reserved",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if reserved is not None:
+            # Prepare the ordinary local continuation window once.  Hard and
+            # the current-input reserve keep their exact h4/h5 certification
+            # boundaries; only the immutable hazard projection is shared.
+            return reserved(
+                self.kernel,
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                HARD_CURRENT_HOLD_HORIZON,
+                BASE_POLICY_HORIZON,
+                (held,),
+                collision_margin=0.35,
+            )
         combined = (
             getattr(
                 type(self.kernel),
