@@ -281,6 +281,85 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     expected["policy_scores"],
                 )
 
+    @unittest.skipUnless(os.name == "nt", "native macro corpus needs Windows")
+    def test_native_coarse_macro_tail_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "coarse_macro_tail"
+        )
+        self.assertTrue(cases, "coarse macro-tail corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard, _age_zero = kernel.certify_selected_delivery_sets(
+                    state,
+                    values["segment_length"],
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                )
+                self.assertEqual(len(hard), expected["hard_count"])
+                local_horizon, local_scores, _complete = (
+                    kernel.segment_terminal_counts_progressive(
+                        state,
+                        hard,
+                        values["segment_length"],
+                        8,
+                        values["local_horizon"],
+                        collision_margin=0.35,
+                        budget_ms=1000.0,
+                    )
+                )
+                self.assertEqual(local_horizon, values["local_horizon"])
+                local_best = max(local_scores.values())
+                local_actions = frozenset(
+                    action for action, score in local_scores.items()
+                    if score == local_best
+                )
+                self.assertEqual(
+                    sorted(action.name for action in local_actions),
+                    sorted(expected["local_actions"]),
+                )
+                constant = kernel.certify_selected(
+                    state,
+                    values["coarse_horizon"],
+                    tuple(candidate.action for candidate in hard),
+                    collision_margin=0.35,
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in constant],
+                    expected["constant_actions"],
+                )
+                shortlist_actions = local_actions | frozenset(
+                    candidate.action for candidate in constant
+                )
+                shortlist = tuple(
+                    candidate for candidate in hard
+                    if candidate.action in shortlist_actions
+                )
+                macro_scores = kernel.macro_tail_scores_budgeted(
+                    state,
+                    shortlist,
+                    values["segment_length"],
+                    values["coarse_horizon"],
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                self.assertEqual(
+                    {action.name: score for action, score in macro_scores.items()},
+                    expected["macro_scores"],
+                )
+                macro_best = max(macro_scores.values())
+                self.assertEqual(
+                    sorted(
+                        action.name for action, score in macro_scores.items()
+                        if score == macro_best
+                    ),
+                    sorted(expected["macro_actions"]),
+                )
+
     @unittest.skipUnless(os.name == "nt", "native held authority needs Windows")
     def test_native_current_hold_authority_counterexamples(self):
         cases = tuple(

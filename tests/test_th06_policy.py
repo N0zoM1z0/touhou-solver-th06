@@ -272,6 +272,59 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
         )
 
 
+class CoarseMacroKernel(TerminalRefinementKernel):
+    def __init__(
+        self,
+        *args,
+        coarse_frontier,
+        macro_scores,
+        macro_ms=1.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.coarse_frontier = coarse_frontier
+        self.macro_scores = macro_scores
+        self.macro_ms = macro_ms
+
+    def certify_selected_budgeted(
+        self,
+        _state,
+        horizon,
+        actions,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("coarse_frontier", horizon, tuple(actions)))
+        self.clock.advance_ms(min(0.25, budget_ms))
+        if budget_ms < 0.25:
+            return None
+        allowed = frozenset(actions)
+        return tuple(
+            candidate for candidate in self.coarse_frontier
+            if candidate.action in allowed
+        )
+
+    def macro_tail_scores_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("macro_tail", horizon, tuple(candidates)))
+        if self.macro_ms > budget_ms:
+            self.clock.advance_ms(budget_ms)
+            return None
+        self.clock.advance_ms(self.macro_ms)
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return {
+            action: score for action, score in self.macro_scores.items()
+            if action in allowed
+        }
+
+
 class PublicationFragileKernel(BudgetedProgressiveKernel):
     def __init__(self, *args, extended_safe=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -568,6 +621,65 @@ class AnytimePolicyTests(unittest.TestCase):
             ],
             [(8, 16)],
         )
+
+    def test_budgeted_coarse_macro_adjudicates_local_winner_and_long_witness(self):
+        clock = ManualClock()
+        local = self.hard[0].action
+        witness = self.hard[1].action
+        kernel = CoarseMacroKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                16: {
+                    local: 9,
+                    witness: 5,
+                    self.hard[2].action: 1,
+                },
+            },
+            flexible_completed_horizon=16,
+            coarse_frontier=(self.hard[1],),
+            macro_scores={local: 0, witness: 1},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, witness)
+        self.assertEqual(decision.effort_horizon, 48)
+        self.assertEqual(
+            next(call for call in kernel.calls if call[0] == "macro_tail")[2],
+            (self.hard[0], self.hard[1]),
+        )
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
+    def test_timed_out_coarse_macro_preserves_completed_local_result(self):
+        clock = ManualClock()
+        local = self.hard[0].action
+        witness = self.hard[1].action
+        kernel = CoarseMacroKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                16: {
+                    local: 9,
+                    witness: 5,
+                    self.hard[2].action: 1,
+                },
+            },
+            flexible_completed_horizon=16,
+            coarse_frontier=(self.hard[1],),
+            macro_scores={local: 0, witness: 1},
+            macro_ms=100.0,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, local)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_deep_constant_scan_discards_on_residual_budget_timeout(self):
         clock = ManualClock()
@@ -1182,6 +1294,35 @@ class AnytimePolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_macro_tail_uses_full_control_alphabet_and_discards_timeout(self):
+        state = snapshot(x=192.0, y=224.0)
+        kernel = NativeSafetyKernel()
+        candidates = kernel.certify(
+            state,
+            HARD_SAFETY_HORIZON,
+            collision_margin=0.35,
+        )
+        completed = kernel.macro_tail_scores_budgeted(
+            state,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            8,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.macro_tail_scores_budgeted(
+            state,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            8,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertGreater(max(completed.values()), len(ACTIONS))
         self.assertIsNone(expired)
 
     def test_unaffordable_policy_rung_does_not_skip_to_deeper_search(self):

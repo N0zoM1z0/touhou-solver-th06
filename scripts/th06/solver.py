@@ -28,6 +28,7 @@ HARD_SAFETY_HORIZON = 4
 HARD_CURRENT_HOLD_HORIZON = HARD_SAFETY_HORIZON + 1
 EFFORT_HORIZONS = (6, 8, 12, 16, 20)
 TURN_CAPABLE_POLICY_HORIZONS = (8, 12, 16)
+COARSE_GLOBAL_HORIZONS = (24, 32, 40, 48)
 BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
@@ -903,6 +904,34 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_macro_tail_scores(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "macro_tail_scores_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None or budget_ms <= 0.0:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def selected_delivery_safe(
         self,
         snapshot: Snapshot,
@@ -1110,7 +1139,10 @@ class Solver:
             )
             operation_started = self.clock()
             self._prepare_soft(snapshot, soft_prepare_horizon)
-            rollout_ms += (self.clock() - operation_started) * 1000.0
+            soft_prepare_ms = (
+                self.clock() - operation_started
+            ) * 1000.0
+            rollout_ms += soft_prepare_ms
             observed_held = action_from_input(snapshot.input_mask)
             pending_candidate = next(
                 (
@@ -1307,6 +1339,114 @@ class Solver:
                 # Prevent the legacy interleaved fallback below from
                 # rebuilding the same h6/h8 constant prefixes after it.
                 policy_probe_ready = True
+
+            # A short exact terminal DP can remain indifferent until a known
+            # future event enters its endpoint window.  Spend only measured
+            # residual projection budget on one coarse, longer two-segment
+            # comparator.  The long constant scan contributes witnesses, not
+            # authority: the comparator rechecks their union with the local
+            # winners and permits every focused/unfocused tail.  Timeout at
+            # either step preserves the completed local result in full.
+            macro_tail_native = (
+                getattr(
+                    type(self.kernel),
+                    "macro_tail_scores_budgeted",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            if (
+                macro_tail_native is not None
+                and terminal_completed
+                and policy_horizon >= TURN_CAPABLE_POLICY_HORIZONS[-1]
+                and policy_preferred
+                and len(hard) > 1
+            ):
+                elapsed_ms = (self.clock() - started) * 1000.0
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - 2.0 * POLICY_DEADLINE_GUARD_MS
+                )
+                coarse_horizon = max(
+                    (
+                        horizon for horizon in COARSE_GLOBAL_HORIZONS
+                        if (
+                            horizon > policy_horizon
+                            and soft_prepare_ms
+                            * horizon
+                            / max(1, soft_prepare_horizon)
+                            <= remaining_ms
+                        )
+                    ),
+                    default=None,
+                )
+                if coarse_horizon is not None:
+                    operation_started = self.clock()
+                    self._prepare_soft(snapshot, coarse_horizon)
+                    rollout_ms += (
+                        self.clock() - operation_started
+                    ) * 1000.0
+                    soft_prepare_horizon = max(
+                        soft_prepare_horizon,
+                        coarse_horizon,
+                    )
+                    elapsed_ms = (self.clock() - started) * 1000.0
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - POLICY_DEADLINE_GUARD_MS
+                    )
+                    coarse_frontier = (
+                        self._budgeted_certify_selected(
+                            snapshot,
+                            coarse_horizon,
+                            tuple(candidate.action for candidate in hard),
+                            remaining_ms,
+                        )
+                        if remaining_ms > 0.0
+                        else None
+                    )
+                    coarse_actions = frozenset(
+                        candidate.action
+                        for candidate in (coarse_frontier or ())
+                    )
+                    if coarse_actions - policy_preferred:
+                        shortlist_actions = (
+                            policy_preferred | coarse_actions
+                        )
+                        shortlist = tuple(
+                            candidate for candidate in hard
+                            if candidate.action in shortlist_actions
+                        )
+                        elapsed_ms = (
+                            self.clock() - started
+                        ) * 1000.0
+                        remaining_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - POLICY_DEADLINE_GUARD_MS
+                        )
+                        macro_scores = self._budgeted_macro_tail_scores(
+                            snapshot,
+                            shortlist,
+                            coarse_horizon,
+                            remaining_ms,
+                        )
+                        macro_best = max(
+                            (macro_scores or {}).values(),
+                            default=0,
+                        )
+                        if macro_best > 0:
+                            policy_preferred = frozenset(
+                                action for action, score
+                                in macro_scores.items()
+                                if score == macro_best
+                            )
+                            policy_horizon = coarse_horizon
+                            policy_scores = macro_scores
+                            policy_guidance = None
 
             budgeted_policy = (
                 getattr(

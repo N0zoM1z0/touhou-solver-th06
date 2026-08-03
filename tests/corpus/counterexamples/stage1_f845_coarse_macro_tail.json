@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "id": "stage1-f845-coarse-macro-tail",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 845,
+    "failure_frame": 879
+  },
+  "runner": "coarse_macro_tail",
+  "contract": "A budgeted long-horizon constant witness is only a shortlist proposal; an exact two-segment comparator over the local winners and witness must include all focused and unfocused tail actions before it may replace the completed local ranking.",
+  "summary": "The f879 upper-right Hard-empty stop was an effect. At f845 all 18 actions remained Hard-4, exact h16 terminal counts preferred stay/stay_fast, and the source-forecast radial birth at f869 left only left_fast as a robust h48 constant witness. A full 18-action macro-tail comparison over that three-action shortlist gives stay=0, stay_fast=0, left_fast=1. Current bullets, bodies, and the other two spawners are irrelevant to this relation.",
+  "input": {
+    "segment_length": 4,
+    "local_horizon": 16,
+    "coarse_horizon": 48,
+    "snapshot": {
+      "frame": 845,
+      "stage": 1,
+      "player_state": 0,
+      "x": 372.4019775390625,
+      "y": 30.4019775390625,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 5,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "spawners": [
+        {
+          "slot": 3,
+          "x": 352.0,
+          "y": 58.0,
+          "velocity_x": -8.742277657347586e-8,
+          "velocity_y": 2.0,
+          "angle": 1.5707963705062866,
+          "angular_velocity": 0.0,
+          "speed": 2.0,
+          "acceleration": 0.0,
+          "movement_mode": 1,
+          "movement_ease": 0,
+          "invert_x": true,
+          "move_interp_x": 0.0,
+          "move_interp_y": 0.0,
+          "move_start_x": 0.0,
+          "move_start_y": 0.0,
+          "move_timer": 0,
+          "move_timer_float": 0.0,
+          "move_start_time": 0,
+          "shoot_offset_x": 12.0,
+          "shoot_offset_y": -12.0,
+          "bullet_rank_speed_low": -0.5,
+          "bullet_rank_speed_high": 0.5,
+          "bullet_rank_amount1_low": 0,
+          "bullet_rank_amount1_high": 0,
+          "bullet_rank_amount2_low": 0,
+          "bullet_rank_amount2_high": 0,
+          "life": 80,
+          "shooting_disabled": false,
+          "interval": 0,
+          "timer": 0,
+          "timer_float": 0.0,
+          "pattern": null,
+          "ecl_time": 46,
+          "ecl_time_float": 46.0,
+          "ecl_ints": [0, 0, 0, 0, 0, 0, 0, 0],
+          "ecl_floats": [0.0, 0.0, 0.0, 0.0],
+          "ecl_compare": 0,
+          "repeat_ex_index": null,
+          "next_instruction": {
+            "address": 165433708,
+            "time": 60,
+            "opcode": 97,
+            "offset_to_next": 16,
+            "skip_for_difficulty": 255,
+            "raw_hex": "3c0000006100100000ffff0005000000"
+          },
+          "ecl_program": [
+            {
+              "address": 165433708,
+              "time": 60,
+              "opcode": 97,
+              "offset_to_next": 16,
+              "skip_for_difficulty": 255,
+              "raw_hex": "3c0000006100100000ffff0005000000"
+            },
+            {
+              "address": 165433724,
+              "time": 60,
+              "opcode": 47,
+              "offset_to_next": 16,
+              "skip_for_difficulty": 255,
+              "raw_hex": "3c0000002f00100000ffff0000000000"
+            },
+            {
+              "address": 165433740,
+              "time": 70,
+              "opcode": 67,
+              "offset_to_next": 44,
+              "skip_for_difficulty": 1,
+              "raw_hex": "4600000043002c000001ff000100020003000000010000003333b33f0000000000000000db0f493f03000000"
+            },
+            {
+              "address": 165433784,
+              "time": 70,
+              "opcode": 67,
+              "offset_to_next": 44,
+              "skip_for_difficulty": 2,
+              "raw_hex": "4600000043002c000002ff000100020007000000010000003333b33f00000000000000007cd9203f03000000"
+            },
+            {
+              "address": 165433828,
+              "time": 70,
+              "opcode": 67,
+              "offset_to_next": 44,
+              "skip_for_difficulty": 4,
+              "raw_hex": "4600000043002c000004ff000100020009000000020000003333b33f0000003f00000000db0fc93e03000000"
+            },
+            {
+              "address": 165433872,
+              "time": 70,
+              "opcode": 67,
+              "offset_to_next": 44,
+              "skip_for_difficulty": 8,
+              "raw_hex": "4600000043002c000008ff00010002000b000000020000003333b33f0000003f000000007cd9203e03000000"
+            },
+            {
+              "address": 165433916,
+              "time": 130,
+              "opcode": 48,
+              "offset_to_next": 16,
+              "skip_for_difficulty": 255,
+              "raw_hex": "820000003000100000ffff00cdcc4c3d"
+            }
+          ]
+        }
+      ],
+      "difficulty": 2,
+      "rank": 15,
+      "rng_seed": 52632,
+      "rng_generation": 422
+    }
+  },
+  "expect": {
+    "hard_count": 18,
+    "local_actions": ["stay", "stay_fast"],
+    "constant_actions": ["left_fast"],
+    "macro_scores": {"stay": 0, "stay_fast": 0, "left_fast": 1},
+    "macro_actions": ["left_fast"]
+  }
+}

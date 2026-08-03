@@ -80,6 +80,7 @@ thread_local std::int32_t gTerminalContinuationLength = 0;
 thread_local std::int32_t gTerminalProgressiveMinimumHorizon = 0;
 thread_local std::int32_t* gTerminalProgressiveCompletedHorizon = nullptr;
 thread_local bool gTerminalProgressiveSegmentMode = false;
+thread_local bool gMacroTailAllControls = false;
 
 bool policyDeadlineExpired() {
     return gPolicyDeadlineActive && PolicyClock::now() >= gPolicyDeadline;
@@ -558,6 +559,12 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
         return -1;
     }
     const ControlAction current = actionFromInput(inputMask);
+    const std::int32_t continuationActionCount = (
+        gMacroTailAllControls ? kControlActionCount : kFocusedActionCount
+    );
+    const auto deadlineExpired = []() {
+        return policyDeadlineExpired();
+    };
     // Delivery and transition branches revisit the same small movement
     // lattice thousands of times.  Cache exact float positions per future
     // frame so each dense hazard slice is scanned once without changing the
@@ -576,6 +583,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
         return std::clamp(value, 0, kGridHeight - 1);
     };
     for (std::int32_t frame = split; frame < horizon; ++frame) {
+        if (deadlineExpired()) return 1;
         for (
             std::uint32_t index = bulletOffsets[frame];
             index < bulletOffsets[frame + 1];
@@ -614,6 +622,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
         }
     }
     const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        if (deadlineExpired()) return false;
         auto& frameCache = safetyCache[frame];
         const std::uint64_t key = positionKey(x, y);
         const auto found = frameCache.find(key);
@@ -663,14 +672,16 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
         return safe;
     };
     for (std::int32_t firstIndex = 0; firstIndex < kControlActionCount; ++firstIndex) {
+        if (deadlineExpired()) return 1;
         output[firstIndex] = 0;
         if ((candidateMask & (1U << firstIndex)) == 0U) continue;
         ControlAction firstTransitions[5];
         const std::int32_t firstTransitionCount = transitionActions(
             inputMask, kActionMasks[firstIndex], firstTransitions
         );
-        std::int32_t worstBranchCount = kFocusedActionCount;
+        std::int32_t worstBranchCount = continuationActionCount;
         for (const std::int32_t firstDelay : kDelays) {
+            if (deadlineExpired()) return 1;
             const std::int32_t firstBranchCount = 1 + (
                 firstDelay > 0 ? firstTransitionCount : 0
             );
@@ -701,9 +712,10 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                 std::unordered_set<std::uint64_t> continuationStates;
                 for (
                     std::int32_t secondIndex = 0;
-                    secondIndex < kFocusedActionCount;
+                    secondIndex < continuationActionCount;
                     ++secondIndex
                 ) {
+                    if (deadlineExpired()) return 1;
                     ControlAction secondTransitions[5];
                     const std::int32_t secondTransitionCount = transitionActions(
                         kActionMasks[firstIndex],
@@ -714,6 +726,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                     float nominalFinalX = splitX;
                     float nominalFinalY = splitY;
                     for (const std::int32_t secondDelay : kDelays) {
+                        if (deadlineExpired()) return 1;
                         const std::int32_t secondBranchCount = 1 + (
                             secondDelay > 0 ? secondTransitionCount : 0
                         );
@@ -728,6 +741,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                             float x = splitX;
                             float y = splitY;
                             for (std::int32_t frame = split + 1; frame <= horizon; ++frame) {
+                                if (deadlineExpired()) return 1;
                                 const std::int32_t elapsed = frame - split;
                                 stepPlayer(
                                     x,
@@ -774,6 +788,67 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
         output[firstIndex] = worstBranchCount;
     }
     return 0;
+}
+
+// Coarse long-horizon proposal: preserve the exact physical first segment,
+// then compare one robust constant tail from the complete 18-action control
+// alphabet.  This is a shortlist comparator only; Hard authority remains in
+// the caller.  A timed-out result is discarded in full.
+TH06_EXPORT std::int32_t th06_macro_tail_scores_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t split,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* output
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    const bool previousAllControls = gMacroTailAllControls;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    gMacroTailAllControls = true;
+    const std::int32_t status = th06_replanning_scores(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        split,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        output
+    );
+    gMacroTailAllControls = previousAllControls;
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
 }
 
 // Proposal-only nominal policy volume. The first segment retains every
