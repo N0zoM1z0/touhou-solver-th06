@@ -469,6 +469,45 @@ class EffortController:
             and estimate <= remaining_ms * PROMOTION_BUDGET_FRACTION
         )
 
+    def continuation_extension_affordable(
+        self,
+        snapshot: Snapshot,
+        candidate_count: int,
+        previous_horizon: int,
+        horizon: int,
+        elapsed_ms: float,
+    ) -> bool:
+        """Whether measured marginal projection plus one exact rung fits."""
+        remaining_ms = (
+            self.budget_ms()
+            - elapsed_ms
+            - TERMINAL_DEADLINE_GUARD_MS
+        )
+        if (
+            remaining_ms <= 0.0
+            or horizon <= previous_horizon
+            or self.projection_ms_per_work is None
+            or self._measurement_freshness(
+                snapshot.frame,
+                self.projection_frame,
+            ) < 0.5
+        ):
+            return False
+        projection_estimate = self.projection_ms_per_work * (
+            self.projection_work(snapshot, horizon)
+            - self.projection_work(snapshot, previous_horizon)
+        )
+        policy_estimate = self.policy_estimate_ms(
+            snapshot,
+            candidate_count,
+            horizon,
+        )
+        return (
+            policy_estimate is not None
+            and projection_estimate + policy_estimate
+                <= remaining_ms * PROMOTION_BUDGET_FRACTION
+        )
+
     def policy_estimate_ms(
         self,
         snapshot: Snapshot,
@@ -1428,8 +1467,34 @@ class Solver:
                     terminal_completed = True
 
         elapsed_ms = (self.clock() - started) * 1000.0
+        constrained_next_rung_affordable = False
         if (
-            full_publication_budget
+            not full_publication_budget
+            and policy_horizon >= BASE_POLICY_HORIZON
+            and len(planning_candidates) > 1
+        ):
+            next_horizon = next(
+                (
+                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                    if horizon > policy_horizon
+                ),
+                None,
+            )
+            constrained_next_rung_affordable = (
+                next_horizon is not None
+                and self.effort.continuation_extension_affordable(
+                    snapshot,
+                    len(planning_candidates),
+                    policy_horizon,
+                    next_horizon,
+                    elapsed_ms,
+                )
+            )
+        if (
+            (
+                full_publication_budget
+                or constrained_next_rung_affordable
+            )
             and (
                 limit > max(HARD_SAFETY_HORIZON, policy_horizon)
                 # A completed p8 result is safe to retain while one ordinary
@@ -1618,6 +1683,7 @@ class Solver:
                 )
                 if (
                     initial_completed
+                    and full_publication_budget
                     and soft_prepare_horizon
                         < TURN_CAPABLE_POLICY_HORIZONS[-1]
                 ):

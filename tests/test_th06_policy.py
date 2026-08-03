@@ -1654,6 +1654,51 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[0] for call in kernel.calls],
         )
 
+    def test_constrained_budget_uses_measured_residual_for_next_rung(self):
+        clock = ManualClock()
+        local_winner = self.hard[0]
+        deep_winner = self.hard[1]
+        kernel = DeliveryReplanningKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                local_winner.action: 7,
+                deep_winner.action: 3,
+                self.hard[2].action: 1,
+            },
+            delivery_ms=1.0,
+            terminal_scores_by_horizon={
+                12: {
+                    local_winner.action: 3,
+                    deep_winner.action: 9,
+                    self.hard[2].action: 1,
+                },
+            },
+            scores_by_horizon={},
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.publication_scale = 0.5
+        solver.effort.projection_ms_per_work = 0.0
+        solver.effort.projection_frame = 100
+        solver.effort.policy_rate_by_horizon[12] = 0.0
+        solver.effort.policy_frame_by_horizon[12] = 100
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_winner.action)
+        self.assertIn(("prepare", 12), kernel.calls)
+        self.assertIn(
+            (12, 12),
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+        )
+        self.assertNotIn(("prepare", 16), kernel.calls)
+        self.assertLessEqual(clock.seconds * 1000.0, 6.25)
+
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
         for robustness_complete in (False, True):
             with self.subTest(

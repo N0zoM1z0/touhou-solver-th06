@@ -914,6 +914,7 @@ class TerminalGuidanceTests(unittest.TestCase):
             expected["hard_actions"],
         )
 
+        delivery_viable = None
         if "replanning_scores" in expected:
             scores = (
                 replanning_scores(
@@ -943,6 +944,9 @@ class TerminalGuidanceTests(unittest.TestCase):
                     if score == best
                 ],
                 expected["replanning_actions"],
+            )
+            delivery_viable = frozenset(
+                action for action, score in scores.items() if score > 0
             )
             if kernel is not None:
                 viability = kernel.replanning_viability_budgeted(
@@ -1033,6 +1037,25 @@ class TerminalGuidanceTests(unittest.TestCase):
                 ],
                 expected["actions_by_horizon"][raw_horizon],
             )
+            eligible_expected = expected.get(
+                "eligible_actions_by_horizon", {}
+            ).get(raw_horizon)
+            if eligible_expected is not None:
+                self.assertIsNotNone(delivery_viable)
+                eligible_best = max(
+                    score for action, score in scores.items()
+                    if action in delivery_viable
+                )
+                self.assertEqual(
+                    [
+                        action.name for action, score in scores.items()
+                        if (
+                            action in delivery_viable
+                            and score == eligible_best
+                        )
+                    ],
+                    eligible_expected,
+                )
 
         reserve_expect = expected.get("publication_reserve")
         if reserve_expect is not None:
