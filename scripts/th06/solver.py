@@ -24,7 +24,10 @@ from .viability import nominal_policy_scores
 
 
 HARD_SAFETY_HORIZON = 4
-EFFORT_HORIZONS = (6, 8, 12, 16)
+HARD_CURRENT_HOLD_HORIZON = HARD_SAFETY_HORIZON + 1
+EFFORT_HORIZONS = (6, 8, 12, 16, 20)
+TURN_CAPABLE_POLICY_HORIZONS = (8, 12, 16)
+REACHABILITY_HORIZONS = (20,)
 BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
@@ -33,6 +36,10 @@ MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
 INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
 COST_RATE_HALF_LIFE_FRAMES = 60.0
+# Measured room for the native return, Python ranking, and publication handoff.
+POLICY_DEADLINE_GUARD_MS = 0.5
+BASE_RECOVERY_CONFIRMATIONS = 2
+PUBLICATION_RECOVERY_CONFIRMATIONS = 2
 
 
 class EffortController:
@@ -48,16 +55,25 @@ class EffortController:
         self.policy_ms_per_work: float | None = None
         self.policy_rate_by_horizon: dict[int, float] = {}
         self.policy_frame_by_horizon: dict[int, int] = {}
+        self.policy_probe_rate_by_horizon: dict[int, float] = {}
+        self.policy_probe_frame_by_horizon: dict[int, int] = {}
+        self.policy_probe_candidate_count_by_horizon: dict[int, int] = {}
+        self.policy_probe_timeout_frame_by_horizon: dict[int, int] = {}
         self.target_rate_by_kind: dict[str, dict[int, float]] = {
             "acquire": {},
             "track": {},
+            "survival": {},
         }
         self.target_frame_by_kind: dict[str, dict[int, int]] = {
             "acquire": {},
             "track": {},
+            "survival": {},
         }
         self.policy_rate_growth = INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT
         self.last_limit = HARD_SAFETY_HORIZON
+        self.base_recovery_confirmations = 0
+        self.base_recovery_last_frame: int | None = None
+        self.publication_recovery_confirmations = 0
 
     @staticmethod
     def rollout_work(
@@ -135,6 +151,8 @@ class EffortController:
         remaining_ms = self.budget_ms() - elapsed_ms
         if remaining_ms <= 0.0 or candidate_count < 2:
             self.last_limit = HARD_SAFETY_HORIZON
+            self.base_recovery_confirmations = 0
+            self.base_recovery_last_frame = None
             return self.last_limit
 
         hard_work = self.rollout_work(
@@ -144,6 +162,32 @@ class EffortController:
         )
         bootstrap_rate = elapsed_ms / max(1, hard_work)
         rate = self._effective_rollout_rate(snapshot, bootstrap_rate)
+        base_bootstrap_estimate = bootstrap_rate * self.rollout_work(
+            snapshot,
+            candidate_count,
+            BASE_POLICY_HORIZON,
+        )
+        if (
+            self.rollout_ms_per_work is not None
+            and self.last_limit < BASE_POLICY_HORIZON
+            and base_bootstrap_estimate
+            <= remaining_ms * PROMOTION_BUDGET_FRACTION
+        ):
+            if (
+                self.base_recovery_last_frame is None
+                or snapshot.frame > self.base_recovery_last_frame
+            ):
+                self.base_recovery_confirmations += 1
+            else:
+                self.base_recovery_confirmations = 1
+            self.base_recovery_last_frame = snapshot.frame
+        else:
+            self.base_recovery_confirmations = 0
+            self.base_recovery_last_frame = None
+        base_recovery_confirmed = (
+            self.base_recovery_confirmations
+            >= BASE_RECOVERY_CONFIRMATIONS
+        )
         if self.rollout_ms_per_work is None:
             first_horizon = EFFORT_HORIZONS[0]
             first_estimate = rate * self.rollout_work(
@@ -169,22 +213,48 @@ class EffortController:
                     break
                 proposed = horizon
 
+        # A recent expensive projection remains authoritative after one cheap
+        # Hard sample.  Two independent current samples can reopen p8 under
+        # the same promotion reserve; otherwise one transient spike can lock
+        # out the first turn-capable continuation until the route is lost.
+        if base_recovery_confirmed:
+            proposed = max(proposed, BASE_POLICY_HORIZON)
+
         ladder = (HARD_SAFETY_HORIZON,) + EFFORT_HORIZONS
         if proposed > self.last_limit:
-            previous_index = ladder.index(self.last_limit)
-            next_horizon = ladder[previous_index + 1]
-            next_estimate = rate * self.rollout_work(
-                snapshot,
-                candidate_count,
-                next_horizon,
-            )
-            proposed = (
-                next_horizon
-                if next_estimate
-                <= remaining_ms * PROMOTION_BUDGET_FRACTION
-                else self.last_limit
-            )
+            # Progress through every currently measured-affordable rung in
+            # this decision. Requiring one physical decision per rung adds
+            # several publication/lease frames and can lose a short-lived
+            # continuation even though the deeper work already fits the
+            # current budget estimate.
+            promoted = self.last_limit
+            for horizon in ladder:
+                if (
+                    horizon <= self.last_limit
+                    or horizon > proposed
+                ):
+                    continue
+                promotion_rate = (
+                    bootstrap_rate
+                    if (
+                        base_recovery_confirmed
+                        and horizon <= BASE_POLICY_HORIZON
+                    )
+                    else rate
+                )
+                estimate = promotion_rate * self.rollout_work(
+                    snapshot,
+                    candidate_count,
+                    horizon,
+                )
+                if estimate > remaining_ms * PROMOTION_BUDGET_FRACTION:
+                    break
+                promoted = horizon
+            proposed = promoted
         self.last_limit = proposed
+        if proposed >= BASE_POLICY_HORIZON:
+            self.base_recovery_confirmations = 0
+            self.base_recovery_last_frame = None
         return proposed
 
     def observe_rollout(
@@ -248,17 +318,100 @@ class EffortController:
         elapsed_ms: float,
     ) -> bool:
         remaining_ms = self.budget_ms() - elapsed_ms
+        estimate = self.policy_estimate_ms(
+            snapshot,
+            candidate_count,
+            horizon,
+        )
+        return (
+            remaining_ms > 0.0
+            and estimate is not None
+            and estimate <= remaining_ms * PROMOTION_BUDGET_FRACTION
+        )
+
+    def policy_estimate_ms(
+        self,
+        snapshot: Snapshot,
+        candidate_count: int,
+        horizon: int,
+    ) -> float | None:
         work = self.rollout_work(snapshot, candidate_count, horizon)
         rate = self._effective_policy_rate(snapshot, horizon)
         estimate = rate * work if rate is not None else None
         fallback_rate = self.policy_ms_per_work or self.rollout_ms_per_work
         if estimate is None and fallback_rate is not None:
             estimate = fallback_rate * work
-        return (
-            remaining_ms > 0.0
-            and estimate is not None
-            and estimate <= remaining_ms * PROMOTION_BUDGET_FRACTION
+        return estimate
+
+    def policy_probe_budget_ms(
+        self,
+        snapshot: Snapshot,
+        candidate_count: int,
+        horizon: int,
+        remaining_ms: float,
+    ) -> float:
+        """Bound one uncertain deep probe from its latest completed sample."""
+        if remaining_ms <= 0.0:
+            return 0.0
+        sample_rate = self.policy_probe_rate_by_horizon.get(horizon)
+        if sample_rate is None:
+            return remaining_ms
+        freshness = self._measurement_freshness(
+            snapshot.frame,
+            self.policy_probe_frame_by_horizon.get(horizon),
         )
+        if freshness < 0.5:
+            return remaining_ms
+        # The native recursive continuation cache is shared by every first
+        # action.  Reducing the first-action shortlist therefore does not
+        # reduce the measured probe cost in direct proportion to its length.
+        # Keep the last completed candidate count as a work floor; a larger
+        # current set can still raise the estimate, while a smaller set gets
+        # enough time to repeat work already observed to complete.
+        measured_candidate_count = (
+            self.policy_probe_candidate_count_by_horizon.get(
+                horizon,
+                candidate_count,
+            )
+        )
+        measured_ms = sample_rate * self.rollout_work(
+            snapshot,
+            max(candidate_count, measured_candidate_count),
+            horizon,
+        )
+        return min(remaining_ms, max(0.0, measured_ms))
+
+    def policy_probe_evidence_fresh(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+    ) -> bool:
+        completed_freshness = self._measurement_freshness(
+            snapshot.frame,
+            self.policy_probe_frame_by_horizon.get(horizon),
+        )
+        timeout_freshness = self._measurement_freshness(
+            snapshot.frame,
+            self.policy_probe_timeout_frame_by_horizon.get(horizon),
+        )
+        return max(completed_freshness, timeout_freshness) >= 0.5
+
+    def policy_probe_timeout_fresh(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+    ) -> bool:
+        return self._measurement_freshness(
+            snapshot.frame,
+            self.policy_probe_timeout_frame_by_horizon.get(horizon),
+        ) >= 0.5
+
+    def observe_policy_timeout(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+    ) -> None:
+        self.policy_probe_timeout_frame_by_horizon[horizon] = snapshot.frame
 
     def observe_policy(
         self,
@@ -267,12 +420,20 @@ class EffortController:
         horizon: int,
         elapsed_ms: float,
     ) -> None:
+        self.policy_probe_timeout_frame_by_horizon.pop(horizon, None)
+        work = self.rollout_work(snapshot, candidate_count, horizon)
+        self.policy_probe_rate_by_horizon[horizon] = (
+            max(0.0, elapsed_ms) / max(1, work)
+        )
+        self.policy_probe_frame_by_horizon[horizon] = snapshot.frame
+        self.policy_probe_candidate_count_by_horizon[horizon] = (
+            candidate_count
+        )
         self.policy_ms_per_work = self._update_rate(
             self.policy_ms_per_work,
             elapsed_ms,
-            self.rollout_work(snapshot, candidate_count, horizon),
+            work,
         )
-        work = self.rollout_work(snapshot, candidate_count, horizon)
         measured_rate = self._update_rate(
             self._effective_policy_rate(snapshot, horizon),
             elapsed_ms,
@@ -372,8 +533,29 @@ class EffortController:
         if stale:
             self.publication_scale = max(0.25, self.publication_scale * 0.5)
             self.last_limit = HARD_SAFETY_HORIZON
+            self.base_recovery_confirmations = 0
+            self.base_recovery_last_frame = None
+            self.publication_recovery_confirmations = 0
         else:
-            self.publication_scale += (1.0 - self.publication_scale) * 0.02
+            if self.publication_scale < 1.0:
+                self.publication_recovery_confirmations += 1
+                if (
+                    self.publication_recovery_confirmations
+                    >= PUBLICATION_RECOVERY_CONFIRMATIONS
+                ):
+                    # The stale proposal was never published.  Two subsequent
+                    # on-time Hard publications are fresh physical evidence
+                    # that the transient latency has passed; keeping the
+                    # compute penalty for dozens more frames can itself starve
+                    # the first turn-capable continuation.
+                    self.publication_scale = 1.0
+                    self.publication_recovery_confirmations = 0
+                else:
+                    self.publication_scale += (
+                        1.0 - self.publication_scale
+                    ) * 0.02
+            else:
+                self.publication_recovery_confirmations = 0
 
 
 class Solver:
@@ -454,19 +636,41 @@ class Solver:
         return certify_actions(snapshot, horizon, actions=actions)
 
     def _hard_authority(self, snapshot: Snapshot):
+        held = action_from_input(snapshot.input_mask)
+        combined = (
+            getattr(
+                type(self.kernel),
+                "certify_delivery_sets_with_selected",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if combined is not None:
+            # This independently certified current-input guard permits only a
+            # late no-write retry; it never enlarges Hard-4 eligibility.
+            return combined(
+                self.kernel,
+                snapshot,
+                HARD_SAFETY_HORIZON,
+                HARD_CURRENT_HOLD_HORIZON,
+                (held,),
+                collision_margin=0.35,
+            )
         native = (
             getattr(type(self.kernel), "certify_selected_delivery_sets", None)
             if self.kernel is not None
             else None
         )
         if native is not None:
-            return native(
+            hard, age_zero = native(
                 self.kernel,
                 snapshot,
                 HARD_SAFETY_HORIZON,
                 ACTIONS,
                 collision_margin=0.35,
             )
+            return hard, age_zero, ()
         hard = certify_actions(snapshot, HARD_SAFETY_HORIZON)
         age_zero = (
             certify_actions(
@@ -477,7 +681,16 @@ class Solver:
             if not hard
             else ()
         )
-        return hard, age_zero
+        held_safe = (
+            certify_actions(
+                snapshot,
+                HARD_CURRENT_HOLD_HORIZON,
+                actions=(held,),
+            )
+            if any(candidate.action == held for candidate in hard)
+            else ()
+        )
+        return hard, age_zero, held_safe
 
     def _prepare_soft(self, snapshot: Snapshot, horizon: int) -> None:
         native = (
@@ -508,6 +721,62 @@ class Solver:
             candidates,
             HARD_SAFETY_HORIZON,
             horizon,
+        )
+
+    def _budgeted_policy_scores(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "nominal_policy_counts_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
+    def _budgeted_terminal_counts(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "terminal_counts_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
         )
 
     def selected_delivery_safe(
@@ -621,7 +890,7 @@ class Solver:
             )
 
         started = self.clock()
-        hard, age_zero = self._hard_authority(snapshot)
+        hard, age_zero, hard_held = self._hard_authority(snapshot)
         if not hard:
             if age_zero:
                 chosen = self.ranker.choose(snapshot, age_zero)
@@ -657,9 +926,13 @@ class Solver:
         rollout_horizon = HARD_SAFETY_HORIZON
         policy_preferred: frozenset[Action] = frozenset()
         policy_horizon = HARD_SAFETY_HORIZON
+        policy_scores = None
+        policy_guidance = None
         target_guided = False
         target_invalid = False
         acquired_pending_target = False
+        policy_probe_ready = False
+        deep_constant_actions: frozenset[Action] = frozenset()
 
         if limit > HARD_SAFETY_HORIZON:
             operation_started = self.clock()
@@ -726,13 +999,429 @@ class Solver:
                             (pending_candidate.action,)
                         )
                         policy_horizon = acquisition_horizon
+                        policy_guidance = guidance
+                        policy_scores = None
                         acquired_pending_target = True
                 self.pending_target_action = None
             elif pending_candidate is None:
                 self.pending_target_action = None
 
-            for horizon in (() if acquired_pending_target else EFFORT_HORIZONS):
+            budgeted_policy = (
+                getattr(
+                    type(self.kernel),
+                    "nominal_policy_counts_budgeted",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            if (
+                not acquired_pending_target
+                and budgeted_policy is not None
+                and len(hard) > 1
+                and limit >= BASE_POLICY_HORIZON
+            ):
+                allowed = frozenset(
+                    candidate.action for candidate in hard
+                )
+                policy_horizons = tuple(
+                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                    if BASE_POLICY_HORIZON <= horizon <= limit
+                )
+                deepest_horizon = max(policy_horizons)
+                budgeted_reachability = (
+                    getattr(
+                        type(self.kernel),
+                        "terminal_counts_budgeted",
+                        None,
+                    )
+                    if self.kernel is not None
+                    else None
+                )
+                reachability_horizon = max(
+                    (
+                        horizon for horizon in REACHABILITY_HORIZONS
+                        if (
+                            deepest_horizon < horizon <= limit
+                            and budgeted_reachability is not None
+                        )
+                    ),
+                    default=0,
+                )
+                intermediate_horizon = max(
+                    (
+                        horizon for horizon in policy_horizons
+                        if horizon < deepest_horizon
+                    ),
+                    default=BASE_POLICY_HORIZON,
+                )
+                elapsed_ms = (self.clock() - started) * 1000.0
+                base_policy_horizon = BASE_POLICY_HORIZON
+                prioritize_intermediate = (
+                    not reachability_horizon
+                    and
+                    intermediate_horizon > BASE_POLICY_HORIZON
+                    and self.effort.policy_probe_timeout_fresh(
+                        snapshot,
+                        deepest_horizon,
+                    )
+                )
+                if prioritize_intermediate:
+                    base_policy_horizon = intermediate_horizon
+                base_policy_affordable = self.effort.policy_affordable(
+                    snapshot,
+                    len(hard),
+                    base_policy_horizon,
+                    elapsed_ms,
+                )
+                if base_policy_affordable or prioritize_intermediate:
+                    policy_started = self.clock()
+                    base_probe_attempted = False
+                    if prioritize_intermediate:
+                        # A fresh timeout at the deepest rung makes its adjacent
+                        # lower rung the next measurement.  Complete it within
+                        # the residual budget even when the older cost estimate
+                        # says no; retrying the deeper rung first can otherwise
+                        # starve a cheaper continuation forever.  A completed
+                        # deep sample instead caps an ordinary retry, avoiding
+                        # redundant lower-rung work before known-affordable
+                        # depth.
+                        base_budget_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - POLICY_DEADLINE_GUARD_MS
+                        )
+                        scores = None
+                        if base_budget_ms > 0.0:
+                            base_probe_attempted = True
+                            scores = self._budgeted_policy_scores(
+                                snapshot,
+                                hard,
+                                base_policy_horizon,
+                                base_budget_ms,
+                            )
+                    else:
+                        scores = self._policy_scores(
+                            snapshot,
+                            hard,
+                            base_policy_horizon,
+                        )
+                    policy_ms = (
+                        self.clock() - policy_started
+                    ) * 1000.0
+                    base_policy_completed = scores is not None
+                    if base_policy_completed:
+                        self.effort.observe_policy(
+                            snapshot,
+                            len(hard),
+                            base_policy_horizon,
+                            policy_ms,
+                        )
+                    elif base_probe_attempted:
+                        self.effort.observe_policy_timeout(
+                            snapshot,
+                            base_policy_horizon,
+                        )
+                    policy_exhausted = True
+                    best_score = max(
+                        (
+                            score for action, score in (
+                                scores or {}
+                            ).items()
+                            if action in allowed
+                        ),
+                        default=0,
+                    )
+                    if best_score > 0:
+                        policy_preferred = frozenset(
+                            action for action, score in scores.items()
+                            if score == best_score and action in allowed
+                        )
+                        policy_horizon = base_policy_horizon
+                        policy_scores = scores
+                        policy_guidance = None
+
+                    if (
+                        base_policy_completed
+                        and deepest_horizon > base_policy_horizon
+                    ):
+                        # The deep turn-capable probe may consume its entire
+                        # deadline and fall back to a shallower ranking.  One
+                        # selected constant scan reuses the already-prepared
+                        # deepest projection and preserves stronger fresh
+                        # continuation evidence when that happens.
+                        elapsed_ms = (
+                            self.clock() - started
+                        ) * 1000.0
+                        if (
+                            elapsed_ms
+                            < self.effort.budget_ms()
+                            - POLICY_DEADLINE_GUARD_MS
+                        ):
+                            operation_started = self.clock()
+                            deep_frontier = self._certify_selected(
+                                snapshot,
+                                deepest_horizon,
+                                tuple(
+                                    candidate.action for candidate in frontier
+                                ),
+                            )
+                            deep_constant_actions = frozenset(
+                                candidate.action
+                                for candidate in deep_frontier
+                            )
+                            rollout_ms += (
+                                self.clock() - operation_started
+                            ) * 1000.0
+                            rollout_horizon = deepest_horizon
+                            if (
+                                deep_frontier
+                                and len(deep_frontier) < len(frontier)
+                            ):
+                                contracted = True
+                                frontier = deep_frontier
+                                frontier_horizon = deepest_horizon
+
+                    if (
+                        base_policy_completed
+                        and deepest_horizon > base_policy_horizon
+                    ):
+                        fallback_horizon = max(
+                            horizon for horizon in policy_horizons
+                            if horizon < deepest_horizon
+                        )
+                        elapsed_ms = (
+                            self.clock() - started
+                        ) * 1000.0
+                        remaining_ms = (
+                            self.effort.budget_ms()
+                            - elapsed_ms
+                            - POLICY_DEADLINE_GUARD_MS
+                        )
+                        # After a completed lower rung, spend the residual
+                        # deadline on the deepest ordinary continuation that
+                        # fits the current ladder.  At h20 this uses unique
+                        # reachable terminal states, so aliased action paths do
+                        # not masquerade as independent robustness.  A timeout
+                        # is discarded and leaves the completed lower evidence
+                        # intact.
+                        deep_action_set = (
+                            frozenset(policy_preferred)
+                            | deep_constant_actions
+                            | frozenset((observed_held,))
+                        )
+                        deep_candidates = tuple(
+                            candidate for candidate in hard
+                            if candidate.action in deep_action_set
+                        )
+                        deep_scores = None
+                        deep_evidence_horizon = deepest_horizon
+                        if reachability_horizon:
+                            probe_budget_ms = (
+                                remaining_ms
+                                - 2.0 * POLICY_DEADLINE_GUARD_MS
+                            )
+                            if probe_budget_ms > 0.0:
+                                policy_started = self.clock()
+                                deep_scores = (
+                                    self._budgeted_terminal_counts(
+                                        snapshot,
+                                        hard,
+                                        reachability_horizon,
+                                        probe_budget_ms,
+                                    )
+                                )
+                                policy_ms = (
+                                    self.clock() - policy_started
+                                ) * 1000.0
+                                if deep_scores is not None:
+                                    self.effort.observe_target(
+                                        "survival",
+                                        snapshot,
+                                        len(hard),
+                                        reachability_horizon,
+                                        policy_ms,
+                                    )
+                                    deep_evidence_horizon = (
+                                        reachability_horizon
+                                    )
+                        else:
+                            # Reserve the return/fallback guard from the
+                            # available frame time, not from the last measured
+                            # completion.  Subtracting it after applying the
+                            # measurement cap would guarantee a same-cost
+                            # retry less time than the work already needed.
+                            available_probe_ms = (
+                                remaining_ms
+                                - 2.0 * POLICY_DEADLINE_GUARD_MS
+                            )
+                            probe_budget_ms = self.effort.policy_probe_budget_ms(
+                                snapshot,
+                                len(deep_candidates),
+                                deepest_horizon,
+                                available_probe_ms,
+                            )
+                            if probe_budget_ms > 0.0:
+                                policy_started = self.clock()
+                                deep_scores = self._budgeted_policy_scores(
+                                    snapshot,
+                                    deep_candidates,
+                                    deepest_horizon,
+                                    probe_budget_ms,
+                                )
+                                policy_ms = (
+                                    self.clock() - policy_started
+                                ) * 1000.0
+                                if deep_scores is not None:
+                                    self.effort.observe_policy(
+                                        snapshot,
+                                        len(deep_candidates),
+                                        deepest_horizon,
+                                        policy_ms,
+                                    )
+                                else:
+                                    self.effort.observe_policy_timeout(
+                                        snapshot,
+                                        deepest_horizon,
+                                    )
+                        deep_best = max(
+                            (
+                                score
+                                for action, score in (
+                                    deep_scores or {}
+                                ).items()
+                                if action in allowed
+                            ),
+                            default=0,
+                        )
+                        if deep_best > 0:
+                            policy_preferred = frozenset(
+                                action
+                                for action, score in deep_scores.items()
+                                if score == deep_best and action in allowed
+                            )
+                            policy_horizon = deep_evidence_horizon
+                            policy_scores = deep_scores
+                            policy_guidance = None
+                        elif fallback_horizon > base_policy_horizon:
+                            elapsed_ms = (
+                                self.clock() - started
+                            ) * 1000.0
+                            fallback_budget_ms = (
+                                self.effort.budget_ms()
+                                - elapsed_ms
+                                - POLICY_DEADLINE_GUARD_MS
+                            )
+                            if fallback_budget_ms > 0.0:
+                                policy_started = self.clock()
+                                fallback_scores = (
+                                    self._budgeted_policy_scores(
+                                        snapshot,
+                                        hard,
+                                        fallback_horizon,
+                                        fallback_budget_ms,
+                                    )
+                                )
+                                policy_ms = (
+                                    self.clock() - policy_started
+                                ) * 1000.0
+                                if fallback_scores is not None:
+                                    self.effort.observe_policy(
+                                        snapshot,
+                                        len(hard),
+                                        fallback_horizon,
+                                        policy_ms,
+                                    )
+                                    fallback_best = max(
+                                        (
+                                            score for action, score
+                                            in fallback_scores.items()
+                                            if action in allowed
+                                        ),
+                                        default=0,
+                                    )
+                                    if fallback_best > 0:
+                                        policy_preferred = frozenset(
+                                            action for action, score
+                                            in fallback_scores.items()
+                                            if (
+                                                score == fallback_best
+                                                and action in allowed
+                                            )
+                                        )
+                                        policy_horizon = fallback_horizon
+                                        policy_scores = fallback_scores
+                                        policy_guidance = None
+                policy_probe_ready = bool(policy_preferred)
+
+                if (
+                    self.guidance_target is not None
+                    and policy_probe_ready
+                    and policy_horizon >= frontier_horizon
+                    and not target_guided
+                ):
+                    # Survival continuation gets the budget first.  A tracked
+                    # soft target may then break only a same-horizon survival
+                    # tie; a shallower target calculation cannot starve or
+                    # enlarge that preferred set.
+                    refinement_actions = frozenset(policy_preferred)
+                    refinement_candidates = tuple(
+                        candidate for candidate in hard
+                        if candidate.action in refinement_actions
+                    )
+                    elapsed_ms = (
+                        self.clock() - started
+                    ) * 1000.0
+                    if (
+                        len(refinement_candidates) > 1
+                        and self.effort.target_affordable(
+                            "track",
+                            snapshot,
+                            len(refinement_candidates),
+                            policy_horizon,
+                            elapsed_ms,
+                        )
+                    ):
+                        guidance_started = self.clock()
+                        guidance = self._terminal_guidance(
+                            snapshot,
+                            refinement_candidates,
+                            policy_horizon,
+                            self.guidance_target,
+                        )
+                        guidance_ms = (
+                            self.clock() - guidance_started
+                        ) * 1000.0
+                        if guidance is not None:
+                            self.effort.observe_target(
+                                "track",
+                                snapshot,
+                                len(refinement_candidates),
+                                policy_horizon,
+                                guidance_ms,
+                            )
+                            target_preferred = preferred_target_actions(
+                                guidance,
+                                refinement_actions,
+                            )
+                            if target_preferred:
+                                policy_preferred = target_preferred
+                                policy_guidance = guidance
+                                policy_scores = None
+                                target_guided = True
+
+            for horizon in (
+                ()
+                if acquired_pending_target or policy_probe_ready
+                else EFFORT_HORIZONS
+            ):
                 if horizon > limit:
+                    break
+                elapsed_ms = (self.clock() - started) * 1000.0
+                if (
+                    elapsed_ms
+                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
+                ):
                     break
                 if not constant_exhausted:
                     operation_started = self.clock()
@@ -754,6 +1443,8 @@ class Solver:
                         constant_exhausted = True
 
                 if (
+                    horizon not in TURN_CAPABLE_POLICY_HORIZONS
+                    or
                     horizon < BASE_POLICY_HORIZON
                     or len(hard) <= 1
                     or policy_exhausted
@@ -790,41 +1481,81 @@ class Solver:
                         elapsed_ms,
                     )
                 )
+                guidance = None
+                scores = None
                 if not affordable:
-                    policy_exhausted = True
-                    continue
-                policy_started = self.clock()
-                if self.guidance_target is not None:
-                    guidance = self._terminal_guidance(
-                        snapshot,
-                        hard,
-                        effective_horizon,
-                        self.guidance_target,
+                    # A stale cost estimate must not suppress the first
+                    # turn-capable continuation indefinitely.  The constant
+                    # frontier above is already available, so spend only the
+                    # residual deadline on a complete-or-discard p8 probe.
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - POLICY_DEADLINE_GUARD_MS
                     )
-                    scores = None
-                else:
-                    guidance = None
-                    scores = self._policy_scores(
+                    if (
+                        horizon != BASE_POLICY_HORIZON
+                        or budgeted_policy is None
+                        or remaining_ms <= 0.0
+                    ):
+                        policy_exhausted = True
+                        continue
+                    policy_started = self.clock()
+                    scores = self._budgeted_policy_scores(
                         snapshot,
                         hard,
                         horizon,
+                        remaining_ms,
                     )
-                policy_ms = (self.clock() - policy_started) * 1000.0
-                if self.guidance_target is not None:
-                    self.effort.observe_target(
-                        "track",
-                        snapshot,
-                        len(hard),
-                        effective_horizon,
-                        policy_ms,
-                    )
-                else:
+                    policy_ms = (
+                        self.clock() - policy_started
+                    ) * 1000.0
+                    if scores is None:
+                        self.effort.observe_policy_timeout(
+                            snapshot,
+                            horizon,
+                        )
+                        policy_exhausted = True
+                        continue
                     self.effort.observe_policy(
                         snapshot,
                         len(hard),
-                        effective_horizon,
+                        horizon,
                         policy_ms,
                     )
+                else:
+                    policy_started = self.clock()
+                    if self.guidance_target is not None:
+                        guidance = self._terminal_guidance(
+                            snapshot,
+                            hard,
+                            effective_horizon,
+                            self.guidance_target,
+                        )
+                    else:
+                        scores = self._policy_scores(
+                            snapshot,
+                            hard,
+                            horizon,
+                        )
+                    policy_ms = (
+                        self.clock() - policy_started
+                    ) * 1000.0
+                    if self.guidance_target is not None:
+                        self.effort.observe_target(
+                            "track",
+                            snapshot,
+                            len(hard),
+                            effective_horizon,
+                            policy_ms,
+                        )
+                    else:
+                        self.effort.observe_policy(
+                            snapshot,
+                            len(hard),
+                            effective_horizon,
+                            policy_ms,
+                        )
                 allowed = frozenset(candidate.action for candidate in hard)
                 if guidance is not None:
                     target_preferred = preferred_target_actions(
@@ -833,6 +1564,8 @@ class Solver:
                     if target_preferred:
                         policy_preferred = target_preferred
                         policy_horizon = effective_horizon
+                        policy_guidance = guidance
+                        policy_scores = None
                         target_guided = True
                     else:
                         if not target_guided:
@@ -856,6 +1589,90 @@ class Solver:
                         and action in allowed
                     )
                     policy_horizon = horizon
+                    policy_scores = scores
+                    policy_guidance = None
+
+            if (
+                self.guidance_target is not None
+                and policy_guidance is not None
+                and policy_horizon < frontier_horizon
+                and len(frontier) > 1
+                and budgeted_policy is not None
+                and any(
+                    policy_horizon < horizon <= frontier_horizon
+                    for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                )
+            ):
+                # A shallow target may identify a useful basin, but it must
+                # not settle an ambiguity left by materially deeper fresh
+                # survival evidence when the remaining deadline can extend
+                # that small frontier by one ordinary turn-capable rung.  The
+                # timed native probe is complete-or-discard, so a timeout
+                # preserves the prior evidence without publishing a partial
+                # ranking.
+                probe_horizon = next(
+                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                    if policy_horizon < horizon <= frontier_horizon
+                )
+                elapsed_ms = (self.clock() - started) * 1000.0
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
+                available_probe_ms = (
+                    remaining_ms - POLICY_DEADLINE_GUARD_MS
+                )
+                probe_budget_ms = self.effort.policy_probe_budget_ms(
+                    snapshot,
+                    len(frontier),
+                    probe_horizon,
+                    available_probe_ms,
+                )
+                deep_scores = None
+                if probe_budget_ms > 0.0:
+                    policy_started = self.clock()
+                    deep_scores = self._budgeted_policy_scores(
+                        snapshot,
+                        frontier,
+                        probe_horizon,
+                        probe_budget_ms,
+                    )
+                    policy_ms = (
+                        self.clock() - policy_started
+                    ) * 1000.0
+                    if deep_scores is not None:
+                        self.effort.observe_policy(
+                            snapshot,
+                            len(frontier),
+                            probe_horizon,
+                            policy_ms,
+                        )
+                    else:
+                        self.effort.observe_policy_timeout(
+                            snapshot,
+                            probe_horizon,
+                        )
+                allowed = frozenset(
+                    candidate.action for candidate in frontier
+                )
+                deep_best = max(
+                    (
+                        score for action, score in (
+                            deep_scores or {}
+                        ).items()
+                        if action in allowed
+                    ),
+                    default=0,
+                )
+                if deep_best > 0:
+                    policy_preferred = frozenset(
+                        action for action, score in deep_scores.items()
+                        if action in allowed and score == deep_best
+                    )
+                    policy_horizon = probe_horizon
+                    policy_scores = deep_scores
+                    policy_guidance = None
 
             if (
                 self.guidance_target is not None
@@ -864,6 +1681,8 @@ class Solver:
             ):
                 self._clear_target()
 
+            if policy_probe_ready:
+                rollout_horizon = limit
             self.effort.observe_rollout(
                 snapshot,
                 len(hard),
@@ -871,11 +1690,41 @@ class Solver:
                 rollout_ms,
             )
 
-        preferred = policy_preferred or (
+        frontier_preferred = (
             frozenset(candidate.action for candidate in frontier)
             if frontier_horizon > HARD_SAFETY_HORIZON
             else frozenset()
         )
+        # A constant-action scan says only that one unchanged input survives
+        # to its horizon.  It cannot reject a first action whose turn-capable
+        # policy survives by changing input later.  Use the deeper constant
+        # evidence to break an exact policy tie, never to promote a lower
+        # policy score merely because holding that action is easier.
+        restricted_preferred: frozenset[Action] = frozenset()
+        if (
+            policy_preferred
+            and policy_horizon < frontier_horizon
+            and frontier_preferred
+        ):
+            if policy_guidance is not None:
+                restricted_preferred = preferred_target_actions(
+                    policy_guidance,
+                    frontier_preferred,
+                )
+            elif policy_scores is not None:
+                restricted_preferred = (
+                    policy_preferred & frontier_preferred
+                )
+        if policy_preferred and policy_scores is not None:
+            preferred = restricted_preferred or policy_preferred
+        else:
+            preferred = (
+                policy_preferred
+                if policy_preferred and policy_horizon >= frontier_horizon
+                else restricted_preferred
+                or frontier_preferred
+                or policy_preferred
+            )
 
         chosen = self.ranker.choose(
             snapshot,
@@ -907,10 +1756,17 @@ class Solver:
         ):
             self.pending_target_action = chosen.action
             self.pending_target_horizon = target_source_horizon
-        held_horizon = (
-            frontier_horizon
-            if any(candidate.action == held for candidate in frontier)
-            else HARD_SAFETY_HORIZON
+        held_horizon = max(
+            (
+                HARD_CURRENT_HOLD_HORIZON
+                if any(candidate.action == held for candidate in hard_held)
+                else HARD_SAFETY_HORIZON
+            ),
+            (
+                frontier_horizon
+                if any(candidate.action == held for candidate in frontier)
+                else HARD_SAFETY_HORIZON
+            ),
         )
         return Decision(
             chosen.action,

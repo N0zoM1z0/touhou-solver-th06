@@ -233,6 +233,7 @@ class EnemySpawner:
     damageable: bool = True
     bullet_effect_floats: tuple[float, float, float, float] = (0.0,) * 4
     bullet_effect_ints: tuple[int, int, int, int] = (0,) * 4
+    death_mode: int = 0
 
 
 @dataclass(frozen=True)

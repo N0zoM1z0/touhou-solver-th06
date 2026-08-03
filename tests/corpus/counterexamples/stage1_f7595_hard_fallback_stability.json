@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "id": "stage1-f7595-hard-fallback-stability",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 7595,
+    "failure_frame": 7636,
+    "artifact": "th06_failure_stage1_f7636_publication_recovery.json",
+    "artifact_sha256": "08997006905f735463faec29a8cde6c7f369de19966cfea31838a25a7c474e22"
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "When no fresh continuation proposal completes, retain the observed action if it remains freshly Hard-certified; a larger four-frame clearance is not authority to issue a new route direction, and is used only when the current action loses Hard eligibility.",
+  "summary": "The f7636 upper-right Hard-empty stop was an effect. At the earliest preserved consequential divergence f7595, all nine actions remained Hard-certified, but a transient 12.721 ms Hard-only decision produced no soft proposal and changed the still-certified current stay action to left solely by four-frame clearance. P8 already excluded left and retained stay, up, down, or down-left; p12 retained up or down; p16 through p24 preferred up. The physical route then moved back toward the right boundary and entered a rapidly collapsing frontier. Two current bullets are the minimized stable horizon contract; the full artifact preserves the transient timing and delivery sequence.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "bullets": [
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.229019045829773,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 4,
+          "half_height": 3.0,
+          "half_width": 3.0,
+          "slot": 207,
+          "speed": 1.7109375,
+          "state": 1,
+          "timer": 205,
+          "timer_float": 205.0,
+          "turn_speed": 0.0,
+          "vx": 0.5734413862228394,
+          "vy": 1.6119776964187622,
+          "x": 351.4354248046875,
+          "y": 402.9347229003906
+        },
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.2854090929031372,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 4,
+          "half_height": 3.0,
+          "half_width": 3.0,
+          "slot": 252,
+          "speed": 5.28125,
+          "state": 1,
+          "timer": 51,
+          "timer_float": 51.0,
+          "turn_speed": 0.0,
+          "vx": 1.4868252277374268,
+          "vy": 5.067637920379639,
+          "x": 346.30291748046875,
+          "y": 360.0426330566406
+        }
+      ],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 7595,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 5,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 26,
+      "replay_or_demo": false,
+      "rng_generation": 3852,
+      "rng_seed": 44493,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 373.0710754394531,
+      "y": 421.9583435058594
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 60,
+      "16": 407
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay",
+        "up",
+        "down",
+        "down_left"
+      ],
+      "12": [
+        "up",
+        "down"
+      ],
+      "16": [
+        "up"
+      ]
+    },
+    "observed_current_action": "stay",
+    "observed_shallow_action": "left",
+    "fallback_action": "stay"
+  }
+}

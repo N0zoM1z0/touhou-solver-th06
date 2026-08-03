@@ -1,0 +1,1345 @@
+{
+  "schema": 1,
+  "id": "stage1-f2416-deep-constant-before-policy-timeout",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 2416,
+    "failure_frame": 2455,
+    "artifact": "th06_failure_stage1_f2455_current_hold_guard.json",
+    "artifact_sha256": "0b2d05ece6e0eaabf67513791f6be6815694e7c5083c8b14133f568110bee662"
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "After a cheap base policy completes, a deepest constant-action scan that reuses the prepared projection must constrain any shallower fallback when the deep turn-capable probe times out.",
+  "summary": "The f2455 Hard-empty stop at the upper-left was an effect. At the earliest preserved consequential divergence f2416, the physical solver completed p12 in 11.373 ms total and selected up from a one-state advantage, but p16 uniquely preferred down and the fresh c16 frontier excluded up while retaining down, left, up-left, down-left, and down-right. A cold p16 alone measured about 11.8-15.8 ms and could not fit the synchronous deadline, whereas c16 reused the same already-prepared projection and was much cheaper. One current bullet plus the source-defined boss spawner is one-removal-minimal for the exact p12/p16 and c16 relation after removing the enemy body; the full artifact preserves live timing and route history.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      12,
+      16
+    ],
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [
+          2.0,
+          2.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          2.5,
+          2.5
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          8.0
+        ],
+        [
+          5.5,
+          5.5
+        ],
+        [
+          4.5,
+          4.5
+        ],
+        [
+          16.0,
+          16.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "bullets": [
+        {
+          "acceleration": 0.01999999931573064,
+          "acceleration_duration": 99999,
+          "acceleration_x": -0.01691455766558647,
+          "acceleration_y": 0.010672287084162235,
+          "angle": 2.5787246227264404,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 20,
+          "half_height": 2.0,
+          "half_width": 2.0,
+          "slot": 216,
+          "speed": 0.0,
+          "state": 1,
+          "timer": 124,
+          "timer_float": 124.0,
+          "turn_speed": 0.0,
+          "vx": -1.7929449081420898,
+          "vy": 1.1312625408172607,
+          "x": 60.13398742675781,
+          "y": 135.20115661621094
+        }
+      ],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 2416,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 37,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 16,
+      "replay_or_demo": false,
+      "rng_generation": 1975,
+      "rng_seed": 64869,
+      "spawners": [
+        {
+          "acceleration": 0.0,
+          "angle": 2.896611213684082,
+          "angular_velocity": 0.0,
+          "boss_timer": 408,
+          "boss_timer_float": 408.0,
+          "bullet_effect_floats": [
+            0.019999999552965164,
+            -999.0,
+            -1.0,
+            -1.0
+          ],
+          "bullet_effect_ints": [
+            -1,
+            -1,
+            -1,
+            -1
+          ],
+          "bullet_rank_amount1_high": 0,
+          "bullet_rank_amount1_low": 0,
+          "bullet_rank_amount2_high": 0,
+          "bullet_rank_amount2_low": 0,
+          "bullet_rank_speed_high": 0.5,
+          "bullet_rank_speed_low": -0.5,
+          "call_stack_disabled": false,
+          "collidable": true,
+          "damageable": true,
+          "death_callback_sub": 6,
+          "death_mode": 1,
+          "ecl_compare": 0,
+          "ecl_floats": [
+            2.0,
+            1.7000000476837158,
+            0.0,
+            0.0
+          ],
+          "ecl_ints": [
+            3,
+            0,
+            0,
+            0,
+            2,
+            0,
+            0,
+            0
+          ],
+          "ecl_program": [
+            {
+              "address": 165434244,
+              "offset_to_next": 20,
+              "opcode": 5,
+              "raw_hex": "000000000500140000ffff00e8d8ffff0ad7a33c",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434264,
+              "offset_to_next": 44,
+              "opcode": 82,
+              "raw_hex": "0000000052002c0000ffff00ffffffffffffffffffffffffffffffff0ad7a33c00c079c4000080bf000080bf",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434308,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000001ff000000efd80800000001000000000000000000000000541cc60000000015000000",
+              "skip_for_difficulty": 1,
+              "time": 0
+            },
+            {
+              "address": 165434352,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000002ff000000efd80e00000001000000000000000000000000541cc60000000015000000",
+              "skip_for_difficulty": 2,
+              "time": 0
+            },
+            {
+              "address": 165434396,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000004ff000000efd81400000001000000000000000000000000541cc60000000015000000",
+              "skip_for_difficulty": 4,
+              "time": 0
+            },
+            {
+              "address": 165434440,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000008ff000000efd81c00000001000000000000000000000000541cc60000000015000000",
+              "skip_for_difficulty": 8,
+              "time": 0
+            },
+            {
+              "address": 165434484,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "000000006a00100000ffff0009000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434500,
+              "offset_to_next": 12,
+              "opcode": 36,
+              "raw_hex": "0000000024000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434512,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            },
+            {
+              "address": 165434524,
+              "offset_to_next": 20,
+              "opcode": 8,
+              "raw_hex": "000000000800140000ffff00ead8ffff00004040",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434544,
+              "offset_to_next": 24,
+              "opcode": 20,
+              "raw_hex": "000000001400180000ffff00ead8ffff00581cc60000003f",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434568,
+              "offset_to_next": 20,
+              "opcode": 8,
+              "raw_hex": "000000000800140000ffff00ebd8ffffdb0fc940",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434588,
+              "offset_to_next": 24,
+              "opcode": 21,
+              "raw_hex": "000000001500180000ffff00ebd8ffff00541cc6db0f4940",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434612,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000001ff000000efd8040000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 1,
+              "time": 0
+            },
+            {
+              "address": 165434656,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000002ff000000efd8080000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 2,
+              "time": 0
+            },
+            {
+              "address": 165434700,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000004ff000000efd80c0000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 4,
+              "time": 0
+            },
+            {
+              "address": 165434744,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000008ff000000efd8180000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 8,
+              "time": 0
+            },
+            {
+              "address": 165434788,
+              "offset_to_next": 20,
+              "opcode": 8,
+              "raw_hex": "000000000800140000ffff00ead8ffff00004040",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434808,
+              "offset_to_next": 24,
+              "opcode": 20,
+              "raw_hex": "000000001400180000ffff00ead8ffff00581cc60000003f",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434832,
+              "offset_to_next": 20,
+              "opcode": 8,
+              "raw_hex": "000000000800140000ffff00ebd8ffffdb0fc940",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434852,
+              "offset_to_next": 24,
+              "opcode": 21,
+              "raw_hex": "000000001500180000ffff00ebd8ffff00541cc6db0f4940",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165434876,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000001ff000200efd8040000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 1,
+              "time": 0
+            },
+            {
+              "address": 165434920,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000002ff000200efd8080000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 2,
+              "time": 0
+            },
+            {
+              "address": 165434964,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000004ff000200efd80c0000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 4,
+              "time": 0
+            },
+            {
+              "address": 165435008,
+              "offset_to_next": 44,
+              "opcode": 70,
+              "raw_hex": "0000000046002c000008ff000200efd8180000000100000000581cc63333333f00541cc60000000005000000",
+              "skip_for_difficulty": 8,
+              "time": 0
+            },
+            {
+              "address": 165435052,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "000000006a00100000ffff0009000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435068,
+              "offset_to_next": 12,
+              "opcode": 36,
+              "raw_hex": "0000000024000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435080,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            },
+            {
+              "address": 165436124,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "ca00000039001c0000ffff003c000000000040430000804200000000",
+              "skip_for_difficulty": 255,
+              "time": 202
+            },
+            {
+              "address": 165436152,
+              "offset_to_next": 20,
+              "opcode": 5,
+              "raw_hex": "ca0000000500140000ffff00ead8ffff9a99d93f",
+              "skip_for_difficulty": 255,
+              "time": 202
+            },
+            {
+              "address": 165436172,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "060100002300180000ffff00040000000600000000000000",
+              "skip_for_difficulty": 255,
+              "time": 262
+            },
+            {
+              "address": 165436196,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "060100006100100000ffff0085000000",
+              "skip_for_difficulty": 255,
+              "time": 262
+            },
+            {
+              "address": 165436212,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "0e0100002300180000ffff000400000002000000920a863d",
+              "skip_for_difficulty": 255,
+              "time": 270
+            },
+            {
+              "address": 165436236,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "160100002300180000ffff00040000000a000000920a063e",
+              "skip_for_difficulty": 255,
+              "time": 278
+            },
+            {
+              "address": 165436260,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "1e0100002300180000ffff00040000000d000000db0f493e",
+              "skip_for_difficulty": 255,
+              "time": 286
+            },
+            {
+              "address": 165436284,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "260100002300180000ffff00040000000e000000920a863e",
+              "skip_for_difficulty": 255,
+              "time": 294
+            },
+            {
+              "address": 165436308,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "440100006100100000ffff0086000000",
+              "skip_for_difficulty": 255,
+              "time": 324
+            },
+            {
+              "address": 165436324,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "8001000039001c0000ffff003c000000000080420000c04200000000",
+              "skip_for_difficulty": 255,
+              "time": 384
+            },
+            {
+              "address": 165436352,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "8a0100006a00100000ffff0006000000",
+              "skip_for_difficulty": 255,
+              "time": 394
+            },
+            {
+              "address": 165436368,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "9e01000045002c000001ff0001000a001000000001000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 1,
+              "time": 414
+            },
+            {
+              "address": 165436412,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "9e01000045002c000002ff0001000a001000000003000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 2,
+              "time": 414
+            },
+            {
+              "address": 165436456,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "9e01000045002c000004ff0001000a001000000005000000000000409a99993f000000000000000009000000",
+              "skip_for_difficulty": 4,
+              "time": 414
+            },
+            {
+              "address": 165436500,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "9e01000045002c000008ff0001000a001000000007000000000000400000803f000000000000000009000000",
+              "skip_for_difficulty": 8,
+              "time": 414
+            },
+            {
+              "address": 165436544,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "bc01000045002c000001ff0001000d001000000001000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 1,
+              "time": 444
+            },
+            {
+              "address": 165436588,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "bc01000045002c000002ff0001000d001000000003000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 2,
+              "time": 444
+            },
+            {
+              "address": 165436632,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "bc01000045002c000004ff0001000d001000000005000000000000409a99993f000000000000000009000000",
+              "skip_for_difficulty": 4,
+              "time": 444
+            },
+            {
+              "address": 165436676,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "bc01000045002c000008ff0001000d001000000007000000000000400000803f000000000000000009000000",
+              "skip_for_difficulty": 8,
+              "time": 444
+            },
+            {
+              "address": 165436720,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "bc0100006a00100000ffff0008000000",
+              "skip_for_difficulty": 255,
+              "time": 444
+            },
+            {
+              "address": 165436736,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "dc0100006a00100000ffff0008000000",
+              "skip_for_difficulty": 255,
+              "time": 476
+            },
+            {
+              "address": 165436752,
+              "offset_to_next": 12,
+              "opcode": 0,
+              "raw_hex": "0402000000000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 516
+            },
+            {
+              "address": 165436764,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "0e02000039001c0000ffff003c000000000040430000a04200000000",
+              "skip_for_difficulty": 255,
+              "time": 526
+            },
+            {
+              "address": 165436792,
+              "offset_to_next": 20,
+              "opcode": 4,
+              "raw_hex": "0e0200000400140000ffff00ead8ffff01000000",
+              "skip_for_difficulty": 255,
+              "time": 526
+            },
+            {
+              "address": 165436812,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "4a0200002300180000ffff00050000000600000000000000",
+              "skip_for_difficulty": 255,
+              "time": 586
+            },
+            {
+              "address": 165436836,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "4a0200006100100000ffff0085000000",
+              "skip_for_difficulty": 255,
+              "time": 586
+            },
+            {
+              "address": 165436852,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "520200002300180000ffff000500000002000000920a86bd",
+              "skip_for_difficulty": 255,
+              "time": 594
+            },
+            {
+              "address": 165436876,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "5a0200002300180000ffff00050000000a000000920a06be",
+              "skip_for_difficulty": 255,
+              "time": 602
+            },
+            {
+              "address": 165436900,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "620200002300180000ffff00050000000d000000db0f49be",
+              "skip_for_difficulty": 255,
+              "time": 610
+            },
+            {
+              "address": 165436924,
+              "offset_to_next": 24,
+              "opcode": 35,
+              "raw_hex": "6a0200002300180000ffff00050000000e000000920a86be",
+              "skip_for_difficulty": 255,
+              "time": 618
+            },
+            {
+              "address": 165436948,
+              "offset_to_next": 24,
+              "opcode": 20,
+              "raw_hex": "6a0200001400180000ffff00ebd8ffff00541cc60000003f",
+              "skip_for_difficulty": 255,
+              "time": 618
+            },
+            {
+              "address": 165436972,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "880200006100100000ffff0086000000",
+              "skip_for_difficulty": 255,
+              "time": 648
+            },
+            {
+              "address": 165436988,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "c402000039001c0000ffff003c0000000000a0430000c04200000000",
+              "skip_for_difficulty": 255,
+              "time": 708
+            },
+            {
+              "address": 165437016,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "ce0200006a00100000ffff0006000000",
+              "skip_for_difficulty": 255,
+              "time": 718
+            },
+            {
+              "address": 165437032,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "e202000045002c000001ff00010006001000000001000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 1,
+              "time": 738
+            },
+            {
+              "address": 165437076,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "e202000045002c000002ff00010006001000000003000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 2,
+              "time": 738
+            },
+            {
+              "address": 165437120,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "e202000045002c000004ff00010006001000000005000000000000409a99993f000000000000000009000000",
+              "skip_for_difficulty": 4,
+              "time": 738
+            },
+            {
+              "address": 165437164,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "e202000045002c000008ff00010006001000000007000000000000400000803f000000000000000009000000",
+              "skip_for_difficulty": 8,
+              "time": 738
+            },
+            {
+              "address": 165437208,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "0003000045002c000001ff00010002001000000001000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 1,
+              "time": 768
+            },
+            {
+              "address": 165437252,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "0003000045002c000002ff00010002001000000003000000000000400000c03f000000000000000009000000",
+              "skip_for_difficulty": 2,
+              "time": 768
+            },
+            {
+              "address": 165437296,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "0003000045002c000004ff00010002001000000005000000000000409a99993f000000000000000009000000",
+              "skip_for_difficulty": 4,
+              "time": 768
+            },
+            {
+              "address": 165437340,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "0003000045002c000008ff00010002001000000007000000000000400000803f000000000000000009000000",
+              "skip_for_difficulty": 8,
+              "time": 768
+            },
+            {
+              "address": 165437384,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "000300006100100000ffff0085000000",
+              "skip_for_difficulty": 255,
+              "time": 768
+            },
+            {
+              "address": 165437400,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "000300006a00100000ffff0008000000",
+              "skip_for_difficulty": 255,
+              "time": 768
+            },
+            {
+              "address": 165437416,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "200300006a00100000ffff0008000000",
+              "skip_for_difficulty": 255,
+              "time": 800
+            },
+            {
+              "address": 165437432,
+              "offset_to_next": 12,
+              "opcode": 0,
+              "raw_hex": "4803000000000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 840
+            },
+            {
+              "address": 165437444,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "480300006100100000ffff0086000000",
+              "skip_for_difficulty": 255,
+              "time": 840
+            },
+            {
+              "address": 165437460,
+              "offset_to_next": 24,
+              "opcode": 20,
+              "raw_hex": "480300001400180000ffff00ebd8ffff00541cc60000003f",
+              "skip_for_difficulty": 255,
+              "time": 840
+            },
+            {
+              "address": 165437484,
+              "offset_to_next": 24,
+              "opcode": 3,
+              "raw_hex": "480300000300180000ffff00c0000000b0faffffe7d8ffff",
+              "skip_for_difficulty": 255,
+              "time": 840
+            },
+            {
+              "address": 165437508,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "5203000039001c0000ffff003c00000000004043000080c200000000",
+              "skip_for_difficulty": 255,
+              "time": 850
+            },
+            {
+              "address": 165437536,
+              "offset_to_next": 16,
+              "opcode": 1,
+              "raw_hex": "8e0300000100100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 910
+            },
+            {
+              "address": 165437552,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            },
+            {
+              "address": 165435092,
+              "offset_to_next": 16,
+              "opcode": 47,
+              "raw_hex": "000000002f00100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435108,
+              "offset_to_next": 12,
+              "opcode": 94,
+              "raw_hex": "000000005e000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435120,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "000000006a00100000ffff0012000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435136,
+              "offset_to_next": 16,
+              "opcode": 76,
+              "raw_hex": "000000004c00100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435152,
+              "offset_to_next": 16,
+              "opcode": 119,
+              "raw_hex": "000000007700100000ffff0005000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435168,
+              "offset_to_next": 12,
+              "opcode": 66,
+              "raw_hex": "0000000042000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435180,
+              "offset_to_next": 16,
+              "opcode": 104,
+              "raw_hex": "000000006800100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435196,
+              "offset_to_next": 16,
+              "opcode": 105,
+              "raw_hex": "000000006900100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435212,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "000000006100100000ffff0080000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435228,
+              "offset_to_next": 28,
+              "opcode": 59,
+              "raw_hex": "280000003b001c0000ffff007800000000004043000080c200000000",
+              "skip_for_difficulty": 255,
+              "time": 40
+            },
+            {
+              "address": 165435256,
+              "offset_to_next": 16,
+              "opcode": 1,
+              "raw_hex": "a00000000100100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 160
+            },
+            {
+              "address": 165435272,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            },
+            {
+              "address": 165437564,
+              "offset_to_next": 50,
+              "opcode": 93,
+              "raw_hex": "000000005d00320000ffff00020000008c8e958481758380815b8393838983438367838c8343817600000000000000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437614,
+              "offset_to_next": 16,
+              "opcode": 105,
+              "raw_hex": "000000006900100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437630,
+              "offset_to_next": 28,
+              "opcode": 65,
+              "raw_hex": "0000000041001c0000ffff0000000042000040420000b04300001043",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437658,
+              "offset_to_next": 16,
+              "opcode": 112,
+              "raw_hex": "000000007000100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437674,
+              "offset_to_next": 16,
+              "opcode": 115,
+              "raw_hex": "000000007300100000ffff0028050000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437690,
+              "offset_to_next": 16,
+              "opcode": 116,
+              "raw_hex": "000000007400100000ffff0006000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437706,
+              "offset_to_next": 28,
+              "opcode": 57,
+              "raw_hex": "0000000039001c0000ffff0078000000000040430000c04200000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165437734,
+              "offset_to_next": 16,
+              "opcode": 105,
+              "raw_hex": "780000006900100000ffff0001000000",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437750,
+              "offset_to_next": 12,
+              "opcode": 78,
+              "raw_hex": "780000004e000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437762,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "7800000045002c000004ff00000006002a000000010000000000204000000000000000000000000004000000",
+              "skip_for_difficulty": 4,
+              "time": 120
+            },
+            {
+              "address": 165437806,
+              "offset_to_next": 44,
+              "opcode": 69,
+              "raw_hex": "7800000045002c000008ff000000060030000000010000003333334000000000000000000000000004000000",
+              "skip_for_difficulty": 8,
+              "time": 120
+            },
+            {
+              "address": 165437850,
+              "offset_to_next": 12,
+              "opcode": 79,
+              "raw_hex": "780000004f000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437862,
+              "offset_to_next": 16,
+              "opcode": 77,
+              "raw_hex": "780000004d0010000004ff0028000000",
+              "skip_for_difficulty": 4,
+              "time": 120
+            },
+            {
+              "address": 165437878,
+              "offset_to_next": 16,
+              "opcode": 77,
+              "raw_hex": "780000004d0010000008ff0019000000",
+              "skip_for_difficulty": 8,
+              "time": 120
+            },
+            {
+              "address": 165437894,
+              "offset_to_next": 16,
+              "opcode": 87,
+              "raw_hex": "780000005700100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437910,
+              "offset_to_next": 64,
+              "opcode": 85,
+              "raw_hex": "780000005500400000ffff0000000600db0fc93e00000000000000000000fa430000fa43000000421e00000078000000100000001e0000000e00000000000000",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437974,
+              "offset_to_next": 16,
+              "opcode": 87,
+              "raw_hex": "780000005700100000ffff0001000000",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165437990,
+              "offset_to_next": 64,
+              "opcode": 85,
+              "raw_hex": "780000005500400000ffff0000000600dfed2f4000000000000000000000fa430000fa43000000421e00000078000000100000001e0000000e00000000000000",
+              "skip_for_difficulty": 255,
+              "time": 120
+            },
+            {
+              "address": 165438054,
+              "offset_to_next": 16,
+              "opcode": 106,
+              "raw_hex": "960000006a00100000ffff0010000000",
+              "skip_for_difficulty": 255,
+              "time": 150
+            },
+            {
+              "address": 165438070,
+              "offset_to_next": 20,
+              "opcode": 4,
+              "raw_hex": "960000000400140000ffff00e7d8ffff78000000",
+              "skip_for_difficulty": 255,
+              "time": 150
+            },
+            {
+              "address": 165438090,
+              "offset_to_next": 20,
+              "opcode": 88,
+              "raw_hex": "970000005800140000ffff0000000000c673073c",
+              "skip_for_difficulty": 255,
+              "time": 151
+            },
+            {
+              "address": 165438110,
+              "offset_to_next": 20,
+              "opcode": 88,
+              "raw_hex": "970000005800140000ffff0001000000c67307bc",
+              "skip_for_difficulty": 255,
+              "time": 151
+            },
+            {
+              "address": 165438130,
+              "offset_to_next": 24,
+              "opcode": 3,
+              "raw_hex": "970000000300180000ffff0096000000d8ffffffe7d8ffff",
+              "skip_for_difficulty": 255,
+              "time": 151
+            },
+            {
+              "address": 165438154,
+              "offset_to_next": 20,
+              "opcode": 50,
+              "raw_hex": "d30000003200140000ffff00db0f49c0db0f4940",
+              "skip_for_difficulty": 255,
+              "time": 211
+            },
+            {
+              "address": 165438174,
+              "offset_to_next": 16,
+              "opcode": 47,
+              "raw_hex": "d30000002f00100000ffff0000000040",
+              "skip_for_difficulty": 255,
+              "time": 211
+            },
+            {
+              "address": 165438190,
+              "offset_to_next": 16,
+              "opcode": 61,
+              "raw_hex": "d30000003d00100000ffff0078000000",
+              "skip_for_difficulty": 255,
+              "time": 211
+            },
+            {
+              "address": 165438206,
+              "offset_to_next": 20,
+              "opcode": 2,
+              "raw_hex": "4b0100000200140000ffff0078000000c8feffff",
+              "skip_for_difficulty": 255,
+              "time": 331
+            },
+            {
+              "address": 165438226,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            },
+            {
+              "address": 165435284,
+              "offset_to_next": 16,
+              "opcode": 47,
+              "raw_hex": "000000002f00100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435300,
+              "offset_to_next": 12,
+              "opcode": 94,
+              "raw_hex": "000000005e000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435312,
+              "offset_to_next": 16,
+              "opcode": 76,
+              "raw_hex": "000000004c00100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435328,
+              "offset_to_next": 12,
+              "opcode": 66,
+              "raw_hex": "0000000042000c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435340,
+              "offset_to_next": 16,
+              "opcode": 97,
+              "raw_hex": "000000006100100000ffff0080000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435356,
+              "offset_to_next": 28,
+              "opcode": 59,
+              "raw_hex": "000000003b001c0000ffff003c00000000004043000080c200000000",
+              "skip_for_difficulty": 255,
+              "time": 0
+            },
+            {
+              "address": 165435384,
+              "offset_to_next": 16,
+              "opcode": 1,
+              "raw_hex": "3c0000000100100000ffff0000000000",
+              "skip_for_difficulty": 255,
+              "time": 60
+            },
+            {
+              "address": 165435400,
+              "offset_to_next": 12,
+              "opcode": -1,
+              "raw_hex": "ffffffffffff0c0000ffff00",
+              "skip_for_difficulty": 255,
+              "time": -1
+            }
+          ],
+          "ecl_stack": [],
+          "ecl_subroutines": [
+            165433152,
+            165433388,
+            165433608,
+            165433992,
+            165434244,
+            165434524,
+            165435092,
+            165435284,
+            165435412,
+            165437564,
+            165438238,
+            165438586,
+            165438954,
+            165440470,
+            165441986,
+            165442482,
+            165443342,
+            165443662,
+            165444046,
+            165444986,
+            165445750,
+            165446514,
+            165447374,
+            165449020
+          ],
+          "ecl_time": 409,
+          "ecl_time_float": 409.0,
+          "hitbox_half_height": 18.666666666666668,
+          "hitbox_half_width": 16.0,
+          "interactable": true,
+          "interval": 0,
+          "invert_x": false,
+          "invisible": false,
+          "is_boss": true,
+          "life": 6000,
+          "life_callback_sub": 9,
+          "life_callback_threshold": 500,
+          "lower_move_x": 0.0,
+          "lower_move_y": 0.0,
+          "move_interp_x": -128.0,
+          "move_interp_y": 32.0,
+          "move_start_time": 60,
+          "move_start_x": 192.0,
+          "move_start_y": 64.0,
+          "move_timer": 35,
+          "move_timer_float": 35.0,
+          "movement_ease": 1,
+          "movement_mode": 2,
+          "next_instruction": {
+            "address": 165436368,
+            "offset_to_next": 44,
+            "opcode": 69,
+            "raw_hex": "9e01000045002c000001ff0001000a001000000001000000000000400000c03f000000000000000009000000",
+            "skip_for_difficulty": 1,
+            "time": 414
+          },
+          "pattern": {
+            "aim_mode": 3,
+            "angle1": 0.2617993950843811,
+            "angle2": 0.0,
+            "count1": 20,
+            "count2": 1,
+            "ex_floats": [
+              0.019999999552965164,
+              -999.0,
+              -1.0,
+              -1.0
+            ],
+            "ex_ints": [
+              -1,
+              -1,
+              -1,
+              -1
+            ],
+            "flags": 21,
+            "half_height": 2.0,
+            "half_width": 2.0,
+            "speed1": 0.0,
+            "speed2": 0.30000001192092896,
+            "sprite": 0
+          },
+          "repeat_ex_index": null,
+          "shoot_offset_x": 0.0,
+          "shoot_offset_y": -12.0,
+          "shooting_disabled": false,
+          "should_clamp_position": false,
+          "slot": 0,
+          "speed": 0.0,
+          "timeout_spell": false,
+          "timer": 0,
+          "timer_callback_sub": 7,
+          "timer_callback_threshold": 1440,
+          "timer_float": 0.0,
+          "upper_move_x": 0.0,
+          "upper_move_y": 0.0,
+          "velocity_x": -2.524444580078125,
+          "velocity_y": 0.6311187744140625,
+          "x": 110.08000183105469,
+          "y": 84.47999572753906
+        }
+      ],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 19.95108413696289,
+      "y": 141.46575927734375
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "12": 81,
+      "16": 322
+    },
+    "actions_by_horizon": {
+      "12": [
+        "up"
+      ],
+      "16": [
+        "down"
+      ]
+    },
+    "constant_actions_by_horizon": {
+      "16": [
+        "down",
+        "left",
+        "up_left",
+        "down_left",
+        "down_right"
+      ]
+    },
+    "observed_shallow_action": "up",
+    "causal_deep_action": "down"
+  }
+}

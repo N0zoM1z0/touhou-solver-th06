@@ -1,9 +1,12 @@
+import os
 import unittest
 from dataclasses import replace
 
 from th06.model import ACTIONS, Bullet, SafeAction, Snapshot
+from th06.kernels.safety import NativeSafetyKernel
 from th06.ranking import ProposalRanker
 from th06.solver import (
+    BASE_POLICY_HORIZON,
     EFFORT_HORIZONS,
     HARD_SAFETY_HORIZON,
     EffortController,
@@ -94,6 +97,36 @@ class ProgressiveKernel:
         return self.scores_by_horizon.get(horizon, self.scores)
 
 
+class BudgetedProgressiveKernel(ProgressiveKernel):
+    def __init__(self, *args, budgeted_ms_by_horizon=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.budgeted_ms_by_horizon = budgeted_ms_by_horizon or {}
+
+    def nominal_policy_counts_budgeted(
+        self,
+        state,
+        candidates,
+        segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(
+            ("budgeted_policy", horizon, budget_ms, tuple(candidates))
+        )
+        required_ms = self.budgeted_ms_by_horizon.get(horizon, 1.0)
+        if required_ms > budget_ms:
+            self.clock.advance_ms(budget_ms)
+            return None
+        self.clock.advance_ms(required_ms)
+        scores = self.scores_by_horizon.get(horizon, self.scores)
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return {
+            action: score for action, score in scores.items()
+            if action in allowed
+        }
+
+
 class AnytimePolicyTests(unittest.TestCase):
     def setUp(self):
         state = snapshot()
@@ -119,7 +152,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(kernel.calls[1], ("prepare", EFFORT_HORIZONS[0]))
         self.assertEqual(decision.safe_actions, self.hard)
 
-    def test_affordable_frontier_promotes_one_rung_per_decision(self):
+    def test_affordable_frontier_uses_deepest_measured_rung(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(clock, self.hard)
         solver = self.solver(kernel, clock, budget=100.0)
@@ -130,7 +163,7 @@ class AnytimePolicyTests(unittest.TestCase):
             decision = solver.decide(replace(snapshot(), frame=100 + offset))
             horizons.append(decision.effort_horizon)
 
-        self.assertEqual(horizons, list(EFFORT_HORIZONS))
+        self.assertEqual(horizons, [20, 20, 20, 20])
 
     def test_frontier_contraction_triggers_general_policy_only(self):
         clock = ManualClock()
@@ -176,7 +209,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(decision.effort_horizon, 20)
         self.assertEqual(decision.action, up)
         self.assertIn("policy", [call[0] for call in kernel.calls])
 
@@ -204,10 +237,10 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(
             [call[1] for call in kernel.calls if call[0] == "policy"],
-            [8, 12],
+            [8, 12, 16],
         )
         self.assertEqual(decision.action, up)
-        self.assertEqual(decision.effort_horizon, 12)
+        self.assertEqual(decision.effort_horizon, 20)
 
     def test_policy_rung_precedes_more_distant_constant_frontier(self):
         clock = ManualClock()
@@ -230,6 +263,573 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertLess(calls.index(("policy", 8)), calls.index(("frontier", 12)))
         self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 12)))
 
+    def test_budgeted_deep_policy_uses_fresh_completed_evidence(self):
+        clock = ManualClock()
+        deep_action = self.hard[2].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    self.hard[0].action: 5,
+                    self.hard[1].action: 3,
+                    deep_action: 1,
+                },
+                16: {
+                    self.hard[0].action: 2,
+                    self.hard[1].action: 4,
+                    deep_action: 9,
+                },
+            },
+            budgeted_ms_by_horizon={16: 4.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(decision.held_horizon, HARD_SAFETY_HORIZON)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "policy"],
+            [8],
+        )
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
+            [16],
+        )
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "frontier"],
+            [16],
+        )
+
+    def test_fresh_completed_deep_probe_skips_redundant_intermediate_base(self):
+        clock = ManualClock()
+        deep_action = self.hard[2].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    self.hard[0].action: 5,
+                    self.hard[1].action: 3,
+                    deep_action: 1,
+                },
+                12: {
+                    self.hard[0].action: 2,
+                    self.hard[1].action: 8,
+                    deep_action: 1,
+                },
+                16: {
+                    self.hard[0].action: 1,
+                    self.hard[1].action: 2,
+                    deep_action: 10,
+                },
+            },
+            budgeted_ms_by_horizon={16: 4.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.observe_policy(
+            snapshot(),
+            len(self.hard),
+            16,
+            6.0,
+        )
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "policy"],
+            [8],
+        )
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
+            [16],
+        )
+
+    def test_timed_out_deep_policy_discards_partial_result(self):
+        clock = ManualClock()
+        base_action = self.hard[0].action
+        fallback_action = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    self.hard[0].action: 5,
+                    fallback_action: 3,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    self.hard[0].action: 2,
+                    fallback_action: 8,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    self.hard[0].action: 1,
+                    fallback_action: 2,
+                    self.hard[2].action: 10,
+                },
+            },
+            budgeted_ms_by_horizon={12: 2.0, 16: 20.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, base_action)
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
+            [16, 12],
+        )
+        self.assertEqual(
+            solver.effort.policy_probe_timeout_frame_by_horizon[16],
+            snapshot().frame,
+        )
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "frontier"],
+            [16],
+        )
+
+    def test_constant_hold_cannot_reject_turn_capable_fallback(self):
+        clock = ManualClock()
+        retained_action = self.hard[0].action
+        excluded_action = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={16: (self.hard[0], self.hard[2])},
+            scores_by_horizon={
+                8: {
+                    retained_action: 4,
+                    excluded_action: 5,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    retained_action: 2,
+                    excluded_action: 8,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    retained_action: 1,
+                    excluded_action: 10,
+                    self.hard[2].action: 2,
+                },
+            },
+            budgeted_ms_by_horizon={12: 2.0, 16: 20.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, excluded_action)
+        self.assertNotEqual(decision.action, retained_action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "frontier"],
+            [16],
+        )
+
+    def test_deep_probe_adjudicates_lower_current_and_constant_evidence(self):
+        clock = ManualClock()
+        current = self.hard[0]
+        lower_winner = self.hard[1]
+        constant_winner = self.hard[2]
+        omitted = SafeAction(ACTIONS[3], 1.0, 192.0, 380.0)
+        hard = self.hard + (omitted,)
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            hard,
+            frontiers={16: (constant_winner,)},
+            scores_by_horizon={
+                8: {
+                    current.action: 2,
+                    lower_winner.action: 9,
+                    constant_winner.action: 4,
+                    omitted.action: 1,
+                },
+                16: {
+                    current.action: 3,
+                    lower_winner.action: 12,
+                    constant_winner.action: 8,
+                    omitted.action: 99,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        deep_call = next(
+            call for call in kernel.calls
+            if call[0] == "budgeted_policy" and call[1] == 16
+        )
+        self.assertEqual(
+            {candidate.action for candidate in deep_call[3]},
+            {
+                current.action,
+                lower_winner.action,
+                constant_winner.action,
+            },
+        )
+        self.assertEqual(decision.action, lower_winner.action)
+        self.assertNotEqual(decision.action, omitted.action)
+
+    def test_adjacent_lower_probe_retains_current_for_deep_reversal(self):
+        clock = ManualClock()
+        current = self.hard[0]
+        lower_winner = self.hard[1]
+        constant_survivor = self.hard[2]
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={16: (lower_winner, constant_survivor)},
+            scores_by_horizon={
+                12: {
+                    current.action: 9,
+                    lower_winner.action: 10,
+                    constant_survivor.action: 5,
+                },
+                16: {
+                    current.action: 20,
+                    lower_winner.action: 12,
+                    constant_survivor.action: 8,
+                },
+            },
+            budgeted_ms_by_horizon={12: 2.0, 16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.observe_policy_timeout(snapshot(), 16)
+
+        decision = solver.decide(snapshot())
+
+        deep_call = next(
+            call for call in kernel.calls
+            if call[0] == "budgeted_policy" and call[1] == 16
+        )
+        self.assertEqual(
+            {candidate.action for candidate in deep_call[3]},
+            {
+                current.action,
+                lower_winner.action,
+                constant_survivor.action,
+            },
+        )
+        self.assertEqual(decision.action, current.action)
+
+    def test_empty_deep_constant_scan_retains_current_as_comparator(self):
+        clock = ManualClock()
+        current = self.hard[0]
+        lower_winner = self.hard[1]
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={16: ()},
+            scores_by_horizon={
+                8: {
+                    current.action: 2,
+                    lower_winner.action: 9,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    current.action: 12,
+                    lower_winner.action: 8,
+                    self.hard[2].action: 99,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        deep_call = next(
+            call for call in kernel.calls
+            if call[0] == "budgeted_policy" and call[1] == 16
+        )
+        self.assertEqual(
+            {candidate.action for candidate in deep_call[3]},
+            {current.action, lower_winner.action},
+        )
+        self.assertEqual(decision.action, current.action)
+
+    def test_timed_out_deep_policy_yields_to_lower_rung_next_frame(self):
+        clock = ManualClock()
+        base_action = self.hard[0].action
+        lower_action = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    base_action: 5,
+                    lower_action: 3,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    base_action: 2,
+                    lower_action: 8,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    base_action: 1,
+                    lower_action: 2,
+                    self.hard[2].action: 10,
+                },
+            },
+            budgeted_ms_by_horizon={12: 2.0, 16: 20.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        first = solver.decide(snapshot())
+        kernel.calls.clear()
+        second = solver.decide(snapshot(frame=101))
+
+        self.assertEqual(first.action, base_action)
+        self.assertEqual(first.effort_horizon, 8)
+        self.assertEqual(second.action, lower_action)
+        self.assertEqual(second.effort_horizon, 12)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "policy"],
+            [],
+        )
+        self.assertEqual(
+            [
+                call[1]
+                for call in kernel.calls
+                if call[0] == "budgeted_policy"
+            ],
+            [12, 16],
+        )
+
+    def test_deep_timeout_measures_adjacent_rung_before_retry(self):
+        clock = ManualClock()
+        base_action = self.hard[0].action
+        lower_action = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    base_action: 5,
+                    lower_action: 3,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    base_action: 2,
+                    lower_action: 8,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    base_action: 1,
+                    lower_action: 2,
+                    self.hard[2].action: 10,
+                },
+            },
+            budgeted_ms_by_horizon={12: 20.0, 16: 20.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        state = snapshot()
+        solver.effort.policy_rate_by_horizon[12] = 100.0 / (
+            solver.effort.rollout_work(state, len(self.hard), 12)
+        )
+        solver.effort.policy_frame_by_horizon[12] = 0
+
+        first = solver.decide(state)
+        kernel.budgeted_ms_by_horizon[12] = 2.0
+        kernel.calls.clear()
+        next_state = snapshot(frame=101)
+        self.assertFalse(
+            solver.effort.policy_affordable(
+                next_state,
+                len(self.hard),
+                12,
+                2.0,
+            )
+        )
+        second_started_ms = clock.seconds * 1000.0
+
+        second = solver.decide(next_state)
+
+        self.assertEqual(first.action, base_action)
+        self.assertEqual(first.effort_horizon, 8)
+        self.assertEqual(second.action, lower_action)
+        self.assertEqual(second.effort_horizon, 12)
+        self.assertEqual(
+            [
+                call[1]
+                for call in kernel.calls
+                if call[0] == "budgeted_policy"
+            ],
+            [12, 16],
+        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
+        self.assertLessEqual(
+            clock.seconds * 1000.0 - second_started_ms,
+            12.5,
+        )
+
+    def test_fresh_deep_cost_caps_probe_and_preserves_lower_rung(self):
+        clock = ManualClock()
+        fallback_action = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    self.hard[0].action: 5,
+                    fallback_action: 3,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    self.hard[0].action: 2,
+                    fallback_action: 8,
+                    self.hard[2].action: 1,
+                },
+                16: {
+                    self.hard[0].action: 1,
+                    fallback_action: 2,
+                    self.hard[2].action: 10,
+                },
+            },
+            budgeted_ms_by_horizon={12: 2.0, 16: 20.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.observe_policy(snapshot(), len(self.hard), 16, 2.0)
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, fallback_action)
+        self.assertEqual(decision.effort_horizon, 12)
+        budgeted_calls = [
+            call for call in kernel.calls if call[0] == "budgeted_policy"
+        ]
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "policy"],
+            [8],
+        )
+        self.assertEqual([call[1] for call in budgeted_calls], [16, 12])
+        self.assertAlmostEqual(budgeted_calls[0][2], 2.0)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "frontier"],
+            [16],
+        )
+
+    def test_completed_probe_cost_does_not_shrink_with_shared_cache_shortlist(self):
+        clock = ManualClock()
+        state = snapshot()
+        hard = tuple(
+            SafeAction(action, 10.0 - index, state.x, state.y)
+            for index, action in enumerate(ACTIONS[:6])
+        )
+        retained = hard[0].action
+        alternate = hard[1].action
+        shallow = hard[2].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            hard,
+            frontiers={16: (hard[2],)},
+            scores_by_horizon={
+                8: {
+                    retained: 8,
+                    alternate: 8,
+                    shallow: 8,
+                    **{candidate.action: 1 for candidate in hard[3:]},
+                },
+                12: {
+                    retained: 2,
+                    alternate: 3,
+                    shallow: 10,
+                    **{candidate.action: 1 for candidate in hard[3:]},
+                },
+                16: {
+                    retained: 20,
+                    alternate: 15,
+                    shallow: 10,
+                    **{candidate.action: 1 for candidate in hard[3:]},
+                },
+            },
+            budgeted_ms_by_horizon={12: 1.0, 16: 4.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.observe_policy(state, len(hard), 16, 6.0)
+
+        decision = solver.decide(state)
+
+        deep_call = next(
+            call for call in kernel.calls
+            if call[0] == "budgeted_policy" and call[1] == 16
+        )
+        self.assertEqual(len(deep_call[3]), 3)
+        self.assertAlmostEqual(deep_call[2], 6.0)
+        self.assertEqual(decision.action, retained)
+        self.assertEqual(decision.effort_horizon, 16)
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_budgeted_policy_is_complete_or_discarded(self):
+        state = snapshot()
+        kernel = NativeSafetyKernel()
+        candidates = kernel.certify(
+            state,
+            HARD_SAFETY_HORIZON,
+            collision_margin=0.35,
+        )
+        expected = kernel.nominal_policy_counts(
+            state,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            16,
+            collision_margin=0.35,
+        )
+
+        completed = kernel.nominal_policy_counts_budgeted(
+            state,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            16,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.nominal_policy_counts_budgeted(
+            state,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            16,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
+
     def test_unaffordable_policy_rung_does_not_skip_to_deeper_search(self):
         clock = ManualClock()
         kernel = ProgressiveKernel(
@@ -251,6 +851,45 @@ class AnytimePolicyTests(unittest.TestCase):
         solver.decide(state)
 
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
+
+    def test_stale_base_cost_uses_residual_budget_after_constant_frontier(self):
+        clock = ManualClock()
+        expected = self.hard[1].action
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            scores_by_horizon={
+                8: {
+                    self.hard[0].action: 2,
+                    expected: 9,
+                    self.hard[2].action: 1,
+                },
+            },
+            budgeted_ms_by_horizon={8: 1.0},
+        )
+        solver = self.solver(kernel, clock)
+        state = snapshot()
+        solver.effort.rollout_ms_per_work = 10.0 / (
+            solver.effort.rollout_work(state, len(self.hard), 8)
+        )
+        solver.effort.rollout_frame = state.frame
+        solver.effort.last_limit = 8
+        solver.effort.policy_rate_by_horizon[8] = 100.0 / (
+            solver.effort.rollout_work(state, len(self.hard), 8)
+        )
+        solver.effort.policy_frame_by_horizon[8] = state.frame
+
+        decision = solver.decide(state)
+
+        calls = [(call[0], call[1]) for call in kernel.calls]
+        self.assertLess(
+            calls.index(("frontier", 8)),
+            calls.index(("budgeted_policy", 8)),
+        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
+        self.assertEqual(decision.action, expected)
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_spent_hard_deadline_skips_all_soft_work(self):
         clock = ManualClock()
@@ -306,6 +945,19 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(promoted, HARD_SAFETY_HORIZON)
         self.assertEqual(retained, 6)
 
+    def test_promotion_can_cross_multiple_affordable_rungs(self):
+        controller = EffortController(12.5)
+        state = snapshot()
+        controller.rollout_ms_per_work = 6.0 / controller.rollout_work(
+            state, 3, 8
+        )
+        controller.rollout_frame = state.frame
+        controller.last_limit = HARD_SAFETY_HORIZON
+
+        promoted = controller.choose_limit(state, 3, 3.0)
+
+        self.assertEqual(promoted, 8)
+
     def test_stale_rollout_cost_yields_to_current_hard_measurement(self):
         controller = EffortController(10.0)
         state = snapshot(frame=300)
@@ -313,7 +965,7 @@ class AnytimePolicyTests(unittest.TestCase):
         controller.rollout_ms_per_work = 20.0 / h6_work
         controller.rollout_frame = 0
 
-        self.assertEqual(controller.choose_limit(state, 3, 1.0), 6)
+        self.assertEqual(controller.choose_limit(state, 3, 1.0), 20)
 
     def test_fresh_rollout_cost_remains_authoritative(self):
         controller = EffortController(10.0)
@@ -326,6 +978,23 @@ class AnytimePolicyTests(unittest.TestCase):
             controller.choose_limit(state, 3, 1.0),
             HARD_SAFETY_HORIZON,
         )
+
+    def test_repeated_current_cost_reopens_first_policy_rung(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+        h6_work = controller.rollout_work(state, 3, 6)
+        controller.rollout_ms_per_work = 20.0 / h6_work
+        controller.rollout_frame = state.frame
+
+        first = controller.choose_limit(state, 3, 1.0)
+        second = controller.choose_limit(
+            snapshot(frame=301),
+            3,
+            1.0,
+        )
+
+        self.assertEqual(first, HARD_SAFETY_HORIZON)
+        self.assertEqual(second, 8)
 
     def test_stale_deep_policy_cost_yields_to_fresh_lower_rung(self):
         controller = EffortController(10.0)
@@ -371,6 +1040,40 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(controller.policy_frame_by_horizon[12], state.frame)
 
+    def test_policy_timeout_evidence_expires_and_completion_replaces_it(self):
+        controller = EffortController(10.0)
+        state = snapshot(frame=300)
+
+        controller.observe_policy_timeout(state, 16)
+
+        self.assertTrue(controller.policy_probe_evidence_fresh(state, 16))
+        self.assertTrue(controller.policy_probe_timeout_fresh(state, 16))
+        self.assertFalse(
+            controller.policy_probe_evidence_fresh(
+                snapshot(frame=361),
+                16,
+            )
+        )
+        self.assertFalse(
+            controller.policy_probe_timeout_fresh(
+                snapshot(frame=361),
+                16,
+            )
+        )
+
+        controller.observe_policy(snapshot(frame=362), 3, 16, 2.0)
+
+        self.assertFalse(
+            controller.policy_probe_timeout_fresh(
+                snapshot(frame=362),
+                16,
+            )
+        )
+        self.assertNotIn(
+            16,
+            controller.policy_probe_timeout_frame_by_horizon,
+        )
+
     def test_stale_publication_reduces_next_soft_budget(self):
         controller = EffortController(12.5)
         before = controller.budget_ms()
@@ -380,6 +1083,51 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertLess(controller.budget_ms(), before)
         self.assertEqual(controller.last_limit, HARD_SAFETY_HORIZON)
+
+    def test_two_fresh_publications_release_transient_budget_penalty(self):
+        controller = EffortController(12.5)
+        state = snapshot(
+            bullets=tuple(
+                Bullet(20.0, 20.0, 0.0, 0.0, 2.0, 2.0, 1)
+                for _ in range(300)
+            )
+        )
+        controller.rollout_ms_per_work = 20.0 / controller.rollout_work(
+            state,
+            3,
+            BASE_POLICY_HORIZON,
+        )
+        controller.rollout_frame = state.frame
+        controller.last_limit = EFFORT_HORIZONS[-1]
+
+        controller.observe_publication(True)
+        reduced = controller.budget_ms()
+        first = controller.choose_limit(state, 3, 2.4)
+        controller.observe_publication(False)
+        second = controller.choose_limit(
+            replace(state, frame=101),
+            3,
+            2.4,
+        )
+        controller.observe_publication(False)
+        restored = controller.budget_ms()
+        third = controller.choose_limit(
+            replace(state, frame=102),
+            3,
+            2.4,
+        )
+        fourth = controller.choose_limit(
+            replace(state, frame=103),
+            3,
+            2.4,
+        )
+
+        self.assertLess(reduced, 12.5)
+        self.assertEqual(restored, 12.5)
+        self.assertEqual(first, HARD_SAFETY_HORIZON)
+        self.assertEqual(second, HARD_SAFETY_HORIZON)
+        self.assertEqual(third, HARD_SAFETY_HORIZON)
+        self.assertEqual(fourth, BASE_POLICY_HORIZON)
 
     def test_commitment_requires_a_fresh_preferred_certificate(self):
         ranker = ProposalRanker()
@@ -393,6 +1141,19 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(first.action, self.hard[-1].action)
         self.assertEqual(second.action, self.hard[0].action)
+
+    def test_no_fresh_proposal_retains_hard_certified_current_input(self):
+        state = snapshot(input_mask=0x04)
+        current = ACTIONS[0]
+        larger_clearance = ACTIONS[1]
+        candidates = (
+            SafeAction(current, 1.0, state.x, state.y),
+            SafeAction(larger_clearance, 100.0, state.x, state.y),
+        )
+
+        chosen = ProposalRanker().choose(state, candidates)
+
+        self.assertEqual(chosen.action, current)
 
 
 if __name__ == "__main__":

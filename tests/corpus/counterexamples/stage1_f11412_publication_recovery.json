@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "id": "stage1-f11412-publication-recovery",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "stale_frame": 11410,
+    "target_frame": 11412,
+    "failure_frame": 11493,
+    "artifact": "th06_failure_stage1_f11493_adjacent_probe.json",
+    "artifact_sha256": "8b0790b649ac7c2aa2aec1fd0fa3daa1dc4b746a2526889049ce157c30ffd016"
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "A stale proposal is never published and temporarily reduces compute effort, but two subsequent on-time Hard publications are fresh physical recovery evidence; the temporary penalty must then release so an affordable turn-capable continuation is not starved indefinitely.",
+  "summary": "The f11493 lower-left Hard-empty stop was an effect. At f11410 a transient 27.496 ms decision aged out, so the controller correctly retained current input and halved the next soft budget. The following f11412 decision completed in 3.888 ms with all nine Hard actions, but the slowly decaying publication penalty left only Hard-4 clearance ranking, which selected down-left. P8 already excluded down-left and retained stay, up, right, or up-right; p12 and p16 retained only up, right, or up-right. The solver then remained below p8 for the next 65 frames while down-left clamped at the lower-left boundary. Removing all 301 current bullets, the source-defined spawner, and the enemy preserves every score below, isolating the reachable-state aliasing contract from the full artifact's latency evidence.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "bullets": [],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 11412,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 5,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 32,
+      "replay_or_demo": false,
+      "rng_generation": 7526,
+      "rng_seed": 22681,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 12.201028823852539,
+      "y": 427.45587158203125
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 75,
+      "16": 629
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay",
+        "up",
+        "right",
+        "up_right"
+      ],
+      "12": [
+        "up",
+        "right",
+        "up_right"
+      ],
+      "16": [
+        "up",
+        "right",
+        "up_right"
+      ]
+    },
+    "observed_shallow_action": "down_left",
+    "causal_lower_actions": [
+      "stay",
+      "up",
+      "right",
+      "up_right"
+    ]
+  }
+}

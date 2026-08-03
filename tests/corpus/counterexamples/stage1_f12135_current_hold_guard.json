@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "id": "stage1-f12135-current-hold-guard",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 12135,
+    "failure_frame": 12135,
+    "artifact": "th06_failure_stage1_f12135_completed_deep_retry.json",
+    "artifact_sha256": "12c560de2ff173fe68a9f1a1038d1a916d5df56641af9b8c780e834e168f1bdf"
+  },
+  "runner": "future_frontier",
+  "contract": "Hard eligibility remains four frames, but the already-observed current input receives an independent fail-closed fifth-frame certificate so an age-four solve tail may retain that input and retry; this certificate cannot authorize a new action.",
+  "summary": "The default Stage 1 run remained alive with all nine Hard-4 actions at f12135, but one 54.519 ms solve tail aged the snapshot by four frames and exhausted the current-hold certificate, producing unsupported-delivery-age. Repeated native replay of the same 393-bullet snapshot completed Hard-4 in roughly 2.5-5 ms, while the observed current up action remained source-certified through h16; the failure was publication authority during a transient synchronous stall, not an earlier route choice or a modeled dead end. Removing all current bullets, the source-defined spawner, and the enemy preserves the stable h4/h5 authority relation; the full artifact preserves the measured latency tail.",
+  "input": {
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "bullets": [],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 12135,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 21,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 32,
+      "replay_or_demo": false,
+      "rng_generation": 9431,
+      "rng_seed": 29563,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 70.24263000488281,
+      "y": 425.39703369140625
+    }
+  },
+  "expect": {
+    "actions_by_horizon": {
+      "4": [
+        "stay",
+        "up",
+        "down",
+        "left",
+        "right",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right"
+      ],
+      "5": [
+        "stay",
+        "up",
+        "down",
+        "left",
+        "right",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right"
+      ]
+    },
+    "observed_current_action": "up",
+    "observed_delivery_age": 4,
+    "required_held_horizon": 5
+  }
+}

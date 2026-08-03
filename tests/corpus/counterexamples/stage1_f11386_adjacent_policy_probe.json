@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "id": "stage1-f11386-adjacent-policy-probe",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 11386,
+    "failure_frame": 11510,
+    "artifact": "th06_failure_stage1_f11510_restricted_rerank.json",
+    "artifact_sha256": "a5d2ed3615730cbfa922fd8a3cf44853fab41a3b4594987c92d6501a4d93b07a"
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "Fresh completed or timed-out evidence from a deep policy probe makes the adjacent lower rung the next complete-or-discard budgeted measurement, even when its older cost estimate rejects it; only a completed lower rung may leave residual budget for another deeper retry.",
+  "summary": "The f11510 lower-left Hard-empty stop was an effect. At the earliest preserved consequential divergence f11386, the physical solver used only p8 and selected down-left from a nine-way tie. P12 already excluded down-left and preferred stay, up, right, or up-right; p16 preferred only up or up-right. Native replay measured p8 at 2.47 ms, p12 at 4.83 ms, p16 at 12.69 ms, while the live decision took 12.280 ms and published p8: the speculative p16 retry consumed the residual deadline before the cheaper p12 fallback. Removing all 177 current bullets, the source-defined spawner, and the enemy preserves the exact horizon scores, so the minimized contract is the physically observed reachable-position aliasing relation; the full artifact preserves timing evidence.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "bullet_read_retries": 0,
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "bullets": [],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "enemies": [],
+      "focus_diagonal_speed": 1.4142135381698608,
+      "focus_speed": 2.0,
+      "frame": 11386,
+      "frame_multiplier": 1.0,
+      "half_height": 1.25,
+      "half_width": 1.25,
+      "in_menu": false,
+      "input_mask": 5,
+      "laser_count": 0,
+      "lasers": [],
+      "normal_diagonal_speed": 2.8284270763397217,
+      "normal_speed": 4.0,
+      "player_state": 0,
+      "rank": 32,
+      "replay_or_demo": false,
+      "rng_generation": 8780,
+      "rng_seed": 28066,
+      "spawners": [],
+      "stage": 1,
+      "time_stopped": false,
+      "x": 21.6740779876709,
+      "y": 421.3553771972656
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 81,
+      "16": 723
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay",
+        "up",
+        "down",
+        "left",
+        "right",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right"
+      ],
+      "12": [
+        "stay",
+        "up",
+        "right",
+        "up_right"
+      ],
+      "16": [
+        "up",
+        "up_right"
+      ]
+    },
+    "observed_shallow_action": "down_left",
+    "causal_lower_actions": [
+      "stay",
+      "up",
+      "right",
+      "up_right"
+    ]
+  }
+}

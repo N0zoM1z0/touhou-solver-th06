@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "id": "stage1-f11203-deep-timeout-starvation",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 11203,
+    "failure_frame": 11463
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "A timed-out uncertain deep probe is fresh censored cost evidence: on the next decision, complete an affordable intermediate continuation before spending the residual budget retrying the deeper probe.",
+  "summary": "The f11463 upper-right Hard-empty stop was an effect. At the earliest preserved still-viable scheduling error f11203, all nine actions remained Hard-certified. P8 tied stay, down, left, and down-left, so commitment retained stay, while p12 already excluded stay and retained only down or down-left. Across f11200-f11329 the physical solver published p8 on 111 decisions with a 12.205 ms median solve time inside a 12.5 ms budget; the unmeasured p16 probe repeatedly timed out without recording evidence and starved affordable p12. When p12 finally completed at f11339, the route immediately moved down-left. Removing all 68 bullets and source births preserves the horizon contradiction, so this empty source-defined movement-area state is the minimal stable ranking contract; the full physical artifact preserves the measured starvation evidence.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "frame": 11203,
+      "stage": 1,
+      "player_state": 0,
+      "x": 373.0122375488281,
+      "y": 21.247591018676758,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 5,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 32,
+      "rng_seed": 39993,
+      "rng_generation": 6790
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 75,
+      "16": 629
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay",
+        "down",
+        "left",
+        "down_left"
+      ],
+      "12": [
+        "down",
+        "down_left"
+      ],
+      "16": [
+        "down",
+        "down_left"
+      ]
+    },
+    "observed_shallow_action": "stay",
+    "causal_lower_actions": [
+      "down",
+      "down_left"
+    ]
+  }
+}

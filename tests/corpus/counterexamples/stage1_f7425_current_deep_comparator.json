@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "id": "stage1-f7425-current-deep-comparator",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 7425,
+    "failure_frame": 7456,
+    "artifact": "th06_failure_stage1_f7456_target_frontier_adjudication.json"
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "A deep policy shortlist always retains the currently delivered Hard action because a constant-action scan can reject it even when that first segment has the strongest turn-capable continuation.",
+  "summary": "The f7456 Hard-empty stop was an effect. At f7425 the delivered up action was only two deduplicated terminal states behind p12's down, was absent from the c16 constant frontier, yet uniquely led p16. A recent p16 timeout made the physical solver complete p12 first, then shortlist only down and the c16 actions; omitting current forced the downward turn that entered the terminal corridor. These four current source-linear bullets are one-removal-minimal for the p12/c16/p16 and old/new shortlist relation; the live enemy and spawner are irrelevant.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [12, 16],
+    "snapshot": {
+      "frame": 7425,
+      "stage": 1,
+      "player_state": 0,
+      "x": 8.946117401123047,
+      "y": 366.66180419921875,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 21,
+      "bullets": [
+        {
+          "x": 59.47178649902344,
+          "y": 337.8050842285156,
+          "vx": -2.7310848236083984,
+          "vy": 3.884434938430786,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 4,
+          "speed": 4.748437404632568,
+          "angle": 2.183589220046997,
+          "timer": 69,
+          "timer_float": 69.0,
+          "slot": 53
+        },
+        {
+          "x": 77.15668487548828,
+          "y": 312.6510009765625,
+          "vx": -2.4965295791625977,
+          "vy": 3.550825834274292,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 4,
+          "speed": 4.340624809265137,
+          "angle": 2.183589220046997,
+          "timer": 69,
+          "timer_float": 69.0,
+          "slot": 54
+        },
+        {
+          "x": 52.43907928466797,
+          "y": 312.6492919921875,
+          "vx": -3.140615224838257,
+          "vy": 4.089431285858154,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 4,
+          "speed": 5.15625,
+          "angle": 2.225707769393921,
+          "timer": 61,
+          "timer_float": 61.0,
+          "slot": 62
+        },
+        {
+          "x": 64.1971435546875,
+          "y": 268.6947021484375,
+          "vx": -3.352725028991699,
+          "vy": 3.9174160957336426,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 4,
+          "speed": 5.15625,
+          "angle": 2.278677463531494,
+          "timer": 53,
+          "timer_float": 53.0,
+          "slot": 84
+        }
+      ],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "difficulty": 2,
+      "rank": 21
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "12": 61,
+      "16": 377
+    },
+    "actions_by_horizon": {
+      "12": ["down"],
+      "16": ["up"]
+    },
+    "constant_actions_by_horizon": {
+      "16": ["down", "up_left"]
+    },
+    "deep_shortlist": {
+      "lower_horizon": 12,
+      "deep_horizon": 16,
+      "retain_current": true,
+      "actions": ["up", "down", "up_left"],
+      "best_score": 377,
+      "best_actions": ["up"]
+    },
+    "without_current_best_actions": ["down"],
+    "observed_shallow_action": "down"
+  }
+}

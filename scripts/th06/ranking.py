@@ -5,6 +5,24 @@ from __future__ import annotations
 from .model import Action, SafeAction, Snapshot, action_from_input
 
 
+# GameManager::AddedCallback defines this center-position movement rectangle;
+# Player::HandlePlayerInputs clamps the player center to it after movement.
+_MOVEMENT_LEFT = 8.0
+_MOVEMENT_RIGHT = 376.0
+_MOVEMENT_TOP = 16.0
+_MOVEMENT_BOTTOM = 432.0
+
+
+def _preferred_free_space(candidate: SafeAction) -> float:
+    """Source-defined movement-area clearance for an otherwise exact tie."""
+    return min(
+        candidate.final_x - _MOVEMENT_LEFT,
+        _MOVEMENT_RIGHT - candidate.final_x,
+        candidate.final_y - _MOVEMENT_TOP,
+        _MOVEMENT_BOTTOM - candidate.final_y,
+    )
+
+
 class ProposalRanker:
     """Keep one short plan stable without acquiring action authority."""
 
@@ -33,6 +51,12 @@ class ProposalRanker:
             raise ValueError("proposal ranking needs a Hard-certified action")
         current = action_from_input(snapshot.input_mask)
         actions = frozenset(candidate.action for candidate in candidates)
+        preferred_clearances = frozenset(
+            candidate.clearance
+            for candidate in candidates
+            if candidate.action in preferred_actions
+        )
+        preferred_clearance_tied = len(preferred_clearances) == 1
 
         discontinuity = (
             self.last_frame is not None and snapshot.frame <= self.last_frame
@@ -52,11 +76,36 @@ class ProposalRanker:
             self.committed_action = None
             self.commit_until_frame = None
 
+        if not preferred_actions:
+            # With no fresh continuation proposal, Hard clearance only proves
+            # short-horizon eligibility; it does not justify issuing a new
+            # route direction.  Retain the observed input while it remains in
+            # the fresh Hard set, and fall back to clearance only when that
+            # input itself is no longer eligible.
+            current_candidate = next(
+                (
+                    candidate for candidate in candidates
+                    if candidate.action == current
+                ),
+                None,
+            )
+            if current_candidate is not None:
+                self.committed_action = None
+                self.commit_until_frame = None
+                self.last_frame = snapshot.frame
+                return current_candidate
+
         def score(candidate: SafeAction) -> tuple[
-            bool, bool, bool, float, bool, str,
+            bool, float, bool, bool, float, bool, str,
         ]:
+            preferred = candidate.action in preferred_actions
             return (
-                candidate.action in preferred_actions,
+                preferred,
+                (
+                    _preferred_free_space(candidate)
+                    if preferred and preferred_clearance_tied
+                    else 0.0
+                ),
                 candidate.action == self.committed_action,
                 candidate.action.focused,
                 candidate.clearance,

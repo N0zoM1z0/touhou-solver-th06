@@ -1,9 +1,9 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -71,6 +71,15 @@ constexpr std::uint16_t kControlBits[5] = {
 };
 constexpr std::int32_t kDelays[4] = {0, 1, 2, 3};
 constexpr std::int32_t kExtendedDelays[5] = {0, 1, 2, 3, 4};
+
+using PolicyClock = std::chrono::steady_clock;
+thread_local bool gPolicyDeadlineActive = false;
+thread_local PolicyClock::time_point gPolicyDeadline;
+thread_local bool gTerminalCountsOnly = false;
+
+bool policyDeadlineExpired() {
+    return gPolicyDeadlineActive && PolicyClock::now() >= gPolicyDeadline;
+}
 
 ControlAction actionFromInput(std::uint16_t mask) {
     ControlAction result{{0, 0}, (mask & 0x04U) != 0U};
@@ -321,6 +330,13 @@ std::uint64_t positionKey(float x, float y) {
     std::memcpy(&xBits, &x, sizeof(xBits));
     std::memcpy(&yBits, &y, sizeof(yBits));
     return (static_cast<std::uint64_t>(xBits) << 32U) | yBits;
+}
+
+void positionFromKey(std::uint64_t key, float& x, float& y) {
+    const std::uint32_t xBits = static_cast<std::uint32_t>(key >> 32U);
+    const std::uint32_t yBits = static_cast<std::uint32_t>(key);
+    std::memcpy(&x, &xBits, sizeof(x));
+    std::memcpy(&y, &yBits, sizeof(y));
 }
 
 }  // namespace
@@ -718,6 +734,13 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
     ) {
         return -1;
     }
+    bool timedOut = false;
+    const auto deadlineExpired = [&]() {
+        if (!policyDeadlineExpired()) return false;
+        timedOut = true;
+        return true;
+    };
+    if (deadlineExpired()) return 1;
     std::array<std::unordered_map<std::uint64_t, bool>, 64> safetyCache;
     constexpr std::int32_t kCellSize = 32;
     constexpr std::int32_t kGridWidth = 12;
@@ -732,6 +755,7 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
         return std::clamp(value, 0, kGridHeight - 1);
     };
     for (std::int32_t frame = 0; frame < horizon; ++frame) {
+        if (deadlineExpired()) return 1;
         for (
             std::uint32_t index = bulletOffsets[frame];
             index < bulletOffsets[frame + 1];
@@ -770,6 +794,7 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
         }
     }
     const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        if (deadlineExpired()) return false;
         auto& frameCache = safetyCache[frame];
         const std::uint64_t key = positionKey(x, y);
         const auto found = frameCache.find(key);
@@ -821,9 +846,9 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
     std::array<std::unordered_map<std::uint64_t, std::int32_t>, 65>
         viabilityCache;
 
-    std::function<std::int32_t(float, float, std::int32_t)> bestFrom;
-    bestFrom = [&](float startX, float startY,
-                   std::int32_t startFrame) -> std::int32_t {
+    const auto bestFrom = [&](auto&& self, float startX, float startY,
+                              std::int32_t startFrame) -> std::int32_t {
+        if (deadlineExpired()) return 0;
         if (startFrame >= horizon) return 1;
         auto& memo = viabilityCache[startFrame];
         const std::uint64_t key = positionKey(startX, startY);
@@ -834,8 +859,10 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
             horizon, startFrame + segmentLength
         );
         std::int32_t total = 0;
-        std::unordered_set<std::uint64_t> nextStates;
+        std::array<std::uint64_t, kFocusedActionCount> nextStates{};
+        std::int32_t nextStateCount = 0;
         for (std::int32_t nextIndex = 0; nextIndex < kFocusedActionCount; ++nextIndex) {
+            if (deadlineExpired()) return 0;
             float x = startX;
             float y = startY;
             bool survived = true;
@@ -859,10 +886,21 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
                 }
             }
             if (survived) {
-                if (!nextStates.insert(positionKey(x, y)).second) continue;
+                const std::uint64_t nextKey = positionKey(x, y);
+                if (
+                    std::find(
+                        nextStates.begin(),
+                        nextStates.begin() + nextStateCount,
+                        nextKey
+                    ) != nextStates.begin() + nextStateCount
+                ) {
+                    continue;
+                }
+                nextStates[nextStateCount++] = nextKey;
                 const std::int32_t branchCount = endFrame == horizon
                     ? 1
-                    : bestFrom(x, y, endFrame);
+                    : self(self, x, y, endFrame);
+                if (timedOut) return 0;
                 total = branchCount > INT32_MAX - total
                     ? INT32_MAX
                     : total + branchCount;
@@ -874,6 +912,7 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
 
     const ControlAction current = actionFromInput(inputMask);
     for (std::int32_t firstIndex = 0; firstIndex < kControlActionCount; ++firstIndex) {
+        if (deadlineExpired()) return 1;
         output[firstIndex] = 0;
         if ((candidateMask & (1U << firstIndex)) == 0U) continue;
         ControlAction transitions[5];
@@ -882,10 +921,12 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
         );
         std::int32_t worst = INT32_MAX;
         for (const std::int32_t delay : kDelays) {
+            if (deadlineExpired()) return 1;
             const std::int32_t branchCount = 1 + (
                 delay > 0 ? transitionCount : 0
             );
             for (std::int32_t branch = 0; branch < branchCount; ++branch) {
+                if (deadlineExpired()) return 1;
                 const ControlAction* transition = branch == 0
                     ? nullptr
                     : &transitions[branch - 1];
@@ -910,14 +951,71 @@ TH06_EXPORT std::int32_t th06_nominal_policy_counts(
                     }
                 }
                 const std::int32_t branchValue = survived
-                    ? bestFrom(x, y, segmentLength)
+                    ? bestFrom(bestFrom, x, y, segmentLength)
                     : 0;
+                if (timedOut) return 1;
                 worst = std::min(worst, branchValue);
             }
         }
         output[firstIndex] = worst == INT32_MAX ? 0 : worst;
     }
     return 0;
+}
+
+// The result is all-or-nothing: status 1 means the deadline expired and the
+// caller must discard every output slot. Hard authority never uses this path.
+TH06_EXPORT std::int32_t th06_nominal_policy_counts_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* output
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const std::int32_t status = th06_nominal_policy_counts(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        output
+    );
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
 }
 
 // Proposal-only global target/local path guidance. Terminal positions are
@@ -959,6 +1057,396 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
     ) {
         return -1;
     }
+    bool timedOut = false;
+    const auto deadlineExpired = [&]() {
+        if (!policyDeadlineExpired()) return false;
+        timedOut = true;
+        return true;
+    };
+    if (deadlineExpired()) return 1;
+
+    // Terminal reachability revisits the same movement lattice across many
+    // first-action delivery branches.  Use the same exact-position cache and
+    // conservative bullet grid as the policy-volume kernel so each dense
+    // hazard slice is not scanned once per aliased reachable state.
+    std::vector<std::unordered_map<std::uint64_t, bool>> safetyCache(horizon);
+    constexpr std::int32_t kCellSize = 32;
+    constexpr std::int32_t kGridWidth = 12;
+    constexpr std::int32_t kGridHeight = 14;
+    constexpr std::int32_t kGridCells = kGridWidth * kGridHeight;
+    std::vector<std::array<std::vector<std::uint32_t>, kGridCells>>
+        bulletGrid(horizon);
+    const auto clampCellX = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridWidth - 1);
+    };
+    const auto clampCellY = [](std::int32_t value) {
+        return std::clamp(value, 0, kGridHeight - 1);
+    };
+    for (std::int32_t frame = 0; frame < horizon; ++frame) {
+        if (deadlineExpired()) return 1;
+        for (
+            std::uint32_t index = bulletOffsets[frame];
+            index < bulletOffsets[frame + 1];
+            ++index
+        ) {
+            const Aabb& hazard = bullets[index];
+            const std::int32_t left = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.left - playerHalfWidth - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t right = clampCellX(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.right + playerHalfWidth + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t top = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.top - playerHalfHeight - collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            const std::int32_t bottom = clampCellY(static_cast<std::int32_t>(
+                std::floor(
+                    (hazard.bottom + playerHalfHeight + collisionMargin) /
+                    static_cast<float>(kCellSize)
+                )
+            ));
+            for (std::int32_t cellY = top; cellY <= bottom; ++cellY) {
+                for (std::int32_t cellX = left; cellX <= right; ++cellX) {
+                    bulletGrid[frame][cellY * kGridWidth + cellX].push_back(
+                        index
+                    );
+                }
+            }
+        }
+    }
+    const auto spatialSafeAtFrame = [&](float x, float y, std::int32_t frame) {
+        // Counts-only propagation polls at every reachable-state boundary.
+        // Re-reading the Windows steady clock at every point along a four-
+        // frame segment costs more than the spatial collision query itself.
+        if (!gTerminalCountsOnly && deadlineExpired()) return false;
+        auto& frameCache = safetyCache[frame];
+        const std::uint64_t key = positionKey(x, y);
+        if (!gTerminalCountsOnly) {
+            const auto found = frameCache.find(key);
+            if (found != frameCache.end()) return found->second;
+        }
+        const std::int32_t cellX = clampCellX(static_cast<std::int32_t>(
+            std::floor(x / static_cast<float>(kCellSize))
+        ));
+        const std::int32_t cellY = clampCellY(static_cast<std::int32_t>(
+            std::floor(y / static_cast<float>(kCellSize))
+        ));
+        bool safe = true;
+        for (const std::uint32_t index : bulletGrid[frame][
+            cellY * kGridWidth + cellX
+        ]) {
+            if (withinMargin(
+                x,
+                y,
+                playerHalfWidth,
+                playerHalfHeight,
+                bullets[index],
+                collisionMargin
+            )) {
+                safe = false;
+                break;
+            }
+        }
+        if (safe) {
+            for (
+                std::uint32_t index = laserOffsets[frame];
+                index < laserOffsets[frame + 1];
+                ++index
+            ) {
+                if (withinLaserMargin(
+                    x,
+                    y,
+                    playerHalfWidth,
+                    playerHalfHeight,
+                    lasers[index],
+                    collisionMargin
+                )) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        if (!gTerminalCountsOnly) frameCache.emplace(key, safe);
+        return safe;
+    };
+
+    if (gTerminalCountsOnly) {
+        // Propagate every distinct post-delivery origin together.  Each
+        // reachable position carries the origins that can reach it; merging
+        // equal positions unions those labels.  Counting terminal labels is
+        // therefore exactly the same per-origin set cardinality as separate
+        // forward searches, while shared reachable states are expanded once.
+        constexpr std::int32_t kMaxBranchesPerAction = 19;
+        constexpr std::int32_t kMaxOrigins =
+            kControlActionCount * kMaxBranchesPerAction;
+        using OriginBits = std::uint64_t;
+        struct OriginPosition {
+            std::uint64_t key;
+        };
+        struct LabeledPosition {
+            std::uint64_t key;
+            OriginBits origins;
+        };
+
+        std::array<std::vector<std::int32_t>, kControlActionCount>
+            branchOrigins;
+        std::vector<OriginPosition> origins;
+        origins.reserve(kMaxOrigins);
+        std::unordered_map<std::uint64_t, std::int32_t> originByPosition;
+        originByPosition.reserve(kMaxOrigins);
+        const auto registerOrigin = [&](float x, float y) {
+            const std::uint64_t key = positionKey(x, y);
+            const auto found = originByPosition.find(key);
+            if (found != originByPosition.end()) return found->second;
+            const std::int32_t index = static_cast<std::int32_t>(
+                origins.size()
+            );
+            origins.push_back(OriginPosition{key});
+            originByPosition.emplace(key, index);
+            return index;
+        };
+
+        const ControlAction current = actionFromInput(inputMask);
+        for (
+            std::int32_t firstIndex = 0;
+            firstIndex < kControlActionCount;
+            ++firstIndex
+        ) {
+            if (deadlineExpired()) return 1;
+            terminalCountOutput[firstIndex] = 0;
+            if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+            ControlAction transitions[5];
+            const std::int32_t transitionCount = transitionActions(
+                inputMask, kActionMasks[firstIndex], transitions
+            );
+            for (const std::int32_t delay : kDelays) {
+                const std::int32_t branchCount = 1 + (
+                    delay > 0 ? transitionCount : 0
+                );
+                for (
+                    std::int32_t branch = 0;
+                    branch < branchCount;
+                    ++branch
+                ) {
+                    if (deadlineExpired()) return 1;
+                    const ControlAction* transition = branch == 0
+                        ? nullptr
+                        : &transitions[branch - 1];
+                    float x = playerX;
+                    float y = playerY;
+                    bool survived = true;
+                    for (
+                        std::int32_t frame = 1;
+                        frame <= segmentLength;
+                        ++frame
+                    ) {
+                        stepPlayer(
+                            x,
+                            y,
+                            scheduledAction(
+                                frame,
+                                delay,
+                                current,
+                                kActions[firstIndex],
+                                transition
+                            ),
+                            normalSpeed,
+                            focusSpeed,
+                            normalDiagonalSpeed,
+                            focusDiagonalSpeed
+                        );
+                        if (!spatialSafeAtFrame(x, y, frame - 1)) {
+                            survived = false;
+                            break;
+                        }
+                    }
+                    branchOrigins[firstIndex].push_back(
+                        survived ? registerOrigin(x, y) : -1
+                    );
+                }
+            }
+        }
+
+        // The ordinary focused-action frontier has at most one machine word
+        // of distinct post-delivery origins.  Use a compact label there; a
+        // larger generic caller falls through to the exact per-origin search
+        // below rather than truncating reachability.
+        if (origins.size() <= 64) {
+            std::uint32_t deadlinePoll = 0;
+            const auto countsDeadlineExpired = [&]() {
+                ++deadlinePoll;
+                return (
+                    (deadlinePoll & 0x0FU) == 0U
+                    && deadlineExpired()
+                );
+            };
+            std::array<float, kFocusedActionCount> focusedStepX{};
+            std::array<float, kFocusedActionCount> focusedStepY{};
+            for (
+                std::int32_t actionIndex = 0;
+                actionIndex < kFocusedActionCount;
+                ++actionIndex
+            ) {
+                const ControlAction action = kActions[actionIndex];
+                const bool diagonal = (
+                    action.direction.dx != 0 && action.direction.dy != 0
+                );
+                const float speed = diagonal
+                    ? focusDiagonalSpeed
+                    : focusSpeed;
+                focusedStepX[actionIndex] =
+                    static_cast<float>(action.direction.dx) * speed;
+                focusedStepY[actionIndex] =
+                    static_cast<float>(action.direction.dy) * speed;
+            }
+            std::vector<LabeledPosition> states;
+            states.reserve(origins.size());
+            for (
+                std::int32_t index = 0;
+                index < static_cast<std::int32_t>(origins.size());
+                ++index
+            ) {
+                const OriginBits labels = 1ULL << index;
+                const auto& origin = origins[index];
+                states.push_back(LabeledPosition{
+                    origin.key, labels
+                });
+            }
+
+            for (
+                std::int32_t startFrame = segmentLength;
+                startFrame < horizon;
+                startFrame += segmentLength
+            ) {
+                const std::int32_t endFrame = std::min(
+                    horizon, startFrame + segmentLength
+                );
+                if (states.empty()) break;
+                const std::size_t generatedCapacity =
+                    states.size() * kFocusedActionCount;
+                std::size_t tableCapacity = 1;
+                while (
+                    tableCapacity
+                    < generatedCapacity + generatedCapacity / 2
+                ) {
+                    tableCapacity *= 2;
+                }
+                std::vector<LabeledPosition> table(tableCapacity);
+                const std::size_t tableMask = tableCapacity - 1;
+                std::size_t uniqueCount = 0;
+                for (const auto& state : states) {
+                    if (countsDeadlineExpired()) return 1;
+                    float startX;
+                    float startY;
+                    positionFromKey(state.key, startX, startY);
+                    for (
+                        std::int32_t actionIndex = 0;
+                        actionIndex < kFocusedActionCount;
+                        ++actionIndex
+                    ) {
+                        float x = startX;
+                        float y = startY;
+                        bool survived = true;
+                        for (
+                            std::int32_t frame = startFrame + 1;
+                            frame <= endFrame;
+                            ++frame
+                        ) {
+                            x = std::clamp(
+                                x + focusedStepX[actionIndex],
+                                8.0F,
+                                376.0F
+                            );
+                            y = std::clamp(
+                                y + focusedStepY[actionIndex],
+                                16.0F,
+                                432.0F
+                            );
+                            if (!spatialSafeAtFrame(x, y, frame - 1)) {
+                                survived = false;
+                                break;
+                            }
+                        }
+                        if (survived) {
+                            const std::uint64_t key = positionKey(x, y);
+                            std::uint64_t mixed = key;
+                            mixed ^= mixed >> 30U;
+                            mixed *= 0xBF58476D1CE4E5B9ULL;
+                            mixed ^= mixed >> 27U;
+                            mixed *= 0x94D049BB133111EBULL;
+                            mixed ^= mixed >> 31U;
+                            std::size_t slotIndex = (
+                                static_cast<std::size_t>(mixed) & tableMask
+                            );
+                            while (
+                                table[slotIndex].key != 0U
+                                && table[slotIndex].key != key
+                            ) {
+                                slotIndex = (slotIndex + 1) & tableMask;
+                            }
+                            if (table[slotIndex].key == 0U) {
+                                table[slotIndex] = LabeledPosition{
+                                    key, state.origins
+                                };
+                                ++uniqueCount;
+                            } else {
+                                table[slotIndex].origins |= state.origins;
+                            }
+                        }
+                    }
+                }
+                if (deadlineExpired()) return 1;
+                std::vector<LabeledPosition> nextStates;
+                nextStates.reserve(uniqueCount);
+                for (const auto& entry : table) {
+                    if (entry.key != 0U) {
+                        nextStates.push_back(entry);
+                    }
+                }
+                states = std::move(nextStates);
+            }
+
+            std::vector<std::int32_t> originCounts(origins.size(), 0);
+            for (const auto& state : states) {
+                if (countsDeadlineExpired()) return 1;
+                std::uint64_t labels = state.origins;
+                while (labels != 0U) {
+                    const std::uint32_t origin = static_cast<std::uint32_t>(
+                        __builtin_ctzll(labels)
+                    );
+                    ++originCounts[origin];
+                    labels &= labels - 1U;
+                }
+            }
+            for (
+                std::int32_t firstIndex = 0;
+                firstIndex < kControlActionCount;
+                ++firstIndex
+            ) {
+                if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+                std::int32_t worstCount = INT32_MAX;
+                for (const std::int32_t origin : branchOrigins[firstIndex]) {
+                    worstCount = std::min(
+                        worstCount,
+                        origin < 0 ? 0 : originCounts[origin]
+                    );
+                }
+                terminalCountOutput[firstIndex] = (
+                    worstCount == INT32_MAX ? 0 : worstCount
+                );
+            }
+            return timedOut ? 1 : 0;
+        }
+    }
 
     struct TerminalStats {
         std::int32_t count;
@@ -968,17 +1456,31 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
         float targetDistanceSquared;
     };
     using Position = std::array<float, 2>;
+    struct KeyedPosition {
+        std::uint64_t key;
+        Position position;
+    };
     const float negativeInfinity = -std::numeric_limits<float>::infinity();
     const float positiveInfinity = std::numeric_limits<float>::infinity();
     std::unordered_map<std::uint64_t, TerminalStats> terminalCache;
 
     const auto terminalStats = [&](float startX, float startY) {
+        if (deadlineExpired()) {
+            return TerminalStats{
+                0,
+                negativeInfinity,
+                startX,
+                startY,
+                positiveInfinity,
+            };
+        }
         const std::uint64_t startKey = positionKey(startX, startY);
         const auto cached = terminalCache.find(startKey);
         if (cached != terminalCache.end()) return cached->second;
 
-        std::unordered_map<std::uint64_t, Position> states;
-        states.emplace(startKey, Position{startX, startY});
+        std::vector<KeyedPosition> states{
+            KeyedPosition{startKey, Position{startX, startY}}
+        };
         for (
             std::int32_t startFrame = segmentLength;
             startFrame < horizon;
@@ -987,15 +1489,25 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
             const std::int32_t endFrame = std::min(
                 horizon, startFrame + segmentLength
             );
-            std::unordered_map<std::uint64_t, Position> nextStates;
+            std::vector<KeyedPosition> nextStates;
+            nextStates.reserve(states.size() * kFocusedActionCount);
             for (const auto& state : states) {
+                if (deadlineExpired()) {
+                    return TerminalStats{
+                        0,
+                        negativeInfinity,
+                        startX,
+                        startY,
+                        positiveInfinity,
+                    };
+                }
                 for (
                     std::int32_t actionIndex = 0;
                     actionIndex < kFocusedActionCount;
                     ++actionIndex
                 ) {
-                    float x = state.second[0];
-                    float y = state.second[1];
+                    float x = state.position[0];
+                    float y = state.position[1];
                     bool survived = true;
                     for (
                         std::int32_t frame = startFrame + 1;
@@ -1011,29 +1523,43 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                             normalDiagonalSpeed,
                             focusDiagonalSpeed
                         );
-                        if (!safeAtFrame(
-                            x,
-                            y,
-                            playerHalfWidth,
-                            playerHalfHeight,
-                            frame - 1,
-                            bulletOffsets,
-                            bullets,
-                            laserOffsets,
-                            lasers,
-                            collisionMargin,
-                            nullptr
-                        )) {
+                        if (!spatialSafeAtFrame(x, y, frame - 1)) {
                             survived = false;
                             break;
                         }
                     }
                     if (survived) {
-                        nextStates.emplace(
+                        nextStates.push_back(KeyedPosition{
                             positionKey(x, y), Position{x, y}
-                        );
+                        });
                     }
                 }
+            }
+            std::sort(
+                nextStates.begin(),
+                nextStates.end(),
+                [](const KeyedPosition& left, const KeyedPosition& right) {
+                    return left.key < right.key;
+                }
+            );
+            nextStates.erase(
+                std::unique(
+                    nextStates.begin(),
+                    nextStates.end(),
+                    [](const KeyedPosition& left, const KeyedPosition& right) {
+                        return left.key == right.key;
+                    }
+                ),
+                nextStates.end()
+            );
+            if (deadlineExpired()) {
+                return TerminalStats{
+                    0,
+                    negativeInfinity,
+                    startX,
+                    startY,
+                    positiveInfinity,
+                };
             }
             states = std::move(nextStates);
             if (states.empty()) break;
@@ -1046,11 +1572,20 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
             startY,
             positiveInfinity,
         };
-        if (!states.empty()) {
+        if (!states.empty() && !gTerminalCountsOnly) {
             const std::int32_t terminalFrame = horizon - 1;
             for (const auto& state : states) {
-                const float x = state.second[0];
-                const float y = state.second[1];
+                if (deadlineExpired()) {
+                    return TerminalStats{
+                        0,
+                        negativeInfinity,
+                        startX,
+                        startY,
+                        positiveInfinity,
+                    };
+                }
+                const float x = state.position[0];
+                const float y = state.position[1];
                 float clearance = std::min({
                     x - 8.0F,
                     376.0F - x,
@@ -1112,6 +1647,7 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
         firstIndex < kControlActionCount;
         ++firstIndex
     ) {
+        if (deadlineExpired()) return 1;
         terminalCountOutput[firstIndex] = 0;
         freeClearanceOutput[firstIndex] = negativeInfinity;
         freeTargetXOutput[firstIndex] = playerX;
@@ -1129,6 +1665,7 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
         float worstFreeY = playerY;
         float worstTargetDistanceSquared = 0.0F;
         for (const std::int32_t delay : kDelays) {
+            if (deadlineExpired()) return 1;
             const std::int32_t branchCount = 1 + (
                 delay > 0 ? transitionCount : 0
             );
@@ -1163,19 +1700,7 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                         normalDiagonalSpeed,
                         focusDiagonalSpeed
                     );
-                    if (!safeAtFrame(
-                        x,
-                        y,
-                        playerHalfWidth,
-                        playerHalfHeight,
-                        frame - 1,
-                        bulletOffsets,
-                        bullets,
-                        laserOffsets,
-                        lasers,
-                        collisionMargin,
-                        nullptr
-                    )) {
+                    if (!spatialSafeAtFrame(x, y, frame - 1)) {
                         survived = false;
                         break;
                     }
@@ -1189,6 +1714,7 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                         y,
                         positiveInfinity,
                     };
+                if (timedOut) return 1;
                 worstCount = std::min(worstCount, branchStats.count);
                 if (branchStats.freeClearance < worstFreeClearance) {
                     worstFreeClearance = branchStats.freeClearance;
@@ -1211,5 +1737,188 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
             worstTargetDistanceSquared
         );
     }
-    return 0;
+    return timedOut ? 1 : 0;
+}
+
+// Survival reachability consumes only the number of deduplicated terminal
+// states.  Keep that computation independent from soft clearance/target
+// ranking so the ordinary survival rung does not pay for unused metrics.
+TH06_EXPORT std::int32_t th06_terminal_counts(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    std::int32_t* terminalCountOutput
+) {
+    std::array<float, kControlActionCount> freeClearanceOutput;
+    std::array<float, kControlActionCount> freeTargetXOutput;
+    std::array<float, kControlActionCount> freeTargetYOutput;
+    std::array<float, kControlActionCount> targetDistanceSquaredOutput;
+    const bool previousCountsOnly = gTerminalCountsOnly;
+    gTerminalCountsOnly = true;
+    const std::int32_t status = th06_terminal_guidance(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        playerX,
+        playerY,
+        terminalCountOutput,
+        freeClearanceOutput.data(),
+        freeTargetXOutput.data(),
+        freeTargetYOutput.data(),
+        targetDistanceSquaredOutput.data()
+    );
+    gTerminalCountsOnly = previousCountsOnly;
+    return status;
+}
+
+// The terminal-state result is also all-or-nothing: a timed-out soft rung
+// must not publish a partial candidate ranking.
+TH06_EXPORT std::int32_t th06_terminal_guidance_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    float targetX,
+    float targetY,
+    double budgetMs,
+    std::int32_t* terminalCountOutput,
+    float* freeClearanceOutput,
+    float* freeTargetXOutput,
+    float* freeTargetYOutput,
+    float* targetDistanceSquaredOutput
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const std::int32_t status = th06_terminal_guidance(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        targetX,
+        targetY,
+        terminalCountOutput,
+        freeClearanceOutput,
+        freeTargetXOutput,
+        freeTargetYOutput,
+        targetDistanceSquaredOutput
+    );
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
+}
+
+// Like every budgeted proposal rung, terminal counts publish only when the
+// complete candidate set finishes before the native deadline.
+TH06_EXPORT std::int32_t th06_terminal_counts_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* terminalCountOutput
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const std::int32_t status = th06_terminal_counts(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        terminalCountOutput
+    );
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
 }

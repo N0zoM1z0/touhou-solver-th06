@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "id": "stage1-f6387-confirmed-cost-recovery",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 6387,
+    "failure_frame": 6417
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "After a transient expensive frame demotes effort to Hard-only, two consecutive current Hard measurements that reserve enough budget for p8 reopen the first turn-capable rung; one cheap sample alone does not override fresh measured cost.",
+  "summary": "The f6417 bottom-right Hard-empty stop was an effect of 226 current bullets. The physical route lost ordinary continuation after a 15.513 ms solve spike at f6385. At the earliest subsequent consequential error f6387, all nine actions were still Hard-certified, but p8 retained only right or up-right and p12/p16 uniquely required right while the Hard-only ranker continued left. Native medians on the full 133-bullet snapshot were 2.039 ms for Hard-4, 4.260 ms to prepare h12, 0.871 ms for p8, and 3.236 ms for p12, totaling 10.406 ms inside the 12.5 ms budget. Two source-linear bullets preserve the exact horizon scores and are the minimal stable ranking contract; the full physical artifact preserves the transient-cost and publication timeline.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "frame": 6387,
+      "stage": 1,
+      "player_state": 0,
+      "x": 352.7279357910156,
+      "y": 429.4142150878906,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 69,
+      "bullets": [
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.129490852355957,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 8,
+          "half_height": 2.0,
+          "half_width": 2.0,
+          "slot": 418,
+          "speed": 1.552734375,
+          "state": 1,
+          "timer": 174,
+          "timer_float": 174.0,
+          "turn_speed": 0.0,
+          "vx": 0.6632042527198792,
+          "vy": 1.4039744138717651,
+          "x": 331.4539794921875,
+          "y": 391.2660217285156
+        },
+        {
+          "acceleration": 0.0,
+          "acceleration_duration": 0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 1.1565008163452148,
+          "curve_angular_velocity": 0.0,
+          "curve_speed_acceleration": 0.0,
+          "direction_interval": 0,
+          "direction_max_times": 0,
+          "direction_num_times": 0,
+          "direction_rotation": 0.0,
+          "ex_flags": 4,
+          "half_height": 3.0,
+          "half_width": 3.0,
+          "slot": 449,
+          "speed": 1.8203125,
+          "state": 1,
+          "timer": 160,
+          "timer_float": 160.0,
+          "turn_speed": 0.0,
+          "vx": 0.7327579259872437,
+          "vy": 1.6663143634796143,
+          "x": 330.9124755859375,
+          "y": 409.275634765625
+        }
+      ],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 21,
+      "rng_seed": 8078,
+      "rng_generation": 3647
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 56,
+      "16": 433
+    },
+    "actions_by_horizon": {
+      "8": [
+        "right",
+        "up_right"
+      ],
+      "12": [
+        "right"
+      ],
+      "16": [
+        "right"
+      ]
+    },
+    "observed_hard_only_action": "left",
+    "causal_policy_actions": [
+      "right",
+      "up_right"
+    ]
+  }
+}

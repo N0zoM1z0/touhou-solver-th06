@@ -54,6 +54,7 @@ def _emitter_trace(snapshot: Snapshot) -> str:
             str(emitter.ecl_time),
             str(emitter.interval),
             str(emitter.timer),
+            str(emitter.death_mode),
             str(emitter.repeat_ex_index),
             "/".join(map(str, emitter.ecl_ints)),
         )))

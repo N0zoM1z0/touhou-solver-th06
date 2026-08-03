@@ -159,7 +159,6 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_BOSS_SET,
     OPCODE_SPELL_EFFECT,
     OPCODE_EFFECT_SOUND,
-    OPCODE_DEATH_FLAG,
     OPCODE_INTERRUPT_SET,
     OPCODE_EFFECT_PARTICLE,
     OPCODE_ANIMATION_ROTATION,
@@ -195,6 +194,7 @@ MODELLED_ECL_OPCODES = frozenset(
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
      OPCODE_DAMAGEABLE_FLAG,
+     OPCODE_DEATH_FLAG,
      OPCODE_DEATH_CALLBACK,
      OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
      OPCODE_TIMER_CALLBACK_SUB, OPCODE_LIFE_CALLBACK_THRESHOLD,
@@ -597,6 +597,7 @@ def _forecast_ecl_births_single(
     life = spawner.life
     life_lower_bound = spawner.life
     damageable = spawner.damageable
+    death_mode = spawner.death_mode
     is_boss = spawner.is_boss
     rank_speed_low = spawner.bullet_rank_speed_low
     rank_speed_high = spawner.bullet_rank_speed_high
@@ -710,6 +711,53 @@ def _forecast_ecl_births_single(
             enemy_x += -velocity_x if spawner.invert_x else velocity_x
             enemy_y += velocity_y
             enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
+        if interactable and not invisible and life <= 0:
+            # EnemyManager handles an exact non-positive life value after
+            # RunEcl in the preceding update.  Unlike life_lower_bound, this
+            # is not a possible player-damage time: ENEMYLIFESET can make the
+            # transition certain.  Apply the source death mode now, before
+            # the callback ECL runs on this update.
+            life_callback_threshold = -1
+            timer_callback_threshold = -1
+            if death_mode == 0:
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    horizon,
+                    "source death mode zero despawns emitter",
+                    body_hazards=tuple(tuple(frame) for frame in body_hazards),
+                    finished=True,
+                )
+            if death_mode == 1:
+                interactable = False
+            elif death_mode == 3:
+                life = 1
+                damageable = False
+                death_mode = 0
+
+            if death_callback_sub >= 0:
+                if not 0 <= death_callback_sub < len(spawner.ecl_subroutines):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"death callback subroutine {death_callback_sub} is unavailable",
+                    )
+                callback_address = spawner.ecl_subroutines[death_callback_sub]
+                if callback_address not in program:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "death callback instruction graph is not captured",
+                    )
+                instruction_address = callback_address
+                current_time = 0
+                time_subframe = 0.0
+                call_stack.clear()
+                rank_speed_low = -0.5
+                rank_speed_high = 0.5
+                rank_amount1_low = rank_amount1_high = 0
+                rank_amount2_low = rank_amount2_high = 0
+                death_callback_sub = -1
+            life_lower_bound = life
         if (
             life_callback_threshold >= 0
             and life_lower_bound < life_callback_threshold
@@ -1168,6 +1216,8 @@ def _forecast_ecl_births_single(
                 collidable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_DAMAGEABLE_FLAG:
                 damageable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
+            elif instruction.opcode == OPCODE_DEATH_FLAG:
+                death_mode = struct.unpack_from("<i", raw, 0x0C)[0] & 0x07
             elif instruction.opcode == OPCODE_INTERACTABLE_FLAG:
                 interactable = bool(struct.unpack_from("<i", raw, 0x0C)[0])
             elif instruction.opcode == OPCODE_INVISIBLE_FLAG:
@@ -1890,6 +1940,7 @@ def _forecast_ecl_births_single(
             timer_callback_threshold=timer_callback_threshold,
             timer_callback_sub=timer_callback_sub,
             damageable=damageable,
+            death_mode=death_mode,
             bullet_effect_floats=effect_floats,
             bullet_effect_ints=effect_ints,
         ),
@@ -1897,7 +1948,7 @@ def _forecast_ecl_births_single(
     )
 
 
-def _forecast_ecl_births_with_life_callbacks(
+def _forecast_ecl_births_with_death_callbacks(
     spawner: EnemySpawner,
     player_positions: tuple[tuple[float, float], ...],
     difficulty: int,
@@ -1910,22 +1961,21 @@ def _forecast_ecl_births_with_life_callbacks(
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
 ) -> EclForecast:
-    """Forecast an emitter, branching over reachable hard life callbacks."""
+    """Union every reachable source death-callback pickup frame."""
     horizon = len(player_positions)
     callback_damage = (70 if spawner.damageable else 0) + (
         10 if spawner.collidable and not spawner.is_boss else 0
     )
-    callback_gap = spawner.life - spawner.life_callback_threshold
     earliest_callback = (
-        max(0, callback_gap // callback_damage + 1)
-        if callback_damage > 0 and spawner.life_callback_threshold >= 0
-        else horizon
+        max(0, (spawner.life + callback_damage - 1) // callback_damage)
+        if callback_damage > 0 and spawner.life > 0
+        else (0 if spawner.life <= 0 else horizon)
     )
     should_branch = (
         abstract_rng
         and spawner.interactable
-        and spawner.life_callback_threshold >= 0
-        and 0 <= spawner.life_callback_sub < len(spawner.ecl_subroutines)
+        and spawner.death_callback_sub >= 0
+        and 0 <= spawner.death_callback_sub < len(spawner.ecl_subroutines)
         and earliest_callback < horizon
     )
     if not should_branch:
@@ -1943,20 +1993,22 @@ def _forecast_ecl_births_with_life_callbacks(
             enemy_kill_all_is_noop,
         )
 
-    program = {instruction.address: instruction for instruction in spawner.ecl_program}
-    callback_address = spawner.ecl_subroutines[spawner.life_callback_sub]
+    program = {
+        instruction.address: instruction
+        for instruction in spawner.ecl_program
+    }
+    callback_address = spawner.ecl_subroutines[spawner.death_callback_sub]
     callback_instruction = program.get(callback_address)
     if callback_instruction is None:
         return EclForecast(
             tuple(() for _ in player_positions),
             0,
-            "life callback instruction graph is not captured",
+            "death callback instruction graph is not captured",
         )
 
-    no_callback_spawner = _copy_spawner(
-        spawner,
-        life_callback_threshold=-1,
-    )
+    # Zero damage remains physically possible.  Keeping this branch alive is
+    # conservative; it also provides the state prefix for each death frame.
+    no_callback_spawner = _copy_spawner(spawner, death_callback_sub=-1)
     no_callback = _forecast_ecl_births_single(
         no_callback_spawner,
         player_positions,
@@ -1994,6 +2046,188 @@ def _forecast_ecl_births_with_life_callbacks(
                 abstract_rng,
                 enemy_kill_all_is_noop,
             )
+            if prefix.covered_frames < callback_frame:
+                if prefix.covered_frames < covered_frames:
+                    covered_frames = prefix.covered_frames
+                    reason = prefix.reason
+                continue
+            callback_source = prefix.next_spawner
+            if callback_source is None:
+                # The main ECL already despawned this branch before damage
+                # could invoke its callback.
+                continue
+        else:
+            callback_source = no_callback_spawner
+
+        # EnemyManager applies the death-mode state transition before
+        # CallEclSub.  Mode zero removes the slot, so the newly assigned
+        # context is never executed on a later update.
+        if callback_source.death_mode == 0:
+            continue
+        if callback_source.death_mode == 1:
+            callback_source = _copy_spawner(
+                callback_source,
+                interactable=False,
+                life=0,
+            )
+        elif callback_source.death_mode == 3:
+            callback_source = _copy_spawner(
+                callback_source,
+                life=1,
+                damageable=False,
+                death_mode=0,
+            )
+        else:
+            # Mode two and the source switch's unused values retain the slot
+            # and interactability.  Keeping both is the conservative hazard
+            # state while the callback ECL decides what happens next.
+            callback_source = _copy_spawner(callback_source, life=0)
+
+        callback_source = _copy_spawner(
+            callback_source,
+            death_callback_sub=-1,
+            life_callback_threshold=-1,
+            timer_callback_threshold=-1,
+            next_instruction=callback_instruction,
+            ecl_time=0,
+            ecl_time_float=0.0,
+            ecl_stack=(),
+            bullet_rank_speed_low=-0.5,
+            bullet_rank_speed_high=0.5,
+            bullet_rank_amount1_low=0,
+            bullet_rank_amount1_high=0,
+            bullet_rank_amount2_low=0,
+            bullet_rank_amount2_high=0,
+        )
+        callback = _forecast_ecl_births_single(
+            callback_source,
+            player_positions[callback_frame:],
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            None,
+            allow_player_variables,
+            radial_births,
+            abstract_rng,
+            enemy_kill_all_is_noop,
+        )
+        for index, frame_births in enumerate(callback.births, callback_frame):
+            births[index].extend(frame_births)
+        for index, frame_bodies in enumerate(
+            callback.body_hazards, callback_frame
+        ):
+            bodies[index].extend(frame_bodies)
+        branch_coverage = callback_frame + callback.covered_frames
+        if branch_coverage < covered_frames:
+            covered_frames = branch_coverage
+            reason = callback.reason
+
+    return EclForecast(
+        tuple(tuple(frame) for frame in births),
+        covered_frames,
+        reason if covered_frames < horizon else "",
+        body_hazards=tuple(tuple(frame) for frame in bodies),
+    )
+
+
+def _forecast_ecl_births_with_life_callbacks(
+    spawner: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    difficulty: int,
+    rank: int,
+    bullet_sizes: tuple[tuple[float, float], ...],
+    frame_multiplier: float = 1.0,
+    rng: RngState | None = None,
+    allow_player_variables: bool = True,
+    radial_births: bool = False,
+    abstract_rng: bool = False,
+    enemy_kill_all_is_noop: bool = False,
+) -> EclForecast:
+    """Forecast an emitter, branching over reachable hard life callbacks."""
+    horizon = len(player_positions)
+    callback_damage = (70 if spawner.damageable else 0) + (
+        10 if spawner.collidable and not spawner.is_boss else 0
+    )
+    callback_gap = spawner.life - spawner.life_callback_threshold
+    earliest_callback = (
+        max(0, callback_gap // callback_damage + 1)
+        if callback_damage > 0 and spawner.life_callback_threshold >= 0
+        else horizon
+    )
+    should_branch = (
+        abstract_rng
+        and spawner.interactable
+        and spawner.life_callback_threshold >= 0
+        and 0 <= spawner.life_callback_sub < len(spawner.ecl_subroutines)
+        and earliest_callback < horizon
+    )
+    if not should_branch:
+        return _forecast_ecl_births_with_death_callbacks(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            rng,
+            allow_player_variables,
+            radial_births,
+            abstract_rng,
+            enemy_kill_all_is_noop,
+        )
+
+    program = {instruction.address: instruction for instruction in spawner.ecl_program}
+    callback_address = spawner.ecl_subroutines[spawner.life_callback_sub]
+    callback_instruction = program.get(callback_address)
+    if callback_instruction is None:
+        return EclForecast(
+            tuple(() for _ in player_positions),
+            0,
+            "life callback instruction graph is not captured",
+        )
+
+    no_callback_spawner = _copy_spawner(
+        spawner,
+        life_callback_threshold=-1,
+    )
+    no_callback = _forecast_ecl_births_with_death_callbacks(
+        no_callback_spawner,
+        player_positions,
+        difficulty,
+        rank,
+        bullet_sizes,
+        frame_multiplier,
+        None,
+        allow_player_variables,
+        radial_births,
+        abstract_rng,
+        enemy_kill_all_is_noop,
+    )
+    births = [list(frame) for frame in no_callback.births]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    for index, frame_bodies in enumerate(no_callback.body_hazards):
+        bodies[index].extend(frame_bodies)
+    covered_frames = no_callback.covered_frames
+    reason = no_callback.reason
+
+    for callback_frame in range(earliest_callback, horizon):
+        if callback_frame:
+            prefix = _forecast_ecl_births_with_death_callbacks(
+                no_callback_spawner,
+                player_positions[:callback_frame],
+                difficulty,
+                rank,
+                bullet_sizes,
+                frame_multiplier,
+                None,
+                allow_player_variables,
+                radial_births,
+                abstract_rng,
+                enemy_kill_all_is_noop,
+            )
             if prefix.covered_frames < callback_frame or prefix.next_spawner is None:
                 branch_coverage = prefix.covered_frames
                 if branch_coverage < covered_frames:
@@ -2019,7 +2253,7 @@ def _forecast_ecl_births_with_life_callbacks(
             bullet_rank_amount2_low=0,
             bullet_rank_amount2_high=0,
         )
-        callback = _forecast_ecl_births_single(
+        callback = _forecast_ecl_births_with_death_callbacks(
             callback_source,
             player_positions[callback_frame:],
             difficulty,
@@ -2068,6 +2302,27 @@ def _life_callback_can_branch(
         and spawner.interactable
         and spawner.life_callback_threshold >= 0
         and 0 <= spawner.life_callback_sub < len(spawner.ecl_subroutines)
+        and earliest_callback < horizon
+    )
+
+
+def _death_callback_can_branch(
+    spawner: EnemySpawner,
+    horizon: int,
+    abstract_rng: bool,
+) -> bool:
+    callback_damage = (70 if spawner.damageable else 0) + (
+        10 if spawner.collidable and not spawner.is_boss else 0
+    )
+    earliest_callback = (
+        max(0, (spawner.life + callback_damage - 1) // callback_damage)
+        if callback_damage > 0 and spawner.life > 0
+        else (0 if spawner.life <= 0 else horizon)
+    )
+    return (
+        abstract_rng
+        and spawner.interactable
+        and 0 <= spawner.death_callback_sub < len(spawner.ecl_subroutines)
         and earliest_callback < horizon
     )
 
@@ -2186,10 +2441,17 @@ def forecast_ecl_births(
     if (
         abstract_rng
         and rng is None
-        and not _life_callback_can_branch(
-            spawner,
-            len(player_positions),
-            abstract_rng,
+        and not (
+            _life_callback_can_branch(
+                spawner,
+                len(player_positions),
+                abstract_rng,
+            )
+            or _death_callback_can_branch(
+                spawner,
+                len(player_positions),
+                abstract_rng,
+            )
         )
     ):
         return _forecast_abstract_integer_domains(

@@ -104,6 +104,15 @@ class NativeSafetyKernel:
         self.nominal_function = self.library.th06_nominal_policy_counts
         self.nominal_function.argtypes = self.replanning_function.argtypes
         self.nominal_function.restype = ctypes.c_int32
+        self.budgeted_nominal_function = (
+            self.library.th06_nominal_policy_counts_budgeted
+        )
+        self.budgeted_nominal_function.argtypes = (
+            *self.replanning_function.argtypes[:-1],
+            ctypes.c_double,
+            ctypes.POINTER(ctypes.c_int32),
+        )
+        self.budgeted_nominal_function.restype = ctypes.c_int32
         self.guidance_function = self.library.th06_terminal_guidance
         self.guidance_function.argtypes = (
             *self.replanning_function.argtypes[:-1],
@@ -116,9 +125,36 @@ class NativeSafetyKernel:
             ctypes.POINTER(ctypes.c_float),
         )
         self.guidance_function.restype = ctypes.c_int32
+        self.budgeted_guidance_function = (
+            self.library.th06_terminal_guidance_budgeted
+        )
+        self.budgeted_guidance_function.argtypes = (
+            *self.guidance_function.argtypes[:-5],
+            ctypes.c_double,
+            *self.guidance_function.argtypes[-5:],
+        )
+        self.budgeted_guidance_function.restype = ctypes.c_int32
+        self.counts_function = self.library.th06_terminal_counts
+        self.counts_function.argtypes = (
+            *self.replanning_function.argtypes[:-1],
+            ctypes.POINTER(ctypes.c_int32),
+        )
+        self.counts_function.restype = ctypes.c_int32
+        self.budgeted_counts_function = (
+            self.library.th06_terminal_counts_budgeted
+        )
+        self.budgeted_counts_function.argtypes = (
+            *self.replanning_function.argtypes[:-1],
+            ctypes.c_double,
+            ctypes.POINTER(ctypes.c_int32),
+        )
+        self.budgeted_counts_function.restype = ctypes.c_int32
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
         self._prepared_hazards = None
+        self._hard_birth_snapshot: Snapshot | None = None
+        self._hard_birth_horizon = 0
+        self._hard_birth_forecast = None
 
     @staticmethod
     def _flatten(frames, value_type, convert):
@@ -144,6 +180,7 @@ class NativeSafetyKernel:
         snapshot: Snapshot,
         start_frame: int,
         horizon: int,
+        fail_closed_horizon: int = 4,
     ):
         total_horizon = start_frame + horizon
         bullet_frames = bullet_hazards_by_frame(snapshot, total_horizon)[
@@ -152,14 +189,32 @@ class NativeSafetyKernel:
         enemy_frames = enemy_hazards_by_frame(snapshot.enemies, total_horizon)[
             start_frame:
         ]
-        hard_births = forecast_world_births(
-            snapshot,
-            ((snapshot.x, snapshot.y),) * min(4, total_horizon),
-        )
-        nominal_births = forecast_world_births(
-            snapshot,
-            ((snapshot.x, snapshot.y),) * total_horizon,
-            rng_mode="nominal",
+        hard_birth_horizon = min(fail_closed_horizon, total_horizon)
+        if (
+            getattr(self, "_hard_birth_snapshot", None) is snapshot
+            and getattr(self, "_hard_birth_horizon", 0)
+            >= hard_birth_horizon
+        ):
+            hard_births = self._hard_birth_forecast
+        else:
+            hard_births = forecast_world_births(
+                snapshot,
+                ((snapshot.x, snapshot.y),) * hard_birth_horizon,
+            )
+            self._hard_birth_snapshot = snapshot
+            self._hard_birth_horizon = hard_birth_horizon
+            self._hard_birth_forecast = hard_births
+        # A fully fail-closed authority window never reads nominal births.
+        # Avoid executing the same ECL program a second time on this Hard hot
+        # path; mixed Hard/soft windows still build the nominal continuation.
+        nominal_births = (
+            forecast_world_births(
+                snapshot,
+                ((snapshot.x, snapshot.y),) * total_horizon,
+                rng_mode="nominal",
+            )
+            if fail_closed_horizon < total_horizon
+            else None
         )
         uncovered = ((-10000.0, -10000.0, 10000.0, 10000.0),)
         birth_frames = tuple(
@@ -168,10 +223,11 @@ class NativeSafetyKernel:
                 if index < hard_births.covered_frames
                 else uncovered
             )
-            if index < 4
+            if index < fail_closed_horizon
             else (
                 nominal_births.hazards[index]
-                if index < nominal_births.covered_frames
+                if nominal_births is not None
+                and index < nominal_births.covered_frames
                 else ()
             )
             for index in range(start_frame, total_horizon)
@@ -183,10 +239,11 @@ class NativeSafetyKernel:
                 and hard_births.body_hazards
                 else uncovered
             )
-            if index < 4
+            if index < fail_closed_horizon
             else (
                 nominal_births.body_hazards[index]
-                if index < nominal_births.covered_frames
+                if nominal_births is not None
+                and index < nominal_births.covered_frames
                 and nominal_births.body_hazards
                 else ()
             )
@@ -222,6 +279,18 @@ class NativeSafetyKernel:
 
     def _prepare(self, snapshot: Snapshot, horizon: int):
         return self._prepare_window(snapshot, 0, horizon)
+
+    def _prepare_fail_closed(self, snapshot: Snapshot, horizon: int):
+        prepared = self._prepare_window(
+            snapshot,
+            0,
+            horizon,
+            fail_closed_horizon=horizon,
+        )
+        self._prepared_snapshot = snapshot
+        self._prepared_horizon = horizon
+        self._prepared_hazards = prepared
+        return prepared
 
     def _prepare_reusable(self, snapshot: Snapshot, horizon: int):
         if (
@@ -436,7 +505,10 @@ class NativeSafetyKernel:
             for index, action in enumerate(CONTROL_ACTIONS)
             if action in selected
         )
-        prepared = self._prepare_reusable(snapshot, selected_horizon)
+        # This selected continuation may extend physical publication
+        # authority, so every included ECL frame must use fail-closed source
+        # semantics rather than the nominal soft-proposal forecast.
+        prepared = self._prepare_fail_closed(snapshot, selected_horizon)
         hard, age_zero, _extended = self._certify_prepared(
             snapshot,
             hard_horizon,
@@ -623,6 +695,27 @@ class NativeSafetyKernel:
             prepared,
         )
 
+    def nominal_policy_counts_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ):
+        """Return a complete policy volume, or None when its budget expires."""
+        prepared = self._prepare_reusable(snapshot, horizon)
+        return self._nominal_policy_counts_prepared(
+            snapshot,
+            candidates,
+            segment_length,
+            horizon,
+            collision_margin,
+            prepared,
+            budget_ms,
+        )
+
     def terminal_guidance(
         self,
         snapshot: Snapshot,
@@ -633,9 +726,146 @@ class NativeSafetyKernel:
         target: tuple[float, float] | None = None,
     ) -> dict[Action, TerminalGuidance]:
         """Return unique terminal volume and target values on one snapshot."""
-        bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, horizon)
+        return self._terminal_guidance_prepared(
+            snapshot,
+            candidates,
+            segment_length,
+            horizon,
+            collision_margin,
+            target,
+            self._prepare_reusable(snapshot, horizon),
         )
+
+    def terminal_guidance_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+        target: tuple[float, float] | None = None,
+    ) -> dict[Action, TerminalGuidance] | None:
+        """Return a complete terminal-state ranking, or None on timeout."""
+        return self._terminal_guidance_prepared(
+            snapshot,
+            candidates,
+            segment_length,
+            horizon,
+            collision_margin,
+            target,
+            self._prepare_reusable(snapshot, horizon),
+            budget_ms,
+        )
+
+    def terminal_counts(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+    ) -> dict[Action, int]:
+        """Return exact deduplicated terminal-state counts."""
+        return self._terminal_counts_prepared(
+            snapshot,
+            candidates,
+            segment_length,
+            horizon,
+            collision_margin,
+            self._prepare_reusable(snapshot, horizon),
+        )
+
+    def terminal_counts_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> dict[Action, int] | None:
+        """Return complete terminal counts, or None when the budget expires."""
+        return self._terminal_counts_prepared(
+            snapshot,
+            candidates,
+            segment_length,
+            horizon,
+            collision_margin,
+            self._prepare_reusable(snapshot, horizon),
+            budget_ms,
+        )
+
+    def _terminal_counts_prepared(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        prepared,
+        budget_ms: float | None = None,
+    ) -> dict[Action, int] | None:
+        bullet_offsets, bullets, laser_offsets, lasers = prepared
+        candidate_actions = {candidate.action for candidate in candidates}
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        )
+        terminal_counts = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
+        arguments = (
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.normal_speed,
+            snapshot.focus_speed,
+            snapshot.normal_diagonal_speed,
+            snapshot.focus_diagonal_speed,
+            snapshot.input_mask,
+            segment_length,
+            horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+        )
+        status = (
+            self.counts_function(*arguments, terminal_counts)
+            if budget_ms is None
+            else self.budgeted_counts_function(
+                *arguments,
+                budget_ms,
+                terminal_counts,
+            )
+        )
+        if status == 1 and budget_ms is not None:
+            return None
+        if status != 0:
+            raise RuntimeError(
+                f"native terminal counts rejected input with status {status}"
+            )
+        return {
+            action: terminal_counts[index]
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        }
+
+    def _terminal_guidance_prepared(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        horizon: int,
+        collision_margin: float,
+        target: tuple[float, float] | None,
+        prepared,
+        budget_ms: float | None = None,
+    ) -> dict[Action, TerminalGuidance] | None:
+        bullet_offsets, bullets, laser_offsets, lasers = prepared
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
             1 << index
@@ -648,7 +878,7 @@ class NativeSafetyKernel:
         free_y = (ctypes.c_float * len(CONTROL_ACTIONS))()
         target_distances = (ctypes.c_float * len(CONTROL_ACTIONS))()
         target_x, target_y = target or (snapshot.x, snapshot.y)
-        status = self.guidance_function(
+        arguments = (
             snapshot.x,
             snapshot.y,
             snapshot.half_width,
@@ -668,12 +898,25 @@ class NativeSafetyKernel:
             collision_margin,
             target_x,
             target_y,
+        )
+        outputs = (
             terminal_counts,
             free_clearances,
             free_x,
             free_y,
             target_distances,
         )
+        status = (
+            self.guidance_function(*arguments, *outputs)
+            if budget_ms is None
+            else self.budgeted_guidance_function(
+                *arguments,
+                budget_ms,
+                *outputs,
+            )
+        )
+        if status == 1 and budget_ms is not None:
+            return None
         if status != 0:
             raise RuntimeError(
                 f"native terminal guidance rejected input with status {status}"
@@ -792,6 +1035,7 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
         prepared,
+        budget_ms: float | None = None,
     ):
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         candidate_actions = {candidate.action for candidate in candidates}
@@ -801,7 +1045,7 @@ class NativeSafetyKernel:
             if action in candidate_actions
         )
         output = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
-        status = self.nominal_function(
+        arguments = (
             snapshot.x,
             snapshot.y,
             snapshot.half_width,
@@ -819,8 +1063,18 @@ class NativeSafetyKernel:
             laser_offsets,
             lasers,
             collision_margin,
-            output,
         )
+        status = (
+            self.nominal_function(*arguments, output)
+            if budget_ms is None
+            else self.budgeted_nominal_function(
+                *arguments,
+                budget_ms,
+                output,
+            )
+        )
+        if budget_ms is not None and status == 1:
+            return None
         if status != 0:
             raise RuntimeError(
                 f"native nominal policy kernel rejected input with status {status}"

@@ -28,8 +28,13 @@ from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import hazard_box, hazards_by_frame as bullet_hazards_by_frame
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
+from th06.hazards.world import WorldBirthForecast
 from th06.kernels.safety import NativeSafetyKernel
-from th06.solver import HARD_SAFETY_HORIZON, Solver
+from th06.solver import (
+    HARD_CURRENT_HOLD_HORIZON,
+    HARD_SAFETY_HORIZON,
+    Solver,
+)
 from th06.actuator import Keyboard
 from th06.dialogue import DialogueSkipper
 from th06.input_lease import (
@@ -266,6 +271,26 @@ class BaselineTests(unittest.TestCase):
         self.assertFalse(covered_current_retry(10, 13, 4, up, safe))
         self.assertFalse(covered_current_retry(10, 14, 4, down, safe))
         self.assertFalse(covered_current_retry(10, 13, 3, down, safe))
+
+    def test_hard_authority_reserves_one_current_hold_retry_frame(self):
+        state = snapshot()
+        decision = Solver(decision_budget_ms=1e-9).decide(state)
+        current = action_from_input(state.input_mask)
+
+        self.assertEqual(decision.horizon, HARD_SAFETY_HORIZON)
+        self.assertGreaterEqual(
+            decision.held_horizon,
+            HARD_CURRENT_HOLD_HORIZON,
+        )
+        self.assertTrue(
+            covered_current_retry(
+                state.frame,
+                state.frame + HARD_SAFETY_HORIZON,
+                decision.held_horizon,
+                current,
+                decision.safe_actions,
+            )
+        )
 
     def test_input_lease_age_starts_at_physical_issue_frame(self):
         lease = InputLease()
@@ -823,7 +848,7 @@ class BaselineTests(unittest.TestCase):
 
 
 
-    def test_native_dense_followup_reuses_the_prepared_hazards(self):
+    def test_native_hard_selected_followup_reuses_fail_closed_hazards(self):
         state = snapshot()
         hard = certify_actions(state, HARD_SAFETY_HORIZON)
         held = action_from_input(state.input_mask)
@@ -835,7 +860,7 @@ class BaselineTests(unittest.TestCase):
         kernel._prepared_snapshot = None
         kernel._prepared_horizon = 0
         kernel._prepared_hazards = None
-        kernel._prepare = mock.Mock(return_value=prepared)
+        kernel._prepare_window = mock.Mock(return_value=prepared)
         kernel._certify_prepared = mock.Mock(side_effect=(
             (hard, hard, ()),
             (held_effort, (), ()),
@@ -853,7 +878,121 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(combined, (hard, hard, held_effort))
         self.assertEqual(effort, hard)
-        kernel._prepare.assert_called_once_with(state, 6)
+        kernel._prepare_window.assert_called_once_with(
+            state,
+            0,
+            6,
+            fail_closed_horizon=6,
+        )
+
+    def test_fully_fail_closed_native_window_skips_unused_nominal_ecl(self):
+        state = snapshot()
+        horizon = 5
+        empty_frames = ((),) * horizon
+        forecast = WorldBirthForecast(
+            births=empty_frames,
+            hazards=empty_frames,
+            covered_frames=horizon,
+            body_hazards=empty_frames,
+        )
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._hard_birth_snapshot = None
+        kernel._hard_birth_horizon = 0
+        kernel._hard_birth_forecast = None
+
+        with (
+            mock.patch(
+                "th06.kernels.safety.bullet_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.enemy_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.laser_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.forecast_world_births",
+                return_value=forecast,
+            ) as births,
+        ):
+            kernel._prepare_window(
+                state,
+                0,
+                horizon,
+                fail_closed_horizon=horizon,
+            )
+
+        births.assert_called_once_with(
+            state,
+            ((state.x, state.y),) * horizon,
+        )
+
+    def test_soft_native_window_reuses_fresh_hard_ecl_prefix(self):
+        state = snapshot()
+        hard_horizon = 5
+        soft_horizon = 16
+        hard_frames = ((),) * hard_horizon
+        soft_frames = ((),) * soft_horizon
+        hard_forecast = WorldBirthForecast(
+            births=hard_frames,
+            hazards=hard_frames,
+            covered_frames=hard_horizon,
+            body_hazards=hard_frames,
+        )
+        nominal_forecast = WorldBirthForecast(
+            births=soft_frames,
+            hazards=soft_frames,
+            covered_frames=soft_horizon,
+            body_hazards=soft_frames,
+        )
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._hard_birth_snapshot = None
+        kernel._hard_birth_horizon = 0
+        kernel._hard_birth_forecast = None
+
+        with (
+            mock.patch(
+                "th06.kernels.safety.bullet_hazards_by_frame",
+                return_value=soft_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.enemy_hazards_by_frame",
+                return_value=soft_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.laser_hazards_by_frame",
+                return_value=soft_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.forecast_world_births",
+                side_effect=(hard_forecast, nominal_forecast),
+            ) as births,
+        ):
+            kernel._prepare_window(
+                state,
+                0,
+                hard_horizon,
+                fail_closed_horizon=hard_horizon,
+            )
+            kernel._prepare_window(state, 0, soft_horizon)
+
+        self.assertEqual(
+            births.call_args_list,
+            [
+                mock.call(
+                    state,
+                    ((state.x, state.y),) * hard_horizon,
+                ),
+                mock.call(
+                    state,
+                    ((state.x, state.y),) * soft_horizon,
+                    rng_mode="nominal",
+                ),
+            ],
+        )
 
     def test_native_fast_pair_prepares_the_long_horizon_once(self):
         state = snapshot()

@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "id": "stage1-f4682-multirung-promotion",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 4682,
+    "failure_frame": 4743
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "Measured-affordable promotion may cross multiple ladder rungs in one decision; intermittent projection jitter must not indefinitely starve the first turn-capable p8 continuation.",
+  "summary": "The f4743 bottom-left Hard-empty stop was caused by one current source-linear bullet, not unknown emitter behavior. At the earliest still-viable root f4682, the physical solver completed only Hard-4 and held down. P8 already excluded down and uniquely retained up or up-right; p12 and p16 uniquely preferred up-right. On the full physical snapshot, native medians were 3.225 ms for Hard-4, 4.125 ms to extend the shared projection to h8, and 0.401 ms for p8, totaling 8.472 ms inside the 12.5 ms decision budget. The one-rung-per-frame promotion rule nevertheless oscillated between h4 and h6 under timing jitter and never reached p8. This single physical bullet is the minimized ranking contract; the full artifact preserves the 21-emitter timing evidence.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [
+      8,
+      12,
+      16
+    ],
+    "snapshot": {
+      "frame": 4682,
+      "stage": 1,
+      "player_state": 0,
+      "x": 12.360321044921875,
+      "y": 426.1249694824219,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 37,
+      "bullets": [
+        {
+          "x": 49.080116271972656,
+          "y": 373.1423645019531,
+          "vx": -0.5754051208496094,
+          "vy": 0.8425832986831665,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 2,
+          "acceleration": 0.0,
+          "speed": 1.0203125476837158,
+          "turn_speed": 0.0,
+          "acceleration_x": 0.0,
+          "acceleration_y": 0.0,
+          "angle": 2.169957399368286,
+          "direction_rotation": 0.0,
+          "timer": 306,
+          "timer_float": 306.0,
+          "acceleration_duration": 0,
+          "direction_interval": 0,
+          "direction_num_times": 0,
+          "direction_max_times": 0,
+          "curve_speed_acceleration": 0.0,
+          "curve_angular_velocity": 0.0,
+          "slot": 123
+        }
+      ],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 19,
+      "rng_seed": 47031,
+      "rng_generation": 2635
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {
+      "8": 9,
+      "12": 75,
+      "16": 626
+    },
+    "actions_by_horizon": {
+      "8": [
+        "up",
+        "up_right"
+      ],
+      "12": [
+        "up_right"
+      ],
+      "16": [
+        "up_right"
+      ]
+    },
+    "observed_shallow_action": "down",
+    "causal_lower_actions": [
+      "up",
+      "up_right"
+    ]
+  }
+}

@@ -12,6 +12,7 @@ from th06.kernels.safety import NativeSafetyKernel
 from th06.model import ACTIONS, SafeAction, Snapshot
 from th06.safety import certify_actions
 from th06.solver import Solver
+from th06.viability import nominal_policy_scores
 
 
 def snapshot(**changes) -> Snapshot:
@@ -125,7 +126,595 @@ class ConstantFrontierKernel(GuidanceKernel):
         self.clock.advance_ms(0.2)
         return {item.action: 0 for item in candidates}
 
+
+class DeepFrontierGuidanceKernel(GuidanceKernel):
+    def certify_selected(self, _state, horizon, actions, collision_margin):
+        allowed = frozenset(actions)
+        candidates = tuple(
+            item for item in self.hard if item.action in allowed
+        )
+        if horizon >= 16:
+            return tuple(
+                item
+                for item in candidates
+                if item.action.name == "up_left"
+            )
+        return candidates
+
+
+class RankedDeepFrontierGuidanceKernel(GuidanceKernel):
+    def __init__(self, clock: ManualClock, hard) -> None:
+        super().__init__(clock, hard)
+        self.target_candidates = []
+
+    def certify_selected(self, _state, horizon, actions, collision_margin):
+        allowed = frozenset(actions)
+        candidates = tuple(
+            item for item in self.hard if item.action in allowed
+        )
+        if horizon >= 12:
+            return tuple(
+                item
+                for item in candidates
+                if item.action.name in ("left", "up_right")
+            )
+        if horizon >= 8:
+            return tuple(
+                item
+                for item in candidates
+                if item.action.name in (
+                    "stay", "left", "up_right", "down_left"
+                )
+            )
+        return candidates
+
+    def terminal_guidance(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        target=None,
+    ):
+        self.calls.append(("target", horizon))
+        self.target_candidates.append(
+            (horizon, tuple(item.action.name for item in candidates))
+        )
+        self.clock.advance_ms(0.2)
+        counts = (
+            {"left": 2, "up_right": 1}
+            if horizon == 8
+            else {"left": 1, "up_right": 2}
+        )
+        return {
+            item.action: TerminalGuidance(
+                terminal_count=counts.get(item.action.name, 1),
+                free_clearance=12.0,
+                free_x=80.0,
+                free_y=120.0,
+                target_distance_squared=9.0,
+            )
+            for item in candidates
+        }
+
+    def nominal_policy_counts_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_policy", horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        if budget_ms < 1.0:
+            return None
+        return {
+            item.action: (
+                2
+                if item.action.name in ("left", "up_right")
+                else 1
+            )
+            for item in candidates
+        }
+
+
+class SurvivalBeforeShallowTargetKernel(GuidanceKernel):
+    def certify_selected(self, _state, horizon, actions, collision_margin):
+        allowed = frozenset(actions)
+        candidates = tuple(
+            item for item in self.hard if item.action in allowed
+        )
+        if horizon >= 16:
+            return tuple(
+                item
+                for item in candidates
+                if item.action.name in ("stay", "up", "left", "up_left")
+            )
+        return candidates
+
+    def nominal_policy_counts_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_policy", horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        if horizon == 16:
+            return None
+        return {
+            item.action: 10 if item.action.name == "stay" else 1
+            for item in candidates
+        }
+
+
+class BudgetedReachabilityKernel(GuidanceKernel):
+    def nominal_policy_counts_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_policy", horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        return {
+            item.action: 20 if item.action.name == "left" else 1
+            for item in candidates
+        }
+
+    def terminal_counts_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_counts", horizon))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        return {
+            item.action: 5 if item.action.name == "down" else 4
+            for item in candidates
+        }
+
+
+class TimedOutReachabilityKernel(BudgetedReachabilityKernel):
+    def nominal_policy_counts_budgeted(
+        self,
+        _state,
+        _candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_policy", horizon))
+        self.clock.advance_ms(min(0.1, budget_ms))
+        return None
+
+    def terminal_counts_budgeted(
+        self,
+        _state,
+        _candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("budgeted_counts", horizon))
+        self.clock.advance_ms(budget_ms)
+        return None
+
+
 class TerminalGuidanceTests(unittest.TestCase):
+    def replay_target_frontier_adjudication_case(self, case, kernel=None):
+        values = case["input"]
+        source = decode_snapshot(values["acquisition_snapshot"])
+        track = decode_snapshot(values["tracking_snapshot"])
+        if kernel is None:
+            certify = lambda state, horizon: certify_actions(state, horizon)
+            terminal = lambda state, candidates, horizon, target=None: (
+                terminal_guidance_scores(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    horizon,
+                    target,
+                )
+            )
+            policy = lambda state, candidates, horizon: nominal_policy_scores(
+                state,
+                candidates,
+                values["segment_length"],
+                horizon,
+            )
+        else:
+            certify = lambda state, horizon: kernel.certify(
+                state, horizon, collision_margin=0.35
+            )
+            terminal = lambda state, candidates, horizon, target=None: (
+                kernel.terminal_guidance(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    horizon,
+                    collision_margin=0.35,
+                    target=target,
+                )
+            )
+            policy = lambda state, candidates, horizon: (
+                kernel.nominal_policy_counts(
+                    state,
+                    candidates,
+                    values["segment_length"],
+                    horizon,
+                    collision_margin=0.35,
+                )
+            )
+
+        expected = case["expect"]
+        source_hard = certify(source, 4)
+        acquisition_action = ACTION_BY_NAME[values["acquisition_action"]]
+        source_candidate = tuple(
+            item for item in source_hard
+            if item.action == acquisition_action
+        )
+        acquired = terminal(
+            source,
+            source_candidate,
+            values["acquisition_horizon"],
+        )[acquisition_action]
+        target = (acquired.free_x, acquired.free_y)
+        self.assertEqual(
+            acquired.terminal_count,
+            expected["acquisition_terminal_count"],
+        )
+        self.assertAlmostEqual(
+            acquired.free_clearance,
+            expected["acquisition_free_clearance"],
+            places=4,
+        )
+        self.assertAlmostEqual(target[0], expected["target"][0], places=4)
+        self.assertAlmostEqual(target[1], expected["target"][1], places=4)
+
+        hard = certify(track, 4)
+        self.assertEqual(
+            [item.action.name for item in hard],
+            expected["hard_actions"],
+        )
+        frontiers = {
+            horizon: certify(track, horizon)
+            for horizon in (8, 12, 16)
+        }
+        for horizon, frontier in frontiers.items():
+            self.assertEqual(
+                [item.action.name for item in frontier],
+                expected["frontier_actions_by_horizon"][str(horizon)],
+            )
+
+        deepest = frontiers[values["frontier_horizon"]]
+        deepest_actions = frozenset(item.action for item in deepest)
+        shallow = terminal(
+            track,
+            hard,
+            values["guidance_horizon"],
+            target,
+        )
+        restricted = preferred_target_actions(shallow, deepest_actions)
+        self.assertEqual(
+            sorted(action.name for action in restricted),
+            sorted(expected["shallow_restricted_actions"]),
+        )
+
+        scores = policy(
+            track,
+            deepest,
+            values["adjudication_horizon"],
+        )
+        self.assertEqual(
+            {action.name: score for action, score in scores.items()},
+            expected["adjudication_scores"],
+        )
+        best = max(scores.values())
+        self.assertEqual(
+            sorted(
+                action.name for action, score in scores.items()
+                if score == best
+            ),
+            sorted(expected["adjudication_actions"]),
+        )
+
+    def test_reference_target_frontier_adjudication_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "target_frontier_adjudication"
+        )
+        self.assertTrue(cases, "target frontier adjudication corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_target_frontier_adjudication_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_target_frontier_adjudication_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "target_frontier_adjudication"
+        )
+        self.assertTrue(cases, "target frontier adjudication corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_target_frontier_adjudication_case(case, kernel)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_budgeted_terminal_guidance_is_complete_or_discarded(self):
+        state = snapshot(x=192.0, y=380.0)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify(state, 4, collision_margin=0.35)
+        expected = kernel.terminal_guidance(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+        )
+
+        completed = kernel.terminal_guidance_budgeted(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.terminal_guidance_budgeted(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_budgeted_terminal_counts_are_complete_or_discarded(self):
+        state = snapshot(x=192.0, y=380.0)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify(state, 4, collision_margin=0.35)
+        guidance = kernel.terminal_guidance(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+        )
+        expected = {
+            action: value.terminal_count
+            for action, value in guidance.items()
+        }
+
+        completed = kernel.terminal_counts_budgeted(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.terminal_counts_budgeted(
+            state,
+            hard,
+            4,
+            20,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
+
+    def replay_terminal_reachability_case(self, case, kernel=None):
+        values = case["input"]
+        state = decode_snapshot(values["snapshot"])
+        if kernel is None:
+            hard = certify_actions(state, 4)
+            shallow = nominal_policy_scores(
+                state,
+                hard,
+                values["segment_length"],
+                values["shallow_horizon"],
+            )
+            guidance = terminal_guidance_scores(
+                state,
+                hard,
+                values["segment_length"],
+                values["reachability_horizon"],
+            )
+            frontier = certify_actions(
+                state,
+                values["reachability_horizon"],
+            )
+        else:
+            hard = kernel.certify(state, 4, collision_margin=0.35)
+            shallow = kernel.nominal_policy_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["shallow_horizon"],
+                collision_margin=0.35,
+            )
+            guidance = kernel.terminal_guidance(
+                state,
+                hard,
+                values["segment_length"],
+                values["reachability_horizon"],
+                collision_margin=0.35,
+            )
+            counts = kernel.terminal_counts(
+                state,
+                hard,
+                values["segment_length"],
+                values["reachability_horizon"],
+                collision_margin=0.35,
+            )
+            self.assertEqual(
+                counts,
+                {
+                    action: value.terminal_count
+                    for action, value in guidance.items()
+                },
+            )
+            frontier = kernel.certify(
+                state,
+                values["reachability_horizon"],
+                collision_margin=0.35,
+            )
+
+        expected = case["expect"]
+        self.assertEqual(
+            [item.action.name for item in hard],
+            expected["hard_actions"],
+        )
+        self.assertEqual(
+            {action.name: score for action, score in shallow.items()},
+            expected["shallow_scores"],
+        )
+        shallow_best = max(shallow.values())
+        shallow_actions = {
+            action.name for action, score in shallow.items()
+            if score == shallow_best
+        }
+        self.assertEqual(shallow_actions, set(expected["shallow_actions"]))
+        self.assertIn(values["observed_action"], shallow_actions)
+
+        self.assertEqual(
+            {
+                action.name: value.terminal_count
+                for action, value in guidance.items()
+            },
+            expected["terminal_counts"],
+        )
+        terminal_best = max(
+            value.terminal_count for value in guidance.values()
+        )
+        terminal_actions = {
+            action.name for action, value in guidance.items()
+            if value.terminal_count == terminal_best
+        }
+        self.assertEqual(terminal_actions, set(expected["terminal_actions"]))
+        self.assertNotIn(values["observed_action"], terminal_actions)
+        self.assertEqual(
+            [item.action.name for item in frontier],
+            expected["constant_actions"],
+        )
+
+    def test_reference_terminal_reachability_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "terminal_reachability_divergence"
+        )
+        self.assertTrue(cases, "terminal reachability corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_terminal_reachability_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_terminal_reachability_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "terminal_reachability_divergence"
+        )
+        self.assertTrue(cases, "terminal reachability corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_terminal_reachability_case(case, kernel)
+
+    def replay_frontier_rerank_case(self, case, kernel=None):
+        values = case["input"]
+        state = decode_snapshot(values["snapshot"])
+        if kernel is None:
+            hard = certify_actions(state, 4)
+            frontier = certify_actions(
+                state, values["frontier_horizon"]
+            )
+            guidance = terminal_guidance_scores(
+                state,
+                hard,
+                values["segment_length"],
+                values["guidance_horizon"],
+                tuple(values["target"]),
+            )
+        else:
+            hard = kernel.certify(state, 4, collision_margin=0.35)
+            frontier = kernel.certify(
+                state,
+                values["frontier_horizon"],
+                collision_margin=0.35,
+            )
+            guidance = kernel.terminal_guidance(
+                state,
+                hard,
+                values["segment_length"],
+                values["guidance_horizon"],
+                collision_margin=0.35,
+                target=tuple(values["target"]),
+            )
+        expected = case["expect"]
+        self.assertEqual(
+            sorted(item.action.name for item in frontier),
+            sorted(expected["frontier_actions"]),
+        )
+        global_preferred = preferred_target_actions(
+            guidance, frozenset(item.action for item in hard)
+        )
+        restricted = preferred_target_actions(
+            guidance, frozenset(item.action for item in frontier)
+        )
+        self.assertEqual(
+            sorted(action.name for action in global_preferred),
+            sorted(expected["global_actions"]),
+        )
+        self.assertEqual(
+            sorted(action.name for action in restricted),
+            sorted(expected["restricted_actions"]),
+        )
+
+    def test_reference_frontier_rerank_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "target_frontier_rerank"
+        )
+        self.assertTrue(cases, "target frontier rerank corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_frontier_rerank_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_frontier_rerank_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "target_frontier_rerank"
+        )
+        self.assertTrue(cases, "target frontier rerank corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_frontier_rerank_case(case, kernel)
+
     def replay_target_case(self, case, kernel=None):
         values = case["input"]
         source = decode_snapshot(values["acquisition_snapshot"])
@@ -373,6 +962,176 @@ class TerminalGuidanceTests(unittest.TestCase):
             [8, 12, 16],
         )
 
+    def test_shallow_target_cannot_override_deeper_fresh_frontier(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = DeepFrontierGuidanceKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.target_rate_by_kind["track"].update(
+            {8: 0.0, 12: 1.0}
+        )
+        solver.effort.target_frame_by_kind["track"].update(
+            {8: state.frame, 12: state.frame}
+        )
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 16
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "target"],
+            [8],
+        )
+        self.assertEqual(decision.action.name, "up_left")
+        self.assertEqual(decision.effort_horizon, 20)
+
+    def test_survival_policy_precedes_same_horizon_target_refinement(self):
+        state = snapshot(x=192.0, y=380.0, input_mask=0x94)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = RankedDeepFrontierGuidanceKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.target_rate_by_kind["track"].update(
+            {8: 0.0, 12: 0.003, 16: 0.0}
+        )
+        solver.effort.target_frame_by_kind["track"].update(
+            {8: state.frame, 12: state.frame, 16: state.frame}
+        )
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 16
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "target"],
+            [16],
+        )
+        self.assertEqual(
+            kernel.target_candidates,
+            [
+                (
+                    16,
+                    ("left", "up_right"),
+                ),
+            ],
+        )
+        deep_call = next(
+            call for call in kernel.calls if call[0] == "budgeted_policy"
+        )
+        self.assertEqual(deep_call, ("budgeted_policy", 16))
+        self.assertLess(
+            kernel.calls.index(deep_call),
+            kernel.calls.index(("target", 16)),
+        )
+        self.assertEqual(decision.action.name, "up_right")
+        self.assertEqual(decision.effort_horizon, 16)
+
+    def test_shallow_target_waits_when_survival_is_deeper(self):
+        state = snapshot(x=20.569, y=23.221, input_mask=0x14)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = SurvivalBeforeShallowTargetKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.observe_policy_timeout(state, 16)
+        solver.effort.target_rate_by_kind["track"][8] = 0.0
+        solver.effort.target_frame_by_kind["track"][8] = state.frame
+        solver.guidance_target = (17.25, 28.53)
+        solver.guidance_deadline = state.frame + 15
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            [
+                call[1]
+                for call in kernel.calls
+                if call[0] == "budgeted_policy"
+            ],
+            [12, 16],
+        )
+        self.assertNotIn("target", {call[0] for call in kernel.calls})
+        self.assertEqual(decision.action.name, "stay")
+        self.assertEqual(decision.effort_horizon, 16)
+
+    def test_h20_terminal_counts_precede_path_volume_and_soft_target(self):
+        state = snapshot(x=364.0, y=161.858, input_mask=0x14)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = BudgetedReachabilityKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 20
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 20
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            [call for call in kernel.calls if call[0] == "budgeted_counts"],
+            [("budgeted_counts", 20)],
+        )
+        self.assertNotIn(
+            "budgeted_policy",
+            {call[0] for call in kernel.calls},
+        )
+        self.assertNotIn("target", {call[0] for call in kernel.calls})
+        self.assertEqual(decision.action.name, "down")
+        self.assertEqual(decision.effort_horizon, 20)
+
+    def test_h20_timeout_keeps_completed_lower_survival_rung(self):
+        state = snapshot(x=364.0, y=161.858, input_mask=0x14)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = TimedOutReachabilityKernel(clock, hard)
+        solver = Solver(decision_budget_ms=12.5, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 20
+
+        decision = solver.decide(state)
+
+        self.assertEqual(
+            [call[0] for call in kernel.calls].count("budgeted_counts"),
+            1,
+        )
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
+            [12],
+        )
+        self.assertEqual(decision.action.name, "right")
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_physical_discontinuity_discards_only_soft_plan_state(self):
         solver = Solver()
         solver.guidance_target = (80.0, 120.0)
@@ -407,7 +1166,7 @@ class TerminalGuidanceTests(unittest.TestCase):
 
         self.assertEqual(decision.action.name, "right")
         self.assertEqual(solver.pending_target_action.name, "right")
-        self.assertEqual(solver.pending_target_horizon, 8)
+        self.assertEqual(solver.pending_target_horizon, 20)
 
 
 if __name__ == "__main__":

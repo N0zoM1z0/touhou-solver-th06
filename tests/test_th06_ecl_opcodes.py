@@ -215,6 +215,121 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 2, forecast.reason)
         self.assertEqual([len(frame) for frame in forecast.births], [0, 1])
 
+    def test_hard_forecast_unions_reachable_death_callback_timing(self):
+        waiting = replace(
+            instruction(0x1000, 1, bytes(4), 0x10),
+            time=10000,
+        )
+        callback_bullet = instruction(
+            0x2000,
+            67,
+            struct.pack(
+                "<hhIIffffI", 0, 0, 1, 1, 1.0, 0.3, 0.0, 0.0, 0
+            ),
+            0x2C,
+        )
+        sentinel = EclInstruction(0x202C, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(waiting, sentinel),
+            life=10,
+            death_callback_sub=0,
+            death_mode=1,
+            ecl_subroutines=(0x2000,),
+            ecl_program=(waiting, callback_bullet, sentinel),
+            is_boss=True,
+        )
+
+        forecast = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 2,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+
+        self.assertEqual(forecast.covered_frames, 2, forecast.reason)
+        self.assertEqual([len(frame) for frame in forecast.births], [0, 1])
+
+        despawning = forecast_ecl_births(
+            replace(source, death_mode=0),
+            ((100.0, 400.0),) * 2,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+        self.assertEqual(despawning.covered_frames, 2, despawning.reason)
+        self.assertEqual([len(frame) for frame in despawning.births], [0, 0])
+
+    def test_ecl_life_set_runs_certain_death_callback_on_next_update(self):
+        life_set = instruction(0x1000, 111, struct.pack("<i", 0), 0x10)
+        waiting = replace(
+            instruction(0x1010, 1, bytes(4), 0x10),
+            time=10000,
+        )
+        callback_bullet = instruction(
+            0x2000,
+            67,
+            struct.pack(
+                "<hhIIffffI", 0, 0, 1, 1, 1.0, 0.3, 0.0, 0.0, 0
+            ),
+            0x2C,
+        )
+        sentinel = EclInstruction(0x202C, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(life_set, waiting),
+            collidable=False,
+            damageable=False,
+            death_callback_sub=0,
+            death_mode=3,
+            is_boss=True,
+            ecl_subroutines=(0x2000,),
+            ecl_program=(life_set, waiting, callback_bullet, sentinel),
+        )
+
+        forecast = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 2,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=((2.0, 2.0),),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+
+        self.assertEqual(forecast.covered_frames, 2, forecast.reason)
+        self.assertEqual([len(frame) for frame in forecast.births], [0, 1])
+        self.assertIsNotNone(forecast.next_spawner)
+        self.assertEqual(forecast.next_spawner.life, 1)
+        self.assertEqual(forecast.next_spawner.death_mode, 0)
+        self.assertEqual(forecast.next_spawner.death_callback_sub, -1)
+
+    def test_death_flag_updates_the_source_three_bit_mode(self):
+        death_flag = instruction(
+            0x1000,
+            107,
+            struct.pack("<i", 9),
+            0x10,
+        )
+        sentinel = EclInstruction(0x1010, -1, 0, 0, 0, bytes(12).hex())
+
+        forecast = forecast_ecl_births(
+            emitter(death_flag, sentinel),
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertEqual(forecast.next_spawner.death_mode, 1)
+
     def test_unconditional_jump_uses_its_short_source_layout(self):
         jump = instruction(
             0x1000,

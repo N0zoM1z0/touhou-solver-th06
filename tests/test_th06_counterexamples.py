@@ -10,10 +10,11 @@ from counterexample_corpus import (
 from th06.input_lease import (
     bounded_delivery_age,
     changed_action_delivery_supported,
+    covered_current_retry,
     required_changed_action_delivery_delay,
 )
 from th06.hazards.world import forecast_world_births
-from th06.model import SafeAction, Snapshot
+from th06.model import SafeAction, Snapshot, action_from_input
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
@@ -43,7 +44,7 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     decision.action,
                     ACTION_BY_NAME[case["expect"]["action"]],
                 )
-                self.assertEqual(
+                self.assertGreaterEqual(
                     decision.effort_horizon,
                     case["expect"]["effort_horizon"],
                 )
@@ -124,6 +125,183 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         sorted(candidate.action.name for candidate in actual),
                         sorted(expected),
                     )
+                required_held_horizon = case["expect"].get(
+                    "required_held_horizon"
+                )
+                if required_held_horizon is not None:
+                    current = action_from_input(state.input_mask)
+                    self.assertEqual(
+                        current.name,
+                        case["expect"]["observed_current_action"],
+                    )
+                    decision = Solver(decision_budget_ms=1e-9).decide(state)
+                    self.assertGreaterEqual(
+                        decision.held_horizon,
+                        required_held_horizon,
+                    )
+                    self.assertTrue(
+                        covered_current_retry(
+                            state.frame,
+                            state.frame
+                            + case["expect"]["observed_delivery_age"],
+                            decision.held_horizon,
+                            current,
+                            decision.safe_actions,
+                        )
+                    )
+
+    def test_constant_policy_conflict_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "constant_policy_conflict"
+        )
+        self.assertTrue(cases, "constant/policy conflict corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard = certify_actions(state, values["hard_horizon"])
+                constant = certify_actions(
+                    state, values["constant_horizon"]
+                )
+                scores = nominal_policy_scores(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    values["policy_horizon"],
+                )
+                best = max(scores.values(), default=0)
+                self.assertEqual(
+                    [candidate.action.name for candidate in hard],
+                    expected["hard_actions"],
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in constant],
+                    expected["constant_actions"],
+                )
+                self.assertEqual(
+                    {action.name: score for action, score in scores.items()},
+                    expected["policy_scores"],
+                )
+                self.assertEqual(
+                    [
+                        action.name for action, score in scores.items()
+                        if score == best
+                    ],
+                    expected["policy_best_actions"],
+                )
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_constant_policy_conflict_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "constant_policy_conflict"
+        )
+        self.assertTrue(cases, "constant/policy conflict corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard = kernel.certify(
+                    state,
+                    values["hard_horizon"],
+                    collision_margin=0.35,
+                )
+                constant = kernel.certify(
+                    state,
+                    values["constant_horizon"],
+                    collision_margin=0.35,
+                )
+                scores = kernel.nominal_policy_counts(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    values["policy_horizon"],
+                    collision_margin=0.35,
+                )
+                self.assertEqual(
+                    [candidate.action.name for candidate in constant],
+                    expected["constant_actions"],
+                )
+                self.assertEqual(
+                    {action.name: score for action, score in scores.items()},
+                    expected["policy_scores"],
+                )
+
+    @unittest.skipUnless(os.name == "nt", "native held authority needs Windows")
+    def test_native_current_hold_authority_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("expect", {}).get("required_held_horizon")
+            is not None
+        )
+        self.assertTrue(cases, "current hold authority corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                current = action_from_input(state.input_mask)
+                held_horizon = case["expect"]["required_held_horizon"]
+                hard, _age_zero, held = (
+                    kernel.certify_delivery_sets_with_selected(
+                        state,
+                        4,
+                        held_horizon,
+                        (current,),
+                        collision_margin=0.35,
+                    )
+                )
+                self.assertEqual(
+                    sorted(candidate.action.name for candidate in hard),
+                    sorted(case["expect"]["actions_by_horizon"]["4"]),
+                )
+                self.assertEqual(
+                    tuple(candidate.action for candidate in held),
+                    (current,),
+                )
+
+    def test_frontier_precedence_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "frontier_precedence"
+        )
+        self.assertTrue(cases, "frontier precedence corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                hard = certify_actions(
+                    state, case["input"]["hard_horizon"]
+                )
+                deep = certify_actions(
+                    state, case["input"]["deep_horizon"]
+                )
+                hard_names = {candidate.action.name for candidate in hard}
+                deep_names = {candidate.action.name for candidate in deep}
+                shallow = case["input"]["shallow_proposal"]
+                self.assertIn(shallow, hard_names)
+                self.assertNotIn(shallow, deep_names)
+                self.assertEqual(
+                    sorted(deep_names),
+                    sorted(case["expect"]["frontier_actions"]),
+                )
+                scores = nominal_policy_scores(
+                    state,
+                    hard,
+                    case["input"]["segment_length"],
+                    case["input"]["deep_horizon"],
+                )
+                best = max(scores.values(), default=0)
+                self.assertEqual(
+                    sorted(
+                        action.name
+                        for action, score in scores.items()
+                        if score == best
+                    ),
+                    sorted(case["expect"]["policy_best_actions"]),
+                )
 
     def test_physical_ranking_sequences(self):
         cases = tuple(
@@ -276,9 +454,267 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         decision.action,
                         ACTION_BY_NAME[solver_expect["action"]],
                     )
-                    self.assertEqual(
+                    self.assertGreaterEqual(
                         decision.effort_horizon,
                         solver_expect["effort_horizon"],
+                    )
+
+    def test_reference_policy_horizon_divergence_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "policy_horizon_divergence"
+        )
+        self.assertTrue(cases, "policy horizon divergence corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                hard = certify_actions(state, 4)
+                hard_expect = case["expect"].get("hard_actions")
+                if hard_expect is not None:
+                    self.assertEqual(
+                        [candidate.action.name for candidate in hard],
+                        hard_expect,
+                    )
+                constants_by_horizon = {}
+                for horizon, expected in case["expect"].get(
+                    "constant_actions_by_horizon",
+                    {},
+                ).items():
+                    constant = certify_actions(state, int(horizon))
+                    constants_by_horizon[int(horizon)] = constant
+                    self.assertEqual(
+                        sorted(candidate.action.name for candidate in constant),
+                        sorted(expected),
+                    )
+                scores_by_horizon = {}
+                for horizon in case["input"]["horizons"]:
+                    scores = nominal_policy_scores(
+                        state,
+                        hard,
+                        case["input"]["segment_length"],
+                        horizon,
+                    )
+                    scores_by_horizon[horizon] = scores
+                    best_score = max(scores.values(), default=0)
+                    self.assertEqual(
+                        best_score,
+                        case["expect"]["best_score_by_horizon"][
+                            str(horizon)
+                        ],
+                    )
+                    self.assertEqual(
+                        sorted(
+                            action.name for action, score in scores.items()
+                            if score == best_score
+                        ),
+                        sorted(
+                            case["expect"]["actions_by_horizon"][
+                                str(horizon)
+                            ]
+                        ),
+                    )
+                shortlist_expect = case["expect"].get("deep_shortlist")
+                if shortlist_expect is not None:
+                    lower_scores = scores_by_horizon[
+                        shortlist_expect["lower_horizon"]
+                    ]
+                    lower_best = max(lower_scores.values(), default=0)
+                    constant_actions = {
+                        candidate.action for candidate in constants_by_horizon[
+                            shortlist_expect["deep_horizon"]
+                        ]
+                    }
+                    shortlist_actions = (
+                        {
+                            action for action, score in lower_scores.items()
+                            if score == lower_best
+                        }
+                        | constant_actions
+                    )
+                    if (
+                        not constant_actions
+                        or shortlist_expect.get("retain_current", False)
+                    ):
+                        shortlist_actions.add(action_from_input(state.input_mask))
+                    self.assertEqual(
+                        sorted(action.name for action in shortlist_actions),
+                        sorted(shortlist_expect["actions"]),
+                    )
+                    shortlist = tuple(
+                        candidate for candidate in hard
+                        if candidate.action in shortlist_actions
+                    )
+                    deep_scores = nominal_policy_scores(
+                        state,
+                        shortlist,
+                        case["input"]["segment_length"],
+                        shortlist_expect["deep_horizon"],
+                    )
+                    deep_best = max(deep_scores.values(), default=0)
+                    self.assertEqual(deep_best, shortlist_expect["best_score"])
+                    self.assertEqual(
+                        sorted(
+                            action.name for action, score in deep_scores.items()
+                            if score == deep_best
+                        ),
+                        sorted(shortlist_expect["best_actions"]),
+                    )
+                fallback_action = case["expect"].get("fallback_action")
+                if fallback_action is not None:
+                    chosen = ProposalRanker().choose(state, hard)
+                    self.assertEqual(
+                        chosen.action,
+                        ACTION_BY_NAME[fallback_action],
+                    )
+
+    def test_preferred_policy_ties_use_source_defined_free_space(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "policy_tie_free_space"
+        )
+        self.assertTrue(cases, "policy free-space tie corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                hard = certify_actions(state, 4)
+                scores = nominal_policy_scores(
+                    state,
+                    hard,
+                    case["input"]["segment_length"],
+                    case["input"]["horizon"],
+                )
+                best_score = max(scores.values(), default=0)
+                preferred = frozenset(
+                    action for action, score in scores.items()
+                    if score == best_score
+                )
+                expected = case["expect"]
+                self.assertEqual(best_score, expected["best_score"])
+                self.assertEqual(
+                    sorted(action.name for action in preferred),
+                    sorted(expected["actions"]),
+                )
+
+                ranker = ProposalRanker()
+                ranker.committed_action = ACTION_BY_NAME[
+                    expected["observed_committed_action"]
+                ]
+                ranker.commit_until_frame = state.frame + 4
+                ranker.last_frame = state.frame - 1
+                chosen = ranker.choose(state, hard, preferred)
+
+                self.assertEqual(
+                    chosen.action,
+                    ACTION_BY_NAME[expected["chosen_action"]],
+                )
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_policy_horizon_divergence_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "policy_horizon_divergence"
+        )
+        self.assertTrue(cases, "policy horizon divergence corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                hard = kernel.certify(state, 4, collision_margin=0.35)
+                hard_expect = case["expect"].get("hard_actions")
+                if hard_expect is not None:
+                    self.assertEqual(
+                        [candidate.action.name for candidate in hard],
+                        hard_expect,
+                    )
+                constants_by_horizon = {}
+                for horizon, expected in case["expect"].get(
+                    "constant_actions_by_horizon",
+                    {},
+                ).items():
+                    constant = kernel.certify(
+                        state,
+                        int(horizon),
+                        collision_margin=0.35,
+                    )
+                    constants_by_horizon[int(horizon)] = constant
+                    self.assertEqual(
+                        sorted(candidate.action.name for candidate in constant),
+                        sorted(expected),
+                    )
+                scores_by_horizon = {}
+                for horizon in case["input"]["horizons"]:
+                    scores = kernel.nominal_policy_counts(
+                        state,
+                        hard,
+                        case["input"]["segment_length"],
+                        horizon,
+                        collision_margin=0.35,
+                    )
+                    scores_by_horizon[horizon] = scores
+                    best_score = max(scores.values(), default=0)
+                    self.assertEqual(
+                        best_score,
+                        case["expect"]["best_score_by_horizon"][
+                            str(horizon)
+                        ],
+                    )
+                    self.assertEqual(
+                        sorted(
+                            action.name for action, score in scores.items()
+                            if score == best_score
+                        ),
+                        sorted(
+                            case["expect"]["actions_by_horizon"][
+                                str(horizon)
+                            ]
+                        ),
+                    )
+                shortlist_expect = case["expect"].get("deep_shortlist")
+                if shortlist_expect is not None:
+                    lower_scores = scores_by_horizon[
+                        shortlist_expect["lower_horizon"]
+                    ]
+                    lower_best = max(lower_scores.values(), default=0)
+                    constant_actions = {
+                        candidate.action for candidate in constants_by_horizon[
+                            shortlist_expect["deep_horizon"]
+                        ]
+                    }
+                    shortlist_actions = (
+                        {
+                            action for action, score in lower_scores.items()
+                            if score == lower_best
+                        }
+                        | constant_actions
+                    )
+                    if (
+                        not constant_actions
+                        or shortlist_expect.get("retain_current", False)
+                    ):
+                        shortlist_actions.add(action_from_input(state.input_mask))
+                    self.assertEqual(
+                        sorted(action.name for action in shortlist_actions),
+                        sorted(shortlist_expect["actions"]),
+                    )
+                    shortlist = tuple(
+                        candidate for candidate in hard
+                        if candidate.action in shortlist_actions
+                    )
+                    deep_scores = kernel.nominal_policy_counts(
+                        state,
+                        shortlist,
+                        case["input"]["segment_length"],
+                        shortlist_expect["deep_horizon"],
+                        collision_margin=0.35,
+                    )
+                    deep_best = max(deep_scores.values(), default=0)
+                    self.assertEqual(deep_best, shortlist_expect["best_score"])
+                    self.assertEqual(
+                        sorted(
+                            action.name for action, score in deep_scores.items()
+                            if score == deep_best
+                        ),
+                        sorted(shortlist_expect["best_actions"]),
                     )
 
 

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "id": "stage1-f5579-preferred-free-space-tie",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "first_tie_frame": 5574,
+    "target_frame": 5579,
+    "failure_frame": 5855
+  },
+  "runner": "policy_tie_free_space",
+  "contract": "When strongest fresh continuation evidence and Hard clearance are both exactly tied, source-defined local free space breaks the tie before action commitment; position never overrides stronger survival evidence.",
+  "summary": "The f5855 Hard-empty stop was an effect. Before any current bullet existed, the physical route crossed the top edge from left to right while repeatedly holding right. At f5579 p12 gave the same maximum continuation count to stay, down, right, down-left, and down-right, but commitment kept right. The authoritative source clamps the player center to [8,376] x [16,432]; down uniquely increases the minimum local free-space clearance after the physical delivery window. The later ECL emitter produced its first aimed ten-bullet volley at f5779, when the route had reached the upper-right corner. No hazard object is needed for this minimized ranking contradiction.",
+  "input": {
+    "segment_length": 4,
+    "horizon": 12,
+    "snapshot": {
+      "frame": 5579,
+      "stage": 1,
+      "player_state": 0,
+      "x": 21.51470947265625,
+      "y": 18.946109771728516,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 133,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": []
+    }
+  },
+  "expect": {
+    "best_score": 78,
+    "actions": [
+      "stay",
+      "down",
+      "right",
+      "down_left",
+      "down_right"
+    ],
+    "observed_committed_action": "right",
+    "chosen_action": "down"
+  }
+}
