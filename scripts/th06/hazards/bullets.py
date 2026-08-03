@@ -483,6 +483,19 @@ def hazard_boxes(
                 bullet.y + half_height + reach,
             ))
         return boxes
+    return _linear_hazard_boxes(bullet, 0, horizon)
+
+
+def _linear_hazard_boxes(
+    bullet: Bullet,
+    completed_horizon: int,
+    total_horizon: int,
+) -> list[tuple[float, float, float, float]]:
+    """Project only unseen ages for a bullet with no dynamic EX motion."""
+    frames = range(completed_horizon + 1, total_horizon + 1)
+    state = bullet.state
+    half_width = bullet.half_width
+    half_height = bullet.half_height
     if state == 1:
         x = bullet.x
         y = bullet.y
@@ -524,6 +537,34 @@ def hazards_by_frame(snapshot: Snapshot, horizon: int) -> list[tuple[tuple[float
     ]
     for bullet in snapshot.bullets:
         for frame, box in zip(frames, hazard_boxes(bullet, horizon)):
+            frame.append(box)
+    return [tuple(frame) for frame in frames]
+
+
+def extend_hazards_by_frame(
+    snapshot: Snapshot,
+    prefix: list[tuple[tuple[float, float, float, float], ...]],
+    total_horizon: int,
+) -> list[tuple[tuple[float, float, float, float], ...]]:
+    """Extend an exact current-bullet prefix without rebuilding its frames."""
+    completed_horizon = len(prefix)
+    if total_horizon < completed_horizon:
+        raise ValueError("bullet hazard horizon cannot shrink during extension")
+    frames = [list(frame) for frame in prefix]
+    frames.extend([] for _ in range(total_horizon - completed_horizon))
+    if total_horizon == completed_horizon:
+        return [tuple(frame) for frame in frames]
+    for bullet in snapshot.bullets:
+        boxes = (
+            hazard_boxes(bullet, total_horizon)[completed_horizon:]
+            if bullet.ex_flags & DYNAMIC_EX_FLAGS
+            else _linear_hazard_boxes(
+                bullet,
+                completed_horizon,
+                total_horizon,
+            )
+        )
+        for frame, box in zip(frames[completed_horizon:], boxes):
             frame.append(box)
     return [tuple(frame) for frame in frames]
 

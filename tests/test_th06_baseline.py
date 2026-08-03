@@ -25,7 +25,11 @@ from th06.model import (
 )
 from th06.ranking import ProposalRanker
 from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
-from th06.hazards.bullets import hazard_box, hazards_by_frame as bullet_hazards_by_frame
+from th06.hazards.bullets import (
+    extend_hazards_by_frame as extend_bullet_hazards_by_frame,
+    hazard_box,
+    hazards_by_frame as bullet_hazards_by_frame,
+)
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
 from th06.hazards.world import (
@@ -628,6 +632,33 @@ class BaselineTests(unittest.TestCase):
             tuple(hazard_box(bullet, frame) for bullet in bullets)
             for frame in range(1, 7)
         ])
+
+    def test_bullet_projection_extension_matches_one_full_trajectory(self):
+        bullets = (
+            Bullet(20.0, 30.0, 1.0, -0.5, 2.0, 3.0, 1),
+            Bullet(40.0, 50.0, -2.0, 1.0, 2.0, 2.0, 3),
+            Bullet(
+                80.0, 90.0, 1.0, 2.0, 2.0, 2.0, 1,
+                ex_flags=0x10,
+                acceleration_x=0.25,
+                acceleration_y=-0.5,
+                acceleration_duration=14,
+            ),
+            Bullet(
+                120.0, 140.0, -1.0, 0.5, 3.0, 3.0, 1,
+                ex_flags=0x100,
+                speed=2.0,
+                turn_speed=3.0,
+                acceleration=0.1,
+            ),
+        )
+        state = snapshot(*bullets)
+        direct = bullet_hazards_by_frame(state, 16)
+        prefix = bullet_hazards_by_frame(state, 5)
+        middle = extend_bullet_hazards_by_frame(state, prefix, 12)
+        extended = extend_bullet_hazards_by_frame(state, middle, 16)
+
+        self.assertEqual(extended, direct)
 
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)

@@ -9,7 +9,10 @@ from array import array
 from dataclasses import replace
 from pathlib import Path
 
-from ..hazards.bullets import hazards_by_frame as bullet_hazards_by_frame
+from ..hazards.bullets import (
+    extend_hazards_by_frame as extend_bullet_hazards_by_frame,
+    hazards_by_frame as bullet_hazards_by_frame,
+)
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from ..hazards.world import (
@@ -220,17 +223,26 @@ class NativeSafetyKernel:
         self._nominal_birth_snapshot: Snapshot | None = None
         self._nominal_birth_horizon = 0
         self._nominal_birth_forecast = None
+        self._bullet_snapshot: Snapshot | None = None
+        self._bullet_horizon = 0
+        self._bullet_hazards = None
 
     @staticmethod
     def _flatten(frames, value_type, convert):
         offsets = [0]
-        coordinates = array("f")
         count = 0
         for frame in frames:
             count += len(frame)
             offsets.append(count)
-            for value in frame:
-                coordinates.extend(convert(value))
+        coordinates = array(
+            "f",
+            [
+                coordinate
+                for frame in frames
+                for value in frame
+                for coordinate in convert(value)
+            ],
+        )
         offset_array = (ctypes.c_uint32 * len(offsets))(*offsets)
         value_array_type = value_type * max(1, count)
         value_array = (
@@ -248,9 +260,33 @@ class NativeSafetyKernel:
         fail_closed_horizon: int = 4,
     ):
         total_horizon = start_frame + horizon
-        bullet_frames = bullet_hazards_by_frame(snapshot, total_horizon)[
-            start_frame:
-        ]
+        if (
+            getattr(self, "_bullet_snapshot", None) is snapshot
+            and getattr(self, "_bullet_horizon", 0) >= total_horizon
+        ):
+            all_bullet_frames = self._bullet_hazards[:total_horizon]
+        elif (
+            getattr(self, "_bullet_snapshot", None) is snapshot
+            and getattr(self, "_bullet_hazards", None) is not None
+        ):
+            all_bullet_frames = extend_bullet_hazards_by_frame(
+                snapshot,
+                self._bullet_hazards[:self._bullet_horizon],
+                total_horizon,
+            )
+        else:
+            all_bullet_frames = bullet_hazards_by_frame(
+                snapshot,
+                total_horizon,
+            )[:total_horizon]
+        if not (
+            getattr(self, "_bullet_snapshot", None) is snapshot
+            and getattr(self, "_bullet_horizon", 0) > total_horizon
+        ):
+            self._bullet_snapshot = snapshot
+            self._bullet_horizon = total_horizon
+            self._bullet_hazards = all_bullet_frames
+        bullet_frames = all_bullet_frames[start_frame:]
         enemy_frames = enemy_hazards_by_frame(snapshot.enemies, total_horizon)[
             start_frame:
         ]
