@@ -1120,7 +1120,7 @@ class BaselineTests(unittest.TestCase):
 
 
 
-    def test_native_selected_followup_cannot_widen_hard_projection(self):
+    def test_native_hard_reuses_complete_selected_prefix(self):
         state = snapshot()
         hard = certify_actions(state, HARD_SAFETY_HORIZON)
         held = action_from_input(state.input_mask)
@@ -1150,21 +1150,58 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(combined, (hard, hard, held_effort))
         self.assertEqual(effort, hard)
+        kernel._prepare_window.assert_called_once_with(
+            state,
+            0,
+            6,
+            fail_closed_horizon=6,
+            collision_margin=0.35,
+        )
+
+    def test_native_empty_selected_prefix_rechecks_exact_hard_window(self):
+        state = snapshot()
+        hard = certify_actions(state, HARD_SAFETY_HORIZON)
+        held = action_from_input(state.input_mask)
+        long_prepared = object()
+        hard_prepared = object()
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._prepared_snapshot = None
+        kernel._prepared_horizon = 0
+        kernel._prepared_hazards = None
+        kernel._prepare_window = mock.Mock(side_effect=(
+            long_prepared,
+            hard_prepared,
+        ))
+        kernel._certify_prepared = mock.Mock(side_effect=(
+            ((), (), ()),
+            (hard, hard, ()),
+            ((), (), ()),
+        ))
+
+        combined = kernel.certify_delivery_sets_with_selected(
+            state,
+            HARD_SAFETY_HORIZON,
+            HARD_SAFETY_HORIZON + 1,
+            (held,),
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(combined, (hard, hard, ()))
         self.assertEqual(
             kernel._prepare_window.call_args_list,
             [
                 mock.call(
                     state,
                     0,
-                    HARD_SAFETY_HORIZON,
-                    fail_closed_horizon=HARD_SAFETY_HORIZON,
+                    HARD_SAFETY_HORIZON + 1,
+                    fail_closed_horizon=HARD_SAFETY_HORIZON + 1,
                     collision_margin=0.35,
                 ),
                 mock.call(
                     state,
                     0,
-                    6,
-                    fail_closed_horizon=6,
+                    HARD_SAFETY_HORIZON,
+                    fail_closed_horizon=HARD_SAFETY_HORIZON,
                     collision_margin=0.35,
                 ),
             ],

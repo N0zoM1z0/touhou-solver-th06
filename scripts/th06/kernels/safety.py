@@ -348,6 +348,11 @@ class NativeSafetyKernel:
             getattr(self, "_hard_birth_snapshot", None) is snapshot
             and getattr(self, "_hard_birth_horizon", 0)
             >= hard_birth_horizon
+            and (
+                self._hard_birth_forecast.covered_frames
+                    >= hard_birth_horizon
+                or self._hard_birth_horizon == hard_birth_horizon
+            )
         ):
             hard_births = self._hard_birth_forecast
         else:
@@ -759,30 +764,39 @@ class NativeSafetyKernel:
             for index, action in enumerate(CONTROL_ACTIONS)
             if action in selected
         )
-        # Hard eligibility is exactly the ordinary hard window.  A longer
-        # selected continuation may fail closed, but its extra source frame
-        # must not retroactively erase a complete Hard result.
-        hard_prepared = self._prepare_fail_closed(
-            snapshot, hard_horizon, collision_margin
+        # Usually the longer fail-closed window has a complete Hard prefix,
+        # so prepare it once and reuse that prefix.  If later source coverage
+        # fails before the Hard boundary, the inserted unknown-world box
+        # erases every candidate; only then rebuild the exact shorter window.
+        prepared_horizon = (
+            selected_horizon if candidate_mask else hard_horizon
+        )
+        selected_prepared = self._prepare_fail_closed(
+            snapshot, prepared_horizon, collision_margin
         )
         hard, age_zero, _extended = self._certify_prepared(
             snapshot,
             hard_horizon,
             collision_margin,
-            hard_prepared,
+            selected_prepared,
             (1 << len(CONTROL_ACTIONS)) - 1,
         )
+        if not hard and prepared_horizon > hard_horizon:
+            # Failure of a wider authority request is not proof that the
+            # ordinary Hard window lacks authority.  Recompute that exact
+            # boundary before publishing an empty Hard set.
+            hard_prepared = self._prepare_fail_closed(
+                snapshot, hard_horizon, collision_margin
+            )
+            hard, age_zero, _extended = self._certify_prepared(
+                snapshot,
+                hard_horizon,
+                collision_margin,
+                hard_prepared,
+                (1 << len(CONTROL_ACTIONS)) - 1,
+            )
         selected_safe = ()
         if candidate_mask:
-            # This continuation may extend physical publication authority,
-            # so all of its frames independently use fail-closed semantics.
-            selected_prepared = (
-                hard_prepared
-                if selected_horizon == hard_horizon
-                else self._prepare_fail_closed(
-                    snapshot, selected_horizon, collision_margin
-                )
-            )
             selected_safe = self._certify_prepared(
                 snapshot,
                 selected_horizon,
