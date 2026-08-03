@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "id": "stage1-f8696-deeper-terminal-rung",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 8696,
+    "failure_frame": 8828,
+    "artifact": "th06_failure_stage1_f8828_progressive_terminal.json"
+  },
+  "runner": "segment_terminal_progressive",
+  "contract": "After h8 is admitted, the shared complete-or-discard terminal frontier may extend through every deeper ordinary rung while residual budget remains; a coarse pre-run cost limit does not cap an already-progressive frontier.",
+  "summary": "The f8828 lower-left Hard-empty stop was an effect. At the earliest preserved consequential divergence f8696, all 18 Hard actions and all h8 terminal counts tied, so the live solver selected up-left and began the left-boundary route. Exact h12 and h16 excluded every horizontal component and retained only stay, up, or down in both focus modes; the next live decisions continued left and then down. The live solver took 10.185 ms but stopped at h8 because its coarse effort limit capped the native progressive maximum. Isolated h12 completed in about 7.45 ms including Hard and source projection. Removing every current bullet, ECL spawner, enemy, and laser preserves the h8/h12 divergence, proving a general reachable-state scheduling contract; the full artifact preserves the physical route and timing evidence.",
+  "input": {
+    "segment_length": 4,
+    "minimum_horizon": 8,
+    "maximum_horizon": 12,
+    "snapshot": {
+      "frame": 8696,
+      "stage": 1,
+      "player_state": 0,
+      "x": 28.669050216674805,
+      "y": 349.1887512207031,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 21,
+      "bullets": [],
+      "despawning_bullets": [],
+      "laser_count": 0,
+      "lasers": [],
+      "enemies": [],
+      "spawners": [],
+      "bullet_read_retries": 0,
+      "difficulty": 2,
+      "rank": 28,
+      "bullet_sizes": [],
+      "rng_seed": 15777,
+      "rng_generation": 5824,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false
+    }
+  },
+  "expect": {
+    "hard_actions": [
+      "stay", "up", "down", "left", "right", "up_left", "up_right",
+      "down_left", "down_right", "stay_fast", "up_fast", "down_fast",
+      "left_fast", "right_fast", "up_left_fast", "up_right_fast",
+      "down_left_fast", "down_right_fast"
+    ],
+    "scores_by_horizon": {
+      "8": {
+        "stay": 9, "up": 9, "down": 9, "left": 9, "right": 9,
+        "up_left": 9, "up_right": 9, "down_left": 9, "down_right": 9,
+        "stay_fast": 9, "up_fast": 9, "down_fast": 9,
+        "left_fast": 9, "right_fast": 9, "up_left_fast": 9,
+        "up_right_fast": 9, "down_left_fast": 9, "down_right_fast": 9
+      },
+      "12": {
+        "stay": 48, "up": 48, "down": 48, "left": 41, "right": 45,
+        "up_left": 43, "up_right": 45, "down_left": 43,
+        "down_right": 45, "stay_fast": 48, "up_fast": 48,
+        "down_fast": 48, "left_fast": 40, "right_fast": 43,
+        "up_left_fast": 40, "up_right_fast": 43,
+        "down_left_fast": 40, "down_right_fast": 43
+      }
+    },
+    "actions_by_horizon": {
+      "8": [
+        "stay", "up", "down", "left", "right", "up_left", "up_right",
+        "down_left", "down_right", "stay_fast", "up_fast", "down_fast",
+        "left_fast", "right_fast", "up_left_fast", "up_right_fast",
+        "down_left_fast", "down_right_fast"
+      ],
+      "12": ["stay", "up", "down", "stay_fast", "up_fast", "down_fast"]
+    }
+  }
+}

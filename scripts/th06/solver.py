@@ -39,6 +39,9 @@ INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
 COST_RATE_HALF_LIFE_FRAMES = 60.0
 # Measured room for the native return, Python ranking, and publication handoff.
 POLICY_DEADLINE_GUARD_MS = 0.5
+# Exact terminal layers poll their deadline in batches; leave room for the
+# final poll overshoot as well as the ordinary publication handoff.
+TERMINAL_DEADLINE_GUARD_MS = 1.5
 BASE_RECOVERY_CONFIRMATIONS = 2
 PUBLICATION_RECOVERY_CONFIRMATIONS = 2
 
@@ -1039,8 +1042,30 @@ class Solver:
         acquisition_horizon = HARD_SAFETY_HORIZON
 
         if limit > HARD_SAFETY_HORIZON:
+            terminal_progressive_native = (
+                getattr(
+                    type(self.kernel),
+                    "segment_terminal_counts_progressive",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            terminal_progressive_maximum = (
+                TURN_CAPABLE_POLICY_HORIZONS[-1]
+                if (
+                    terminal_progressive_native is not None
+                    and len(hard) > 1
+                    and limit >= BASE_POLICY_HORIZON
+                )
+                else None
+            )
+            soft_prepare_horizon = max(
+                limit,
+                terminal_progressive_maximum or limit,
+            )
             operation_started = self.clock()
-            self._prepare_soft(snapshot, limit)
+            self._prepare_soft(snapshot, soft_prepare_horizon)
             rollout_ms += (self.clock() - operation_started) * 1000.0
             observed_held = action_from_input(snapshot.input_mask)
             pending_candidate = next(
@@ -1062,15 +1087,6 @@ class Solver:
             if pending_candidate is None:
                 self.pending_target_action = None
 
-            terminal_progressive_native = (
-                getattr(
-                    type(self.kernel),
-                    "segment_terminal_counts_progressive",
-                    None,
-                )
-                if self.kernel is not None
-                else None
-            )
             terminal_native = (
                 getattr(
                     type(self.kernel),
@@ -1084,15 +1100,18 @@ class Solver:
                 allowed = frozenset(
                     candidate.action for candidate in hard
                 )
-                terminal_maximum = min(
-                    limit,
-                    TURN_CAPABLE_POLICY_HORIZONS[-1],
-                )
+                # Once the ordinary h8 continuation is admitted, let the
+                # native complete-or-discard frontier spend the residual
+                # budget through every deeper ordinary rung. The coarse cost
+                # estimate selects whether to enter this ladder, not which
+                # already-shared prefix may complete. A timed-out h12/h16
+                # extension preserves the last fully published result.
+                terminal_maximum = terminal_progressive_maximum
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (
                     self.effort.budget_ms()
                     - elapsed_ms
-                    - POLICY_DEADLINE_GUARD_MS
+                    - TERMINAL_DEADLINE_GUARD_MS
                 )
                 progressive_terminal = (
                     self._budgeted_progressive_terminal_counts(
@@ -1103,7 +1122,7 @@ class Solver:
                         remaining_ms,
                     )
                     if (
-                        terminal_maximum >= BASE_POLICY_HORIZON
+                        terminal_maximum is not None
                         and remaining_ms > 0.0
                     )
                     else None
@@ -1197,6 +1216,12 @@ class Solver:
                     or constant_exhausted
                 ):
                     break
+                if policy_preferred and horizon <= policy_horizon:
+                    # A same-or-shallower unchanged-input witness cannot add
+                    # information to a completed turn-capable terminal rung.
+                    # Rebuilding it only spends publication time after the
+                    # stronger fresh continuation has already completed.
+                    continue
                 elapsed_ms = (self.clock() - started) * 1000.0
                 if (
                     elapsed_ms
@@ -1228,6 +1253,11 @@ class Solver:
                     candidate.action for candidate in frontier
                 )
                 policy_horizon = frontier_horizon
+            if terminal_completed and policy_preferred:
+                # The terminal rung is already a turn-capable proposal.
+                # Prevent the legacy interleaved fallback below from
+                # rebuilding the same h6/h8 constant prefixes after it.
+                policy_probe_ready = True
 
             budgeted_policy = (
                 getattr(
@@ -1251,6 +1281,10 @@ class Solver:
                 progressive_reachability is not None
                 and len(hard) > 1
                 and limit >= BASE_POLICY_HORIZON
+                and (
+                    not terminal_completed
+                    or limit > policy_horizon
+                )
             ):
                 allowed = frozenset(
                     candidate.action for candidate in hard
@@ -1653,7 +1687,10 @@ class Solver:
                 self._clear_target()
 
             if policy_probe_ready:
-                rollout_horizon = limit
+                # Attribute projection cost to the horizon actually built.
+                # Charging an h16 shared forecast as h8 would poison the
+                # generic work-rate estimate and keep later rungs closed.
+                rollout_horizon = soft_prepare_horizon
             self.effort.observe_rollout(
                 snapshot,
                 len(hard),

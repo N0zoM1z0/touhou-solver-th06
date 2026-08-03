@@ -538,6 +538,37 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 
+    def test_terminal_ladder_extends_beyond_coarse_limit(self):
+        clock = ManualClock()
+        deep_action = self.hard[1].action
+        kernel = TerminalRefinementKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                12: {
+                    self.hard[0].action: 4,
+                    deep_action: 9,
+                    self.hard[2].action: 2,
+                },
+            },
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 8
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_action)
+        self.assertEqual(decision.effort_horizon, 12)
+        self.assertIn(("prepare", 16), kernel.calls)
+        self.assertEqual(
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+            [(8, 16)],
+        )
+
     def test_missing_extended_authority_caps_only_current_effort(self):
         clock = ManualClock()
         shallow_action = self.hard[0].action
