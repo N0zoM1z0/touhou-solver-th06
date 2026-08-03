@@ -851,7 +851,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 12)
         calls = [call for call in kernel.calls if call[0] == "budgeted_frontier"]
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], EFFORT_HORIZONS[0])
+        self.assertEqual(calls[0][1], BASE_POLICY_HORIZON)
         self.assertGreater(calls[0][2], 0.0)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
@@ -1123,7 +1123,9 @@ class AnytimePolicyTests(unittest.TestCase):
         kernel = BudgetedProgressiveKernel(
             clock,
             self.hard,
-            frontiers={6: (reserve_winner, reserve_other)},
+            frontiers={
+                BASE_POLICY_HORIZON: (reserve_winner, reserve_other),
+            },
             scores_by_horizon={
                 16: {
                     fragile.action: 20,
@@ -1142,7 +1144,11 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, reserve_winner.action)
         self.assertEqual(decision.effort_horizon, 16)
         self.assertIn(
-            ("frontier", 6, tuple(candidate.action for candidate in self.hard)),
+            (
+                "frontier",
+                BASE_POLICY_HORIZON,
+                tuple(candidate.action for candidate in self.hard),
+            ),
             kernel.calls,
         )
 
@@ -1183,6 +1189,35 @@ class AnytimePolicyTests(unittest.TestCase):
             ),
             kernel.calls,
         )
+
+    def test_empty_full_publication_reserve_does_not_fall_back_to_h6(self):
+        clock = ManualClock()
+        short_witness = self.hard[0]
+        turn_capable = self.hard[1]
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={
+                6: (short_witness,),
+                BASE_POLICY_HORIZON: (),
+            },
+            scores_by_horizon={
+                16: {
+                    short_witness.action: 8,
+                    turn_capable.action: 20,
+                    self.hard[2].action: 4,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, turn_capable.action)
+        self.assertEqual(decision.effort_horizon, 16)
 
     def test_empty_constant_frontier_cannot_shorten_flexible_candidates(self):
         clock = ManualClock()

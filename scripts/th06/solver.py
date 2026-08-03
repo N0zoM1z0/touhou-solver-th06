@@ -1536,6 +1536,11 @@ class Solver:
                     # beyond this ordinary reserve remains redundant once a
                     # turn-capable rung is complete.
                     continue
+                if policy_preferred and horizon < BASE_POLICY_HORIZON:
+                    # H6 cannot serve as a publication reserve by itself.
+                    # Go directly to the complete h8 test, avoiding a second
+                    # delivery scan that can consume its residual deadline.
+                    continue
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (
                     self.effort.budget_ms()
@@ -1556,15 +1561,16 @@ class Solver:
                 ) * 1000.0
                 if next_frontier is None:
                     break
-                if horizon <= BASE_POLICY_HORIZON:
+                if horizon == BASE_POLICY_HORIZON:
+                    # H6 is only the progressive prefix of this full reserve.
+                    # If h8 completes empty, no unchanged input spans Hard-4
+                    # plus the delivery window; falling back to h6 would hide
+                    # the turn-capable policy which is then the only deeper
+                    # evidence.  A timed-out h8 is likewise discarded.
                     local_reserve_ready = True
-                    if next_frontier:
-                        # Keep the deepest complete non-empty lower bound.  An
-                        # empty constant frontier cannot reject a safe policy
-                        # which turns, and a timed-out rung is discarded above.
-                        local_reserve = frozenset(
-                            candidate.action for candidate in next_frontier
-                        )
+                    local_reserve = frozenset(
+                        candidate.action for candidate in next_frontier
+                    )
                 rollout_horizon = horizon
                 if len(next_frontier) < len(frontier):
                     contracted = True
@@ -1572,6 +1578,13 @@ class Solver:
                     frontier = next_frontier
                     frontier_horizon = horizon
                 else:
+                    if horizon == BASE_POLICY_HORIZON:
+                        # A completed empty h8 invalidates the shorter
+                        # unchanged-input prefix as final ranking evidence.
+                        # Keep the independent turn-capable result, or fall
+                        # back to Hard ranking if that proposal timed out.
+                        frontier = hard
+                        frontier_horizon = HARD_SAFETY_HORIZON
                     constant_exhausted = True
             if (
                 frontier_horizon > HARD_SAFETY_HORIZON
@@ -2157,10 +2170,11 @@ class Solver:
             else frozenset()
         )
         # Deeper constant witnesses remain tie-breakers.  The progressively
-        # completed h6/h8 witness is different: it is the local reserve needed
-        # to leave a fresh correction publishable across the measured delivery
-        # window.  It constrains proposal ranking only; Hard-4 eligibility and
-        # fail-close authority remain unchanged.
+        # completed h8 witness is different: it is the local reserve needed to
+        # leave a fresh correction publishable across the measured delivery
+        # window. H6 is only its progressive prefix and cannot constrain a
+        # deeper policy by itself. Hard-4 eligibility and fail-close authority
+        # remain unchanged.
         restricted_preferred: frozenset[Action] = frozenset()
         if (
             policy_preferred
