@@ -798,6 +798,34 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_terminal_counts(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "terminal_counts_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def selected_delivery_safe(
         self,
         snapshot: Snapshot,
@@ -973,6 +1001,7 @@ class Solver:
         policy_horizon = HARD_SAFETY_HORIZON
         policy_scores = None
         policy_guidance = None
+        terminal_completed = False
         target_guided = False
         target_invalid = False
         policy_probe_ready = False
@@ -1045,6 +1074,61 @@ class Solver:
                 )
                 policy_horizon = frontier_horizon
 
+            terminal_native = (
+                getattr(
+                    type(self.kernel),
+                    "terminal_counts_budgeted",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            if terminal_native is not None and len(hard) > 1:
+                allowed = frozenset(
+                    candidate.action for candidate in hard
+                )
+                for terminal_horizon in TURN_CAPABLE_POLICY_HORIZONS:
+                    if terminal_horizon > limit:
+                        break
+                    elapsed_ms = (self.clock() - started) * 1000.0
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - POLICY_DEADLINE_GUARD_MS
+                    )
+                    if remaining_ms <= 0.0:
+                        break
+                    terminal_scores = self._budgeted_terminal_counts(
+                        snapshot,
+                        hard,
+                        terminal_horizon,
+                        remaining_ms,
+                    )
+                    if terminal_scores is None:
+                        break
+                    best_terminal_count = max(
+                        (
+                            score for action, score
+                            in terminal_scores.items()
+                            if action in allowed
+                        ),
+                        default=0,
+                    )
+                    if best_terminal_count <= 0:
+                        break
+                    policy_preferred = frozenset(
+                        action for action, score
+                        in terminal_scores.items()
+                        if (
+                            action in allowed
+                            and score == best_terminal_count
+                        )
+                    )
+                    policy_horizon = terminal_horizon
+                    policy_scores = terminal_scores
+                    policy_guidance = None
+                    terminal_completed = True
+
             budgeted_policy = (
                 getattr(
                     type(self.kernel),
@@ -1105,9 +1189,10 @@ class Solver:
                             policy_ms,
                         )
                         # Membership is an exact exists-controller result for
-                        # every physical delivery branch. Keep every first
-                        # action in the deepest complete winning set; local
-                        # ranking breaks that survival tie.
+                        # every physical delivery branch.  A deeper completed
+                        # Boolean rung may restrict a shallower terminal-state
+                        # ranking, but never promotes an action outside its
+                        # winning set.
                         if (
                             completed_horizon >= policy_horizon
                             and any(
@@ -1117,7 +1202,7 @@ class Solver:
                                 if action in allowed
                             )
                         ):
-                            policy_preferred = frozenset(
+                            winning_actions = frozenset(
                                 action for action, score
                                 in flexible_scores.items()
                                 if (
@@ -1125,8 +1210,17 @@ class Solver:
                                     and action in allowed
                                 )
                             )
+                            retained_terminal = (
+                                policy_preferred & winning_actions
+                                if terminal_completed
+                                else frozenset()
+                            )
+                            policy_preferred = (
+                                retained_terminal or winning_actions
+                            )
                             policy_horizon = completed_horizon
-                            policy_scores = flexible_scores
+                            if not retained_terminal:
+                                policy_scores = flexible_scores
                             policy_guidance = None
                 policy_probe_ready = bool(policy_preferred)
 

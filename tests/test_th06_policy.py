@@ -209,6 +209,32 @@ class BudgetedProgressiveKernel(ProgressiveKernel):
         )
 
 
+class TerminalRefinementKernel(BudgetedProgressiveKernel):
+    def __init__(self, *args, terminal_scores_by_horizon, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.terminal_scores_by_horizon = terminal_scores_by_horizon
+
+    def terminal_counts_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("terminal_counts", horizon, tuple(candidates)))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        if budget_ms < 1.0:
+            return None
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return {
+            action: score for action, score
+            in self.terminal_scores_by_horizon[horizon].items()
+            if action in allowed
+        }
+
+
 class PublicationFragileKernel(BudgetedProgressiveKernel):
     def __init__(self, *args, extended_safe=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -426,6 +452,51 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, self.hard[0].action)
         self.assertEqual(decision.effort_horizon, 16)
         self.assertEqual(decision.effort_safe_count, 2)
+
+    def test_exact_terminal_states_refine_boolean_winners_only(self):
+        clock = ManualClock()
+        kernel = TerminalRefinementKernel(
+            clock,
+            self.hard,
+            reachability_by_horizon={
+                16: {
+                    self.hard[0].action: 1,
+                    self.hard[1].action: 1,
+                    self.hard[2].action: 0,
+                },
+            },
+            terminal_scores_by_horizon={
+                8: {
+                    self.hard[0].action: 3,
+                    self.hard[1].action: 5,
+                    self.hard[2].action: 0,
+                },
+                12: {
+                    self.hard[0].action: 7,
+                    self.hard[1].action: 9,
+                    self.hard[2].action: 0,
+                },
+                16: {
+                    self.hard[0].action: 11,
+                    self.hard[1].action: 13,
+                    self.hard[2].action: 0,
+                },
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, self.hard[1].action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "terminal_counts"],
+            [8, 12, 16],
+        )
+        self.assertNotEqual(decision.action, self.hard[2].action)
 
     def test_missing_extended_authority_caps_only_current_effort(self):
         clock = ManualClock()

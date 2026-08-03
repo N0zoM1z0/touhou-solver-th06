@@ -838,6 +838,38 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertTrue(all(membership.values()))
         self.assertIsNone(expired)
 
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_exact_terminal_states_preserve_f6659_escape_direction(self):
+        case = next(
+            item for item in load_cases()
+            if item["id"] == "stage1-f6659-completed-deep-retry"
+        )
+        state = decode_snapshot(case["input"]["snapshot"])
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify_selected(
+            state,
+            4,
+            CONTROL_ACTIONS,
+            collision_margin=0.35,
+        )
+
+        scores = kernel.terminal_counts(
+            state,
+            hard,
+            4,
+            16,
+            collision_margin=0.35,
+        )
+        best = max(scores.values())
+
+        self.assertEqual(
+            {
+                action.name for action, score in scores.items()
+                if score == best
+            },
+            {"up_right", "up_right_fast"},
+        )
+
     def replay_terminal_reachability_case(self, case, kernel=None):
         values = case["input"]
         state = decode_snapshot(values["snapshot"])
@@ -1571,8 +1603,12 @@ class TerminalGuidanceTests(unittest.TestCase):
         decision = solver.decide(state)
 
         self.assertEqual(
-            [call[0] for call in kernel.calls].count("progressive_counts"),
-            1,
+            [call[1] for call in kernel.calls if call[0] == "budgeted_counts"],
+            [8],
+        )
+        self.assertNotIn(
+            "progressive_counts",
+            {call[0] for call in kernel.calls},
         )
         self.assertEqual(
             [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
