@@ -162,6 +162,13 @@ class NativeSafetyKernel:
             ctypes.POINTER(ctypes.c_int32),
         )
         self.progressive_counts_function.restype = ctypes.c_int32
+        self.progressive_segment_counts_function = (
+            self.library.th06_segment_terminal_counts_progressive
+        )
+        self.progressive_segment_counts_function.argtypes = (
+            *self.progressive_counts_function.argtypes,
+        )
+        self.progressive_segment_counts_function.restype = ctypes.c_int32
         self.progressive_viability_function = (
             self.library.th06_boolean_reachability_progressive
         )
@@ -832,8 +839,6 @@ class NativeSafetyKernel:
         The boolean is true only when the requested maximum horizon completed;
         a false value means the next rung timed out and was discarded.
         """
-        if any(not candidate.action.focused for candidate in candidates):
-            raise ValueError("flexible continuation accepts focused actions")
         bullet_offsets, bullets, laser_offsets, lasers = (
             self._prepare_reusable(snapshot, maximum_horizon)
         )
@@ -873,6 +878,68 @@ class NativeSafetyKernel:
         if status not in (0, 2):
             raise RuntimeError(
                 "native flexible terminal counts rejected input "
+                f"with status {status}"
+            )
+        return (
+            completed_horizon.value,
+            {
+                action: terminal_counts[index]
+                for index, action in enumerate(CONTROL_ACTIONS)
+                if action in candidate_actions
+            },
+            status == 0,
+        )
+
+    def segment_terminal_counts_progressive(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> tuple[int, dict[Action, int], bool] | None:
+        """Return the deepest complete delivery-segment terminal rung."""
+        bullet_offsets, bullets, laser_offsets, lasers = (
+            self._prepare_reusable(snapshot, maximum_horizon)
+        )
+        candidate_actions = {candidate.action for candidate in candidates}
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        )
+        completed_horizon = ctypes.c_int32()
+        terminal_counts = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
+        status = self.progressive_segment_counts_function(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.normal_speed,
+            snapshot.focus_speed,
+            snapshot.normal_diagonal_speed,
+            snapshot.focus_diagonal_speed,
+            snapshot.input_mask,
+            segment_length,
+            minimum_horizon,
+            maximum_horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+            budget_ms,
+            ctypes.byref(completed_horizon),
+            terminal_counts,
+        )
+        if status == 1:
+            return None
+        if status not in (0, 2):
+            raise RuntimeError(
+                "native segment terminal counts rejected input "
                 f"with status {status}"
             )
         return (

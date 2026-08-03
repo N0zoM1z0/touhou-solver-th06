@@ -801,6 +801,136 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertIsNone(expired)
 
     @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_progressive_counts_cover_every_physical_first_action(self):
+        state = snapshot(x=192.0, y=380.0, input_mask=0x04)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify_selected(
+            state,
+            4,
+            CONTROL_ACTIONS,
+            collision_margin=0.35,
+        )
+        self.assertEqual(len(hard), len(CONTROL_ACTIONS))
+
+        for horizon in (8, 12, 16):
+            with self.subTest(horizon=horizon):
+                expected = kernel.terminal_counts(
+                    state,
+                    hard,
+                    4,
+                    horizon,
+                    collision_margin=0.35,
+                )
+                result = kernel.segment_terminal_counts_progressive(
+                    state,
+                    hard,
+                    4,
+                    8,
+                    horizon,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                self.assertIsNotNone(result)
+                completed, counts, reached_maximum = result
+                self.assertEqual(completed, horizon)
+                self.assertTrue(reached_maximum)
+                self.assertEqual(counts, expected)
+
+    def replay_segment_terminal_progressive_case(self, case, kernel=None):
+        values = case["input"]
+        expected = case["expect"]
+        state = decode_snapshot(values["snapshot"])
+        if kernel is None:
+            hard = certify_actions(state, 4, actions=CONTROL_ACTIONS)
+        else:
+            hard = kernel.certify_selected(
+                state,
+                4,
+                CONTROL_ACTIONS,
+                collision_margin=0.35,
+            )
+        self.assertEqual(
+            [candidate.action.name for candidate in hard],
+            expected["hard_actions"],
+        )
+
+        fixed_by_horizon = {}
+        for raw_horizon, expected_scores in (
+            expected["scores_by_horizon"].items()
+        ):
+            horizon = int(raw_horizon)
+            scores = (
+                {
+                    action: value.terminal_count
+                    for action, value in terminal_guidance_scores(
+                        state,
+                        hard,
+                        values["segment_length"],
+                        horizon,
+                    ).items()
+                }
+                if kernel is None
+                else kernel.terminal_counts(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    horizon,
+                    collision_margin=0.35,
+                )
+            )
+            fixed_by_horizon[horizon] = scores
+            self.assertEqual(
+                {action.name: score for action, score in scores.items()},
+                expected_scores,
+            )
+            best = max(scores.values())
+            self.assertEqual(
+                [
+                    action.name for action, score in scores.items()
+                    if score == best
+                ],
+                expected["actions_by_horizon"][raw_horizon],
+            )
+
+        if kernel is not None:
+            result = kernel.segment_terminal_counts_progressive(
+                state,
+                hard,
+                values["segment_length"],
+                values["minimum_horizon"],
+                values["maximum_horizon"],
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            )
+            self.assertIsNotNone(result)
+            completed, counts, reached_maximum = result
+            self.assertEqual(completed, values["maximum_horizon"])
+            self.assertTrue(reached_maximum)
+            self.assertEqual(counts, fixed_by_horizon[completed])
+
+    def test_reference_segment_terminal_progressive_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "segment_terminal_progressive"
+        )
+        self.assertTrue(cases, "segment terminal corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_segment_terminal_progressive_case(case)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_segment_terminal_progressive_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "segment_terminal_progressive"
+        )
+        self.assertTrue(cases, "segment terminal corpus is empty")
+        kernel = NativeSafetyKernel()
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.replay_segment_terminal_progressive_case(case, kernel)
+
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
     def test_native_boolean_reachability_is_complete_or_discarded(self):
         state = snapshot(x=192.0, y=380.0, input_mask=0x04)
         kernel = NativeSafetyKernel()
@@ -1586,7 +1716,7 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertEqual(decision.action.name, "down")
         self.assertEqual(decision.effort_horizon, 20)
 
-    def test_progressive_timeout_preserves_other_survival_evidence(self):
+    def test_terminal_minimum_timeout_preserves_hard_authority(self):
         state = snapshot(x=364.0, y=161.858, input_mask=0x14)
         hard = tuple(
             SafeAction(action, 10.0, state.x, state.y)
@@ -1615,7 +1745,7 @@ class TerminalGuidanceTests(unittest.TestCase):
             [],
         )
         self.assertIn(decision.action, {item.action for item in hard})
-        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(decision.effort_horizon, 4)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_physical_discontinuity_discards_only_soft_plan_state(self):

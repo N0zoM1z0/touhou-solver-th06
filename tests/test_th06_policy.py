@@ -234,6 +234,43 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
             if action in allowed
         }
 
+    def segment_terminal_counts_progressive(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        minimum_horizon,
+        maximum_horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append((
+            "terminal_progressive",
+            minimum_horizon,
+            maximum_horizon,
+            tuple(candidates),
+        ))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        if budget_ms < 1.0:
+            return None
+        completed_horizon = (
+            self.flexible_completed_horizon
+            if self.flexible_completed_horizon is not None
+            else maximum_horizon
+        )
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return (
+            completed_horizon,
+            {
+                action: score for action, score
+                in self.terminal_scores_by_horizon[
+                    completed_horizon
+                ].items()
+                if action in allowed
+            },
+            completed_horizon == maximum_horizon,
+        )
+
 
 class PublicationFragileKernel(BudgetedProgressiveKernel):
     def __init__(self, *args, extended_safe=False, **kwargs):
@@ -493,8 +530,11 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 16)
         self.assertEqual(decision.effort_safe_count, 1)
         self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "terminal_counts"],
-            [8, 12, 16],
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+            [(8, 16)],
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 

@@ -826,6 +826,36 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_progressive_terminal_counts(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "segment_terminal_counts_progressive",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            minimum_horizon,
+            maximum_horizon,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def selected_delivery_safe(
         self,
         snapshot: Snapshot,
@@ -1032,48 +1062,15 @@ class Solver:
             if pending_candidate is None:
                 self.pending_target_action = None
 
-            # Establish cheap, exact survival lower bounds before spending
-            # the residual deadline on a branching controller. A deeper
-            # constant witness is materially stronger fresh evidence than a
-            # shallower incomplete Boolean search; the latter may replace it
-            # only after completing at least the same horizon for every Hard
-            # first action.
-            for horizon in EFFORT_HORIZONS:
-                if (
-                    horizon > limit
-                    or horizon > TURN_CAPABLE_POLICY_HORIZONS[-1]
-                    or constant_exhausted
-                ):
-                    break
-                elapsed_ms = (self.clock() - started) * 1000.0
-                if (
-                    elapsed_ms
-                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
-                ):
-                    break
-                operation_started = self.clock()
-                next_frontier = self._certify_selected(
-                    snapshot,
-                    horizon,
-                    tuple(candidate.action for candidate in frontier),
+            terminal_progressive_native = (
+                getattr(
+                    type(self.kernel),
+                    "segment_terminal_counts_progressive",
+                    None,
                 )
-                rollout_ms += (
-                    self.clock() - operation_started
-                ) * 1000.0
-                rollout_horizon = horizon
-                if len(next_frontier) < len(frontier):
-                    contracted = True
-                if next_frontier:
-                    frontier = next_frontier
-                    frontier_horizon = horizon
-                else:
-                    constant_exhausted = True
-            if frontier_horizon > HARD_SAFETY_HORIZON:
-                policy_preferred = frozenset(
-                    candidate.action for candidate in frontier
-                )
-                policy_horizon = frontier_horizon
-
+                if self.kernel is not None
+                else None
+            )
             terminal_native = (
                 getattr(
                     type(self.kernel),
@@ -1083,7 +1080,66 @@ class Solver:
                 if self.kernel is not None
                 else None
             )
-            if terminal_native is not None and len(hard) > 1:
+            if terminal_progressive_native is not None and len(hard) > 1:
+                allowed = frozenset(
+                    candidate.action for candidate in hard
+                )
+                terminal_maximum = min(
+                    limit,
+                    TURN_CAPABLE_POLICY_HORIZONS[-1],
+                )
+                elapsed_ms = (self.clock() - started) * 1000.0
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
+                progressive_terminal = (
+                    self._budgeted_progressive_terminal_counts(
+                        snapshot,
+                        hard,
+                        BASE_POLICY_HORIZON,
+                        terminal_maximum,
+                        remaining_ms,
+                    )
+                    if (
+                        terminal_maximum >= BASE_POLICY_HORIZON
+                        and remaining_ms > 0.0
+                    )
+                    else None
+                )
+                if progressive_terminal is not None:
+                    (
+                        completed_horizon,
+                        terminal_scores,
+                        _reached_maximum,
+                    ) = progressive_terminal
+                    best_terminal_count = max(
+                        (
+                            score for action, score
+                            in terminal_scores.items()
+                            if action in allowed
+                        ),
+                        default=0,
+                    )
+                    if best_terminal_count > 0:
+                        policy_preferred = frozenset(
+                            action for action, score
+                            in terminal_scores.items()
+                            if (
+                                action in allowed
+                                and score == best_terminal_count
+                            )
+                        )
+                        policy_horizon = completed_horizon
+                        policy_scores = terminal_scores
+                        policy_guidance = None
+                        terminal_completed = True
+            elif terminal_native is not None and len(hard) > 1:
+                # Non-native test doubles and older kernels retain the same
+                # complete-or-discard contract. Production uses the shared
+                # progressive frontier above so h8/h12 are not recomputed
+                # before attempting h16.
                 allowed = frozenset(
                     candidate.action for candidate in hard
                 )
@@ -1128,6 +1184,50 @@ class Solver:
                     policy_scores = terminal_scores
                     policy_guidance = None
                     terminal_completed = True
+
+            # The shared turn-capable frontier receives the first soft
+            # deadline: rebuilding constant h6/h8/h12 prefixes before it can
+            # hide an affordable h16 divergence. Spend only the residual on
+            # exact constant witnesses. They remain useful as deeper lower
+            # bounds and may restrict only weaker/shallow proposal evidence.
+            for horizon in EFFORT_HORIZONS:
+                if (
+                    horizon > limit
+                    or horizon > TURN_CAPABLE_POLICY_HORIZONS[-1]
+                    or constant_exhausted
+                ):
+                    break
+                elapsed_ms = (self.clock() - started) * 1000.0
+                if (
+                    elapsed_ms
+                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
+                ):
+                    break
+                operation_started = self.clock()
+                next_frontier = self._certify_selected(
+                    snapshot,
+                    horizon,
+                    tuple(candidate.action for candidate in frontier),
+                )
+                rollout_ms += (
+                    self.clock() - operation_started
+                ) * 1000.0
+                rollout_horizon = horizon
+                if len(next_frontier) < len(frontier):
+                    contracted = True
+                if next_frontier:
+                    frontier = next_frontier
+                    frontier_horizon = horizon
+                else:
+                    constant_exhausted = True
+            if (
+                frontier_horizon > HARD_SAFETY_HORIZON
+                and not policy_preferred
+            ):
+                policy_preferred = frozenset(
+                    candidate.action for candidate in frontier
+                )
+                policy_horizon = frontier_horizon
 
             budgeted_policy = (
                 getattr(

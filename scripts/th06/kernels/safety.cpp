@@ -79,6 +79,7 @@ thread_local bool gTerminalCountsOnly = false;
 thread_local std::int32_t gTerminalContinuationLength = 0;
 thread_local std::int32_t gTerminalProgressiveMinimumHorizon = 0;
 thread_local std::int32_t* gTerminalProgressiveCompletedHorizon = nullptr;
+thread_local bool gTerminalProgressiveSegmentMode = false;
 
 bool policyDeadlineExpired() {
     return gPolicyDeadlineActive && PolicyClock::now() >= gPolicyDeadline;
@@ -1198,10 +1199,45 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
         // equal positions unions those labels.  Counting terminal labels is
         // therefore exactly the same per-origin set cardinality as separate
         // forward searches, while shared reachable states are expanded once.
-        constexpr std::int32_t kMaxBranchesPerAction = 19;
-        constexpr std::int32_t kMaxOrigins =
-            kControlActionCount * kMaxBranchesPerAction;
-        using OriginBits = std::uint64_t;
+        // Exhausting the fixed 18 current control states against the same 18
+        // target states and four source-observed delivery delays yields at
+        // most 156 delivery/transition branches. Deduplication can only
+        // reduce that count.
+        constexpr std::int32_t kMaxOrigins = 156;
+        constexpr std::int32_t kOriginWordCount = (
+            kMaxOrigins + 63
+        ) / 64;
+        struct OriginBits {
+            std::array<std::uint64_t, kOriginWordCount> words{};
+
+            void add(std::int32_t origin) {
+                words[origin / 64] |= 1ULL << (origin % 64);
+            }
+
+            void merge(
+                const OriginBits& other,
+                std::int32_t wordCount
+            ) {
+                for (
+                    std::int32_t index = 0;
+                    index < wordCount;
+                    ++index
+                ) {
+                    words[index] |= other.words[index];
+                }
+            }
+
+            bool any(std::int32_t wordCount) const {
+                for (
+                    std::int32_t index = 0;
+                    index < wordCount;
+                    ++index
+                ) {
+                    if (words[index] != 0U) return true;
+                }
+                return false;
+            }
+        };
         struct OriginPosition {
             std::uint64_t key;
         };
@@ -1289,11 +1325,15 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
             }
         }
 
-        // The ordinary focused-action frontier has at most one machine word
-        // of distinct post-delivery origins.  Use a compact label there; a
-        // larger generic caller falls through to the exact per-origin search
-        // below rather than truncating reachability.
-        if (origins.size() <= 64) {
+        // Keep all exact post-delivery origins in a small fixed-width label.
+        // Eighteen physical first actions can exceed one machine word after
+        // delivery/transition branching; truncating or falling back would
+        // make the progressive rung either incorrect or too slow to publish.
+        if (origins.size() <= kMaxOrigins) {
+            const std::int32_t originWordCount = std::max(
+                1,
+                static_cast<std::int32_t>((origins.size() + 63) / 64)
+            );
             std::uint32_t deadlinePoll = 0;
             const auto countsDeadlineExpired = [&]() {
                 ++deadlinePoll;
@@ -1328,7 +1368,8 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                 index < static_cast<std::int32_t>(origins.size());
                 ++index
             ) {
-                const OriginBits labels = 1ULL << index;
+                OriginBits labels;
+                labels.add(index);
                 const auto& origin = origins[index];
                 states.push_back(LabeledPosition{
                     origin.key, labels
@@ -1342,6 +1383,7 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                 &countsDeadlineExpired,
                 &deadlineExpired,
                 candidateMask,
+                originWordCount,
                 terminalCountOutput
             ](std::int32_t completedHorizon) {
                 std::vector<std::int32_t> originCounts(
@@ -1349,15 +1391,24 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                 );
                 for (const auto& state : states) {
                     if (countsDeadlineExpired()) return false;
-                    std::uint64_t labels = state.origins;
-                    while (labels != 0U) {
-                        const std::uint32_t origin = (
-                            static_cast<std::uint32_t>(
-                                __builtin_ctzll(labels)
-                            )
-                        );
-                        ++originCounts[origin];
-                        labels &= labels - 1U;
+                    for (
+                        std::int32_t wordIndex = 0;
+                        wordIndex < originWordCount;
+                        ++wordIndex
+                    ) {
+                        std::uint64_t labels = state.origins.words[wordIndex];
+                        while (labels != 0U) {
+                            const std::uint32_t origin = (
+                                static_cast<std::uint32_t>(
+                                    wordIndex * 64
+                                    + __builtin_ctzll(labels)
+                                )
+                            );
+                            if (origin < originCounts.size()) {
+                                ++originCounts[origin];
+                            }
+                            labels &= labels - 1U;
+                        }
                     }
                 }
                 if (deadlineExpired()) return false;
@@ -1477,8 +1528,11 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                             slotIndex = (slotIndex + 1) & tableMask;
                         }
                         if (table[slotIndex].key == key) {
-                            if (table[slotIndex].origins != 0U) {
-                                table[slotIndex].origins |= state.origins;
+                            if (table[slotIndex].origins.any(originWordCount)) {
+                                table[slotIndex].origins.merge(
+                                    state.origins,
+                                    originWordCount
+                                );
                             }
                             continue;
                         }
@@ -1505,7 +1559,10 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                 std::vector<LabeledPosition> nextStates;
                 nextStates.reserve(uniqueCount);
                 for (const auto& entry : table) {
-                    if (entry.key != 0U && entry.origins != 0U) {
+                    if (
+                        entry.key != 0U
+                        && entry.origins.any(originWordCount)
+                    ) {
                         nextStates.push_back(entry);
                     }
                 }
@@ -2032,13 +2089,13 @@ TH06_EXPORT std::int32_t th06_flexible_terminal_counts_progressive(
     std::int32_t* completedHorizonOutput,
     std::int32_t* terminalCountOutput
 ) {
-    constexpr std::uint32_t focusedMask = (
-        (1U << kFocusedActionCount) - 1U
+    constexpr std::uint32_t controlMask = (
+        (1U << kControlActionCount) - 1U
     );
     if (
         segmentLength != 4 || minimumHorizon <= segmentLength
         || maximumHorizon < minimumHorizon || maximumHorizon > 64
-        || candidateMask == 0U || (candidateMask & ~focusedMask) != 0U
+        || candidateMask == 0U || (candidateMask & ~controlMask) != 0U
         || !(budgetMs > 0.0) || !std::isfinite(budgetMs)
         || bulletOffsets == nullptr || laserOffsets == nullptr
         || completedHorizonOutput == nullptr
@@ -2076,7 +2133,9 @@ TH06_EXPORT std::int32_t th06_flexible_terminal_counts_progressive(
             std::chrono::duration<double, std::milli>(budgetMs)
         );
     gTerminalCountsOnly = true;
-    gTerminalContinuationLength = 1;
+    gTerminalContinuationLength = (
+        gTerminalProgressiveSegmentMode ? segmentLength : 1
+    );
     gTerminalProgressiveMinimumHorizon = minimumHorizon;
     gTerminalProgressiveCompletedHorizon = completedHorizonOutput;
 
@@ -2117,6 +2176,61 @@ TH06_EXPORT std::int32_t th06_flexible_terminal_counts_progressive(
     if (status < 0) return status;
     if (*completedHorizonOutput < minimumHorizon) return 1;
     if (status == 1) return 2;
+    return status;
+}
+
+// Reuse the same exact labelled frontier at each physical delivery-sized
+// decision segment. This preserves the ordinary h8/h12/h16 terminal-count
+// semantics while avoiding three independent prefix/frontier rebuilds.
+TH06_EXPORT std::int32_t th06_segment_terminal_counts_progressive(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t minimumHorizon,
+    std::int32_t maximumHorizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* completedHorizonOutput,
+    std::int32_t* terminalCountOutput
+) {
+    const bool previousMode = gTerminalProgressiveSegmentMode;
+    gTerminalProgressiveSegmentMode = true;
+    const std::int32_t status = th06_flexible_terminal_counts_progressive(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        minimumHorizon,
+        maximumHorizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        budgetMs,
+        completedHorizonOutput,
+        terminalCountOutput
+    );
+    gTerminalProgressiveSegmentMode = previousMode;
     return status;
 }
 
