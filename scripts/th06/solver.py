@@ -1252,12 +1252,19 @@ class Solver:
             progressive_terminal_ready = bool(
                 terminal_progressive_native is not None and len(hard) > 1
             )
-            # Complete p8 before any deeper projection.  Once that ordinary
-            # rung exists, coalesce the affordable h12/h16 projection into one
-            # fresh window: rebuilding the same fired bullets and ECL prefix
-            # separately for both horizons is measured duplicate work.
+            # Build the one turn-capable window already selected by the
+            # budget controller, then progress h8/h12/h16 inside one native
+            # complete-or-discard call.  Splitting p8 from the deeper call
+            # rebuilt both the source projection and the exact labelled
+            # frontier; retained physical snapshots showed that duplicate
+            # prefix work could miss an affordable h12 reversal.  A low
+            # measured limit still selects h8, so deeper preparation cannot
+            # starve the ordinary rung merely because a scene is dense.
             soft_prepare_horizon = (
-                BASE_POLICY_HORIZON
+                max(
+                    BASE_POLICY_HORIZON,
+                    min(limit, TURN_CAPABLE_POLICY_HORIZONS[-1]),
+                )
                 if progressive_terminal_ready
                 else limit
             )
@@ -1389,35 +1396,48 @@ class Solver:
                         terminal_completed = True
                     return True
 
-                base_completed = accept_progressive(
+                initial_completed = accept_progressive(
                     BASE_POLICY_HORIZON,
-                    BASE_POLICY_HORIZON,
+                    soft_prepare_horizon,
+                    (
+                        pending_candidate.action
+                        if pending_candidate is not None
+                        else None
+                    ),
                 )
-                if base_completed:
+                if (
+                    initial_completed
+                    and soft_prepare_horizon
+                        < TURN_CAPABLE_POLICY_HORIZONS[-1]
+                ):
+                    # A deliberately shallow predicted limit may still leave
+                    # measured residual time.  Preserve that falsifiable
+                    # promotion path: extend once from the completed rung,
+                    # while the earlier result remains publishable if either
+                    # preparation or the deeper exact call consumes the rest.
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
                         - elapsed_ms
                         - TERMINAL_DEADLINE_GUARD_MS
                     )
-                    deepest_affordable = None
-                    for terminal_horizon in (
-                        horizon for horizon
-                        in TURN_CAPABLE_POLICY_HORIZONS
-                        if horizon > BASE_POLICY_HORIZON
-                    ):
-                        estimated_prepare_ms = (
-                            soft_prepare_ms
-                            * terminal_horizon
-                            / BASE_POLICY_HORIZON
-                        )
-                        if (
-                            remaining_ms > 0.0
-                            and estimated_prepare_ms
-                            <= remaining_ms * PROMOTION_BUDGET_FRACTION
-                        ):
-                            deepest_affordable = terminal_horizon
+                    deepest_affordable = max(
+                        (
+                            horizon for horizon
+                            in TURN_CAPABLE_POLICY_HORIZONS
+                            if (
+                                horizon > soft_prepare_horizon
+                                and soft_prepare_ms
+                                    * horizon
+                                    / soft_prepare_horizon
+                                    <= remaining_ms
+                                        * PROMOTION_BUDGET_FRACTION
+                            )
+                        ),
+                        default=None,
+                    )
                     if deepest_affordable is not None:
+                        previous_horizon = soft_prepare_horizon
                         operation_started = self.clock()
                         self._prepare_soft(snapshot, deepest_affordable)
                         deep_prepare_ms = (
@@ -1425,8 +1445,13 @@ class Solver:
                         ) * 1000.0
                         rollout_ms += deep_prepare_ms
                         soft_prepare_horizon = deepest_affordable
+                        next_horizon = min(
+                            horizon for horizon
+                            in TURN_CAPABLE_POLICY_HORIZONS
+                            if horizon > previous_horizon
+                        )
                         accept_progressive(
-                            TURN_CAPABLE_POLICY_HORIZONS[1],
+                            next_horizon,
                             deepest_affordable,
                             (
                                 pending_candidate.action

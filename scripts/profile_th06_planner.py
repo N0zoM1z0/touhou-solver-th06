@@ -19,7 +19,11 @@ from th06.hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from th06.hazards.lasers import hazards_by_frame as laser_hazards_by_frame
 from th06.hazards.world import forecast_world_births
 from th06.kernels.safety import NativeSafetyKernel, _Aabb
-from th06.model import CONTROL_ACTIONS
+from th06.model import CONTROL_ACTIONS, action_from_input
+
+
+DECISION_BUDGET_MS = 1000.0 / 60.0 * 0.75
+TERMINAL_GUARD_MS = 1.5
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frame", type=int, required=True)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--budget-ms", type=float, default=1000.0)
+    parser.add_argument("--pipelines-only", action="store_true")
     return parser.parse_args()
 
 
@@ -136,6 +141,77 @@ def flatten_stream(frames, value_type, convert):
     return offset_array, value_array
 
 
+def deadline_pipeline(snapshot, variant: str) -> tuple[int, float]:
+    """Measure one complete Hard-first online scheduling hypothesis."""
+    kernel = NativeSafetyKernel()
+    started = time.perf_counter()
+    held = action_from_input(snapshot.input_mask)
+    hard, _age_zero, _held_safe = (
+        kernel.certify_delivery_sets_with_selected(
+            snapshot,
+            4,
+            5,
+            (held,),
+            collision_margin=0.35,
+        )
+    )
+    if not hard:
+        return 4, (time.perf_counter() - started) * 1000.0
+    kernel.certify_selected_extended_delivery(
+        snapshot,
+        4,
+        tuple(candidate.action for candidate in hard),
+        collision_margin=0.35,
+    )
+
+    def remaining() -> float:
+        return (
+            DECISION_BUDGET_MS
+            - (time.perf_counter() - started) * 1000.0
+            - TERMINAL_GUARD_MS
+        )
+
+    completed = 4
+    if variant == "split":
+        kernel.prepare(snapshot, 8)
+        available = remaining()
+        base = (
+            kernel.segment_terminal_counts_progressive(
+                snapshot, hard, 4, 8, 8, 0.35, available
+            )
+            if available > 0.0
+            else None
+        )
+        if base is None:
+            return completed, (time.perf_counter() - started) * 1000.0
+        completed = base[0]
+        kernel.prepare(snapshot, 16)
+        available = remaining()
+        deep = (
+            kernel.segment_terminal_counts_progressive(
+                snapshot, hard, 4, 12, 16, 0.35, available
+            )
+            if available > 0.0
+            else None
+        )
+        if deep is not None:
+            completed = max(completed, deep[0])
+    else:
+        maximum = int(variant.removeprefix("unified"))
+        kernel.prepare(snapshot, maximum)
+        available = remaining()
+        result = (
+            kernel.segment_terminal_counts_progressive(
+                snapshot, hard, 4, 8, maximum, 0.35, available
+            )
+            if available > 0.0
+            else None
+        )
+        if result is not None:
+            completed = result[0]
+    return completed, (time.perf_counter() - started) * 1000.0
+
+
 def main() -> int:
     args = parse_args()
     if args.iterations <= 0 or args.budget_ms <= 0.0:
@@ -146,7 +222,17 @@ def main() -> int:
     )
     samples = defaultdict(list)
     results = defaultdict(list)
-    for _ in range(args.iterations):
+    pipeline_variants = ("split", "unified12", "unified16")
+    for iteration in range(args.iterations):
+        # Rotate ordering so cache warmth and scheduler noise do not always
+        # favor one online pipeline.
+        offset = iteration % len(pipeline_variants)
+        for variant in pipeline_variants[offset:] + pipeline_variants[:offset]:
+            completed, elapsed = deadline_pipeline(snapshot, variant)
+            results[f"pipeline_{variant}_completed"].append(completed)
+            samples[f"pipeline_{variant}"].append(elapsed)
+        if args.pipelines_only:
+            continue
         profile_components(samples, snapshot)
         kernel = NativeSafetyKernel()
         hard = timed(samples, "hard4", lambda: kernel.certify_selected(
@@ -302,6 +388,31 @@ def main() -> int:
             ),
         )
         results["combined12_completed"].append(combined12[0])
+
+    if args.pipelines_only:
+        print(json.dumps({
+            "artifact": str(args.artifact),
+            "frame": args.frame,
+            "iterations": args.iterations,
+            "median_ms": {
+                name: statistics.median(values)
+                for name, values in samples.items()
+            },
+            "p90_ms": {
+                name: sorted(values)[
+                    max(0, int(len(values) * 0.9) - 1)
+                ]
+                for name, values in samples.items()
+            },
+            "completed_horizons": {
+                name: {
+                    str(horizon): values.count(horizon)
+                    for horizon in sorted(set(values))
+                }
+                for name, values in results.items()
+            },
+        }, indent=2))
+        return 0
 
     output = {
         "artifact": str(args.artifact),

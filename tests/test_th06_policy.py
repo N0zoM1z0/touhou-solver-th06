@@ -603,7 +603,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 8), (12, 16)],
+            [(8, 16)],
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 
