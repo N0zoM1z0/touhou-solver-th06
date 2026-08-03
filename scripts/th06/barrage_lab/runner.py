@@ -11,7 +11,11 @@ from ..guidance import terminal_guidance_scores
 from ..model import CONTROL_ACTIONS, SafeAction, Snapshot
 from ..safety import COLLISION_MARGIN, certify_actions
 from .assets import EclBulletOpcode
-from .generator import BarrageCase, generate_barrage_case
+from .generator import (
+    BarrageCase,
+    generate_barrage_case,
+    stress_player_position,
+)
 from .oracle import certify_linear_source
 from .planner import source_terminal_counts
 
@@ -85,6 +89,37 @@ def native_terminal_counts(kernel) -> Planner:
             horizon,
             COLLISION_MARGIN,
         )
+        return tuple(
+            (name, values[_ACTION_BY_NAME[name]])
+            for name in candidate_names
+        )
+    return plan
+
+
+def native_progressive_terminal_counts(
+    kernel, *, budget_ms: float = 1000.0
+) -> Planner:
+    """Exercise the complete progressive entry point used by production."""
+    def plan(
+        snapshot: Snapshot,
+        candidate_names: tuple[str, ...],
+        segment_length: int,
+        horizon: int,
+    ) -> tuple[tuple[str, int], ...]:
+        result = kernel.segment_terminal_counts_progressive(
+            snapshot,
+            _candidate_values(snapshot, candidate_names),
+            segment_length,
+            horizon,
+            horizon,
+            COLLISION_MARGIN,
+            budget_ms,
+        )
+        if result is None:
+            return tuple((name, -1) for name in candidate_names)
+        completed_horizon, values, reached_maximum = result
+        if completed_horizon != horizon or not reached_maximum:
+            return tuple((name, -2) for name in candidate_names)
         return tuple(
             (name, values[_ACTION_BY_NAME[name]])
             for name in candidate_names
@@ -299,6 +334,7 @@ def run_sweep(
     *,
     seeds: int,
     horizon: int,
+    placement: str = "interior",
     extra_certifiers: tuple[tuple[str, Certifier], ...] = (),
 ) -> tuple[SweepSummary, SweepMismatch | None]:
     certifiers = (("python", python_action_names),) + extra_certifiers
@@ -306,7 +342,11 @@ def run_sweep(
     safe_sizes = Counter()
     started = time.perf_counter()
     for seed in range(seeds):
-        case: BarrageCase = generate_barrage_case(catalogue, seed)
+        case: BarrageCase = generate_barrage_case(
+            catalogue,
+            seed,
+            player_position=stress_player_position(seed, placement),
+        )
         total_bullets += len(case.snapshot.bullets)
         expected = certify_linear_source(case.snapshot, horizon).actions
         safe_sizes[len(expected)] += 1
@@ -341,6 +381,7 @@ def run_planner_sweep(
     seeds: int,
     segment_length: int,
     horizon: int,
+    placement: str = "interior",
     extra_planners: tuple[tuple[str, Planner], ...] = (),
 ) -> tuple[PlannerSweepSummary, PlannerMismatch | None]:
     """Differentially test production planners on source-valid barrages."""
@@ -354,7 +395,11 @@ def run_planner_sweep(
     elapsed = {"oracle": 0.0, **{name: 0.0 for name, _ in planners}}
 
     for seed in range(seeds):
-        case = generate_barrage_case(catalogue, seed)
+        case = generate_barrage_case(
+            catalogue,
+            seed,
+            player_position=stress_player_position(seed, placement),
+        )
         total_bullets += len(case.snapshot.bullets)
         candidate_names = certify_linear_source(
             case.snapshot, segment_length

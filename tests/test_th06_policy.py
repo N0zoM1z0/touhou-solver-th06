@@ -258,8 +258,13 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
             and minimum_horizon > self.flexible_completed_horizon
         ):
             return None
-        completed_horizon = (
-            maximum_horizon
+        completed_horizon = min(
+            maximum_horizon,
+            (
+                self.flexible_completed_horizon
+                if self.flexible_completed_horizon is not None
+                else maximum_horizon
+            ),
         )
         scores_horizon = (
             completed_horizon
@@ -597,7 +602,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 8), (12, 12), (16, 16)],
+            [(8, 8), (12, 16)],
         )
         self.assertNotEqual(decision.action, self.hard[2].action)
 
@@ -629,7 +634,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
-            [(8, 8), (12, 12), (16, 16)],
+            [(8, 8), (12, 16)],
         )
 
     def test_base_terminal_rung_survives_coarse_limit_six(self):
@@ -655,15 +660,15 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, local_action)
         self.assertEqual(decision.effort_horizon, 8)
         self.assertIn(("prepare", 8), kernel.calls)
-        self.assertNotIn(("prepare", 16), kernel.calls)
+        self.assertIn(("prepare", 16), kernel.calls)
         calls = [
             call[1:3] for call in kernel.calls
             if call[0] == "terminal_progressive"
         ]
         self.assertEqual(calls[0], (8, 8))
-        self.assertNotIn((16, 16), calls)
+        self.assertIn((12, 16), calls)
 
-    def test_intermediate_projection_completes_before_deep_prepare(self):
+    def test_base_projection_completes_before_coalesced_deep_prepare(self):
         clock = ManualClock()
         deep_action = self.hard[1].action
 
@@ -688,23 +693,26 @@ class AnytimePolicyTests(unittest.TestCase):
                     maximum_horizon,
                     tuple(candidates),
                 ))
-                required_ms = {8: 0.4, 12: 1.5}[maximum_horizon]
+                required_ms = {8: 0.4, 16: 1.0}[maximum_horizon]
                 self.clock.advance_ms(min(required_ms, budget_ms))
                 if budget_ms < required_ms:
                     return None
                 allowed = frozenset(
                     candidate.action for candidate in candidates
                 )
+                completed_horizon = (
+                    12 if maximum_horizon == 16 else maximum_horizon
+                )
                 return (
-                    maximum_horizon,
+                    completed_horizon,
                     {
                         action: score for action, score
                         in self.terminal_scores_by_horizon[
-                            maximum_horizon
+                            completed_horizon
                         ].items()
                         if action in allowed
                     },
-                    True,
+                    completed_horizon == maximum_horizon,
                 )
 
         kernel = MeasuredProjectionKernel(
@@ -734,8 +742,8 @@ class AnytimePolicyTests(unittest.TestCase):
             [
                 ("prepare", 8),
                 ("terminal_progressive", 8, 8),
-                ("prepare", 12),
-                ("terminal_progressive", 12, 12),
+                ("prepare", 16),
+                ("terminal_progressive", 12, 16),
             ],
         )
 

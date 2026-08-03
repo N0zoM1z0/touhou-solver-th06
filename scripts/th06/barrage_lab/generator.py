@@ -21,6 +21,41 @@ SOURCE_BULLET_HALF_SIZES = (
 SOURCE_DYNAMIC_FLAGS = 0xDF1
 SOURCE_EXACT_DYNAMIC_FLAGS = 0x071
 SOURCE_BULLET_CAP = 640
+SOURCE_PLAYER_LEFT = 8.0
+SOURCE_PLAYER_RIGHT = 376.0
+SOURCE_PLAYER_TOP = 16.0
+SOURCE_PLAYER_BOTTOM = 432.0
+
+
+def stress_player_position(
+    seed: int, placement: str
+) -> tuple[float, float] | None:
+    """Choose deterministic source-valid movement-boundary stress points."""
+    edges = (
+        (SOURCE_PLAYER_LEFT, 224.0),
+        (SOURCE_PLAYER_RIGHT, 224.0),
+        (192.0, SOURCE_PLAYER_TOP),
+        (192.0, SOURCE_PLAYER_BOTTOM),
+    )
+    corners = (
+        (SOURCE_PLAYER_LEFT, SOURCE_PLAYER_TOP),
+        (SOURCE_PLAYER_RIGHT, SOURCE_PLAYER_TOP),
+        (SOURCE_PLAYER_LEFT, SOURCE_PLAYER_BOTTOM),
+        (SOURCE_PLAYER_RIGHT, SOURCE_PLAYER_BOTTOM),
+    )
+    if placement == "interior":
+        return None
+    if placement == "edge":
+        return edges[seed % len(edges)]
+    if placement == "corner":
+        return corners[seed % len(corners)]
+    if placement == "mixed":
+        family = seed % 3
+        if family == 0:
+            return None
+        values = edges if family == 1 else corners
+        return values[(seed // 3) % len(values)]
+    raise ValueError(f"unknown player placement {placement!r}")
 
 
 def _f32(value: float) -> float:
@@ -185,6 +220,7 @@ def generate_barrage_case(
     *,
     difficulty: int = 2,
     target_bullets: int | None = None,
+    player_position: tuple[float, float] | None = None,
 ) -> BarrageCase:
     """Compose time-shifted real volleys under the source's 640-slot cap."""
     opcodes = eligible_opcodes(catalogue, difficulty)
@@ -195,6 +231,15 @@ def generate_barrage_case(
     rank = chooser.randrange(16, 33)
     player_x = _f32(chooser.uniform(40.0, 344.0))
     player_y = _f32(chooser.uniform(120.0, 416.0))
+    if player_position is not None:
+        requested_x, requested_y = player_position
+        if not (
+            SOURCE_PLAYER_LEFT <= requested_x <= SOURCE_PLAYER_RIGHT
+            and SOURCE_PLAYER_TOP <= requested_y <= SOURCE_PLAYER_BOTTOM
+        ):
+            raise ValueError("player position is outside source movement bounds")
+        player_x = _f32(requested_x)
+        player_y = _f32(requested_y)
     current = chooser.choice(CONTROL_ACTIONS)
     density_steps = (64, 128, 256, 384, 512, 640)
     target = target_bullets or density_steps[seed % len(density_steps)]

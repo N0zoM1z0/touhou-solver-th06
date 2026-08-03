@@ -6,7 +6,10 @@ from th06.barrage_lab.assets import (
     Pbg3Archive,
     parse_ecl_bullet_opcodes,
 )
-from th06.barrage_lab.generator import generate_barrage_case
+from th06.barrage_lab.generator import (
+    generate_barrage_case,
+    stress_player_position,
+)
 from th06.barrage_lab.oracle import certify_linear_source
 from th06.barrage_lab.planner import source_terminal_counts
 from th06.barrage_lab.runner import (
@@ -148,6 +151,21 @@ class BarrageLabTests(unittest.TestCase):
         expected = certify_linear_source(first.snapshot, 8).actions
         self.assertEqual(python_action_names(first.snapshot, 8), expected)
         self.assertEqual(len(first.snapshot.bullets), 64)
+
+    def test_source_boundary_placements_are_deterministic_and_valid(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        position = stress_player_position(3, "corner")
+        case = generate_barrage_case(
+            (opcode,), 3, target_bullets=8, player_position=position
+        )
+
+        self.assertEqual(position, (376.0, 432.0))
+        self.assertEqual((case.snapshot.x, case.snapshot.y), position)
+        with self.assertRaises(ValueError):
+            generate_barrage_case(
+                (opcode,), 3, target_bullets=8,
+                player_position=(377.0, 432.0),
+            )
 
     def test_source_slowdown_is_projected_at_its_known_angle(self):
         bullet = Bullet(

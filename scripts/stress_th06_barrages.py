@@ -13,6 +13,7 @@ from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.generator import eligible_opcodes
 from th06.barrage_lab.runner import (
     native_action_names,
+    native_progressive_terminal_counts,
     native_terminal_counts,
     run_planner_sweep,
     run_sweep,
@@ -29,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         help="differentially fuzz terminal-state planning instead of Hard certification",
     )
     parser.add_argument("--segment-length", type=int, default=4)
+    parser.add_argument(
+        "--placement",
+        choices=("interior", "edge", "corner", "mixed"),
+        default="interior",
+        help="source movement-area player placement distribution",
+    )
     parser.add_argument(
         "--native", action="store_true",
         help="also compare build/th06_safety.dll (Windows Python only)",
@@ -51,7 +58,13 @@ def main() -> int:
         kernel = NativeSafetyKernel()
     if args.planner:
         extras = (
-            (("native", native_terminal_counts(kernel)),)
+            (
+                ("native-fixed", native_terminal_counts(kernel)),
+                (
+                    "native-progressive",
+                    native_progressive_terminal_counts(kernel),
+                ),
+            )
             if kernel is not None else ()
         )
         summary, mismatch = run_planner_sweep(
@@ -59,6 +72,7 @@ def main() -> int:
             seeds=args.seeds,
             segment_length=args.segment_length,
             horizon=args.horizon,
+            placement=args.placement,
             extra_planners=extras,
         )
     else:
@@ -68,11 +82,13 @@ def main() -> int:
         )
         summary, mismatch = run_sweep(
             catalogue, seeds=args.seeds, horizon=args.horizon,
+            placement=args.placement,
             extra_certifiers=extras,
         )
     output = {
         "archive": str(args.archive),
         "mode": "planner" if args.planner else "hard-certification",
+        "placement": args.placement,
         "catalogue_opcodes": len(catalogue),
         "exact_hard_opcodes": len(eligible_opcodes(catalogue)),
         "summary": asdict(summary),

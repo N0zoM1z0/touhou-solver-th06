@@ -1127,9 +1127,10 @@ class Solver:
             progressive_terminal_ready = bool(
                 terminal_progressive_native is not None and len(hard) > 1
             )
-            # Projection is part of each progressive rung.  Preparing the
-            # deepest window before publishing p8/p12 can let an expensive
-            # h16 forecast starve an affordable intermediate continuation.
+            # Complete p8 before any deeper projection.  Once that ordinary
+            # rung exists, coalesce the affordable h12/h16 projection into one
+            # fresh window: rebuilding the same fired bullets and ECL prefix
+            # separately for both horizons is measured duplicate work.
             soft_prepare_horizon = (
                 BASE_POLICY_HORIZON
                 if progressive_terminal_ready
@@ -1174,36 +1175,15 @@ class Solver:
                 allowed = frozenset(
                     candidate.action for candidate in hard
                 )
-                for terminal_horizon in TURN_CAPABLE_POLICY_HORIZONS:
-                    if terminal_horizon > soft_prepare_horizon:
-                        elapsed_ms = (
-                            self.clock() - started
-                        ) * 1000.0
-                        remaining_ms = (
-                            self.effort.budget_ms()
-                            - elapsed_ms
-                            - TERMINAL_DEADLINE_GUARD_MS
-                        )
-                        estimated_prepare_ms = (
-                            soft_prepare_ms
-                            * terminal_horizon
-                            / max(1, soft_prepare_horizon)
-                        )
-                        if (
-                            remaining_ms <= 0.0
-                            or estimated_prepare_ms
-                            > remaining_ms * PROMOTION_BUDGET_FRACTION
-                        ):
-                            break
-                        operation_started = self.clock()
-                        self._prepare_soft(snapshot, terminal_horizon)
-                        rung_prepare_ms = (
-                            self.clock() - operation_started
-                        ) * 1000.0
-                        rollout_ms += rung_prepare_ms
-                        soft_prepare_ms = rung_prepare_ms
-                        soft_prepare_horizon = terminal_horizon
-
+                def accept_progressive(
+                    minimum_horizon: int,
+                    maximum_horizon: int,
+                ) -> bool:
+                    nonlocal policy_preferred
+                    nonlocal policy_horizon
+                    nonlocal policy_scores
+                    nonlocal policy_guidance
+                    nonlocal terminal_completed
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
@@ -1211,14 +1191,14 @@ class Solver:
                         - TERMINAL_DEADLINE_GUARD_MS
                     )
                     if remaining_ms <= 0.0:
-                        break
+                        return False
                     terminal_started = self.clock()
                     progressive_terminal = (
                         self._budgeted_progressive_terminal_counts(
                             snapshot,
                             hard,
-                            terminal_horizon,
-                            terminal_horizon,
+                            minimum_horizon,
+                            maximum_horizon,
                             remaining_ms,
                         )
                     )
@@ -1228,9 +1208,9 @@ class Solver:
                     if progressive_terminal is None:
                         self.effort.observe_policy_timeout(
                             snapshot,
-                            terminal_horizon,
+                            maximum_horizon,
                         )
-                        break
+                        return False
                     (
                         completed_horizon,
                         terminal_scores,
@@ -1263,6 +1243,48 @@ class Solver:
                         policy_scores = terminal_scores
                         policy_guidance = None
                         terminal_completed = True
+                    return True
+
+                base_completed = accept_progressive(
+                    BASE_POLICY_HORIZON,
+                    BASE_POLICY_HORIZON,
+                )
+                if base_completed:
+                    elapsed_ms = (self.clock() - started) * 1000.0
+                    remaining_ms = (
+                        self.effort.budget_ms()
+                        - elapsed_ms
+                        - TERMINAL_DEADLINE_GUARD_MS
+                    )
+                    deepest_affordable = None
+                    for terminal_horizon in (
+                        horizon for horizon
+                        in TURN_CAPABLE_POLICY_HORIZONS
+                        if horizon > BASE_POLICY_HORIZON
+                    ):
+                        estimated_prepare_ms = (
+                            soft_prepare_ms
+                            * terminal_horizon
+                            / BASE_POLICY_HORIZON
+                        )
+                        if (
+                            remaining_ms > 0.0
+                            and estimated_prepare_ms
+                            <= remaining_ms * PROMOTION_BUDGET_FRACTION
+                        ):
+                            deepest_affordable = terminal_horizon
+                    if deepest_affordable is not None:
+                        operation_started = self.clock()
+                        self._prepare_soft(snapshot, deepest_affordable)
+                        deep_prepare_ms = (
+                            self.clock() - operation_started
+                        ) * 1000.0
+                        rollout_ms += deep_prepare_ms
+                        soft_prepare_horizon = deepest_affordable
+                        accept_progressive(
+                            TURN_CAPABLE_POLICY_HORIZONS[1],
+                            deepest_affordable,
+                        )
             elif terminal_native is not None and len(hard) > 1:
                 # Non-native test doubles and older kernels retain the same
                 # complete-or-discard contract. Production uses the shared
