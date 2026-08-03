@@ -78,11 +78,16 @@ def suppression_target(snapshot: Snapshot) -> SuppressionTarget | None:
         planned = []
         emitter_subs = frozenset(snapshot.timeline_emitter_subs)
         boss_subs = frozenset(snapshot.timeline_boss_subs)
+        traverse = math.ceil(
+            (MOVEMENT_RIGHT - MOVEMENT_LEFT)
+            / max(snapshot.normal_speed, 1e-6)
+        )
         for instruction in snapshot.timeline_instructions:
             spawn = decode_enemy_spawn(instruction)
             if (
                 spawn is None
                 or spawn.time < snapshot.timeline_time
+                or spawn.time - snapshot.timeline_time > traverse
                 or spawn.sub_id not in emitter_subs
                 or spawn.sub_id in boss_subs
                 or spawn.life is None
@@ -93,14 +98,7 @@ def suppression_target(snapshot: Snapshot) -> SuppressionTarget | None:
             planned.append(spawn)
 
         if planned:
-            earliest = min(spawn.time for spawn in planned)
-            traverse = math.ceil(
-                (MOVEMENT_RIGHT - MOVEMENT_LEFT)
-                / max(snapshot.normal_speed, 1e-6)
-            )
             for spawn in planned:
-                if spawn.time > earliest + traverse:
-                    continue
                 lead = spawn.time - snapshot.timeline_time
                 target_x = min(max(spawn.x, MOVEMENT_LEFT), MOVEMENT_RIGHT)
                 align = _movement_frames(snapshot, target_x)

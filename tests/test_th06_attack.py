@@ -141,6 +141,25 @@ class TimelineAttackTests(unittest.TestCase):
         )
         self.assertIsNone(suppression_target(state))
 
+    def test_future_spawn_waits_until_one_full_reposition_can_matter(self):
+        instruction = timeline_spawn(
+            address=0x2000,
+            time=690,
+            sub_id=1,
+            opcode=0,
+            x=-32.0,
+            y=160.0,
+            life=200,
+        )
+        state = snapshot(
+            frame=442,
+            timeline_time=442,
+            x=180.0,
+            timeline_instructions=(instruction,),
+            timeline_emitter_subs=(1,),
+        )
+        self.assertIsNone(suppression_target(state))
+
     def test_attack_refines_only_the_supplied_survival_tie(self):
         candidates = (
             SafeAction(ACTIONS[0], 10.0, 331.0, 430.0),
