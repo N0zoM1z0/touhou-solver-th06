@@ -1419,6 +1419,7 @@ class Solver:
         delivery_viable: frozenset[Action] = frozenset()
         delivery_preferred: frozenset[Action] = frozenset()
         segment_delivery_viable: frozenset[Action] = frozenset()
+        segment_delivery_exhausted = False
         terminal_completed = False
         target_guided = False
         target_invalid = False
@@ -1631,6 +1632,7 @@ class Solver:
                     nonlocal progressive_pending_guidance
                     nonlocal planning_candidates
                     nonlocal segment_delivery_viable
+                    nonlocal segment_delivery_exhausted
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
@@ -1674,10 +1676,17 @@ class Solver:
                             in robust_scores.items()
                             if score > 0
                         )
-                        if (
-                            robust_horizon < maximum_horizon
-                            or not robust_viable
-                        ):
+                        if robust_horizon < maximum_horizon:
+                            return False
+                        if not robust_viable:
+                            # Repeated-pickup viability is monotone: once a
+                            # complete rung has no winning first action, no
+                            # deeper invocation of this same Boolean model can
+                            # resurrect one.  Keep cheaper constant witnesses
+                            # available for immediate ranking, but do not burn
+                            # the publication window rebuilding an impossible
+                            # deeper repeated-pickup search.
+                            segment_delivery_exhausted = True
                             return False
                         planning_candidates = tuple(
                             candidate for candidate in planning_candidates
@@ -2163,6 +2172,7 @@ class Solver:
                 # Do not repay the universal delivery branch tax through the
                 # legacy residual Boolean path in the same decision.
                 and not segment_delivery_viable
+                and not segment_delivery_exhausted
                 and limit >= BASE_POLICY_HORIZON
                 and (
                     not terminal_completed

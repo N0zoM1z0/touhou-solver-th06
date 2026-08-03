@@ -1612,6 +1612,73 @@ class AnytimePolicyTests(unittest.TestCase):
         })
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
+    def test_empty_repeated_pickup_rung_prunes_deeper_same_model(self):
+        clock = ManualClock()
+        state = snapshot()
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS[:3]
+        )
+
+        class EmptyRepeatedPickupKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def delivery_segment_viability_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "repeated_pickup",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return (
+                    maximum_horizon,
+                    {candidate.action: 0 for candidate in candidates},
+                    True,
+                )
+
+        kernel = EmptyRepeatedPickupKernel(
+            clock,
+            hard,
+            delivery_scores={candidate.action: 1 for candidate in hard},
+            terminal_scores_by_horizon={
+                12: {candidate.action: 1 for candidate in hard},
+            },
+            reachability_by_horizon={
+                20: {candidate.action: 0 for candidate in hard},
+            },
+            flexible_completed_horizon=20,
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.choose_limit = lambda *_args: 20
+
+        decision = solver.decide(state)
+
+        self.assertIsNotNone(decision.action)
+        self.assertIn("repeated_pickup", [call[0] for call in kernel.calls])
+        self.assertNotIn("progressive", [call[0] for call in kernel.calls])
+
     def test_admitted_deeper_rung_follows_complete_local_viability(self):
         clock = ManualClock()
         shallow_winner = self.hard[0]
