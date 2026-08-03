@@ -394,6 +394,54 @@ class EclBirthTests(unittest.TestCase):
         self.assertAlmostEqual(nominal.births[0][0].angle, expected_first.angle)
         self.assertAlmostEqual(nominal.births[0][1].angle, expected_second.angle)
 
+    def test_nominal_batch_keeps_no_damage_callback_semantics(self):
+        waiting = self.instruction(
+            0x1000, 10000, 1, bytes(4), 0x10
+        )
+        callback_bullet = self.instruction(
+            0x2000,
+            0,
+            67,
+            struct.pack(
+                "<hhIIffffI", 0, 0, 1, 1, 1.0, 0.3, 0.0, 0.0, 0
+            ),
+            0x2C,
+        )
+        sentinel = EclInstruction(
+            0x202C, -1, 0, 0, 0, bytes(12).hex()
+        )
+        emitter = spawner(
+            pattern(count1=1, count2=1),
+            life=10,
+            interval=0,
+            interactable=True,
+            is_boss=True,
+            life_callback_threshold=5,
+            life_callback_sub=0,
+            ecl_subroutines=(0x2000,),
+            next_instruction=waiting,
+            ecl_program=(waiting, callback_bullet, sentinel),
+        )
+        state = snapshot(
+            10,
+            spawners=(emitter,),
+            bullet_sizes=((3.0, 3.0),),
+        )
+        positions = ((100.0, 400.0),) * 2
+
+        hard = forecast_world_births(state, positions)
+        nominal = forecast_world_births(
+            state,
+            positions,
+            rng_mode="nominal",
+        )
+
+        self.assertEqual(hard.covered_frames, 2, hard.reason)
+        self.assertEqual([len(frame) for frame in hard.births], [0, 1])
+        self.assertEqual(nominal.covered_frames, 2, nominal.reason)
+        self.assertEqual(nominal.births, ((), ()))
+        self.assertEqual(hard.births[1][0].speed, 0.5)
+
     def test_hard_world_expands_a_bounded_discrete_rng_domain(self):
         random_int = self.instruction(
             0x1000,

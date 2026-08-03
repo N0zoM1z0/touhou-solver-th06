@@ -584,6 +584,7 @@ def _forecast_ecl_births_single(
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
     abstract_int_choices: tuple[int, ...] = (),
+    model_player_damage: bool = True,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -1872,7 +1873,7 @@ def _forecast_ecl_births_single(
                     interval_timer_high = min(interval_timer_high, interval - 1)
                 interval_timer = interval_timer_low
                 interval_subframe = 0.0
-        if interactable:
+        if interactable and model_player_damage:
             # EnemyManager caps player-shot damage at 70 per update. A
             # collidable non-boss can additionally lose 10 from kill-box
             # contact. This lower bound decides only whether an asynchronous
@@ -1975,6 +1976,7 @@ def _forecast_ecl_births_with_death_callbacks(
     radial_births: bool = False,
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
+    model_player_damage: bool = True,
 ) -> EclForecast:
     """Union every reachable source death-callback pickup frame."""
     horizon = len(player_positions)
@@ -1987,7 +1989,8 @@ def _forecast_ecl_births_with_death_callbacks(
         else (0 if spawner.life <= 0 else horizon)
     )
     should_branch = (
-        abstract_rng
+        model_player_damage
+        and abstract_rng
         and spawner.interactable
         and spawner.death_callback_sub >= 0
         and 0 <= spawner.death_callback_sub < len(spawner.ecl_subroutines)
@@ -2006,6 +2009,7 @@ def _forecast_ecl_births_with_death_callbacks(
             radial_births,
             abstract_rng,
             enemy_kill_all_is_noop,
+            model_player_damage=model_player_damage,
         )
 
     program = _compiled_program(spawner.ecl_program)
@@ -2033,6 +2037,7 @@ def _forecast_ecl_births_with_death_callbacks(
         radial_births,
         abstract_rng,
         enemy_kill_all_is_noop,
+        model_player_damage=model_player_damage,
     )
     births = [list(frame) for frame in no_callback.births]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -2057,6 +2062,7 @@ def _forecast_ecl_births_with_death_callbacks(
                 radial_births,
                 abstract_rng,
                 enemy_kill_all_is_noop,
+                model_player_damage=model_player_damage,
             )
             if prefix.covered_frames < callback_frame:
                 if prefix.covered_frames < covered_frames:
@@ -2123,6 +2129,7 @@ def _forecast_ecl_births_with_death_callbacks(
             radial_births,
             abstract_rng,
             enemy_kill_all_is_noop,
+            model_player_damage=model_player_damage,
         )
         for index, frame_births in enumerate(callback.births, callback_frame):
             births[index].extend(frame_births)
@@ -2155,6 +2162,7 @@ def _forecast_ecl_births_with_life_callbacks(
     radial_births: bool = False,
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
+    model_player_damage: bool = True,
 ) -> EclForecast:
     """Forecast an emitter, branching over reachable hard life callbacks."""
     horizon = len(player_positions)
@@ -2168,7 +2176,8 @@ def _forecast_ecl_births_with_life_callbacks(
         else horizon
     )
     should_branch = (
-        abstract_rng
+        model_player_damage
+        and abstract_rng
         and spawner.interactable
         and spawner.life_callback_threshold >= 0
         and 0 <= spawner.life_callback_sub < len(spawner.ecl_subroutines)
@@ -2187,6 +2196,7 @@ def _forecast_ecl_births_with_life_callbacks(
             radial_births,
             abstract_rng,
             enemy_kill_all_is_noop,
+            model_player_damage,
         )
 
     program = _compiled_program(spawner.ecl_program)
@@ -2215,6 +2225,7 @@ def _forecast_ecl_births_with_life_callbacks(
         radial_births,
         abstract_rng,
         enemy_kill_all_is_noop,
+        model_player_damage,
     )
     births = [list(frame) for frame in no_callback.births]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -2239,6 +2250,7 @@ def _forecast_ecl_births_with_life_callbacks(
                 radial_births,
                 abstract_rng,
                 enemy_kill_all_is_noop,
+                model_player_damage,
             )
             if prefix.covered_frames < callback_frame or prefix.next_spawner is None:
                 branch_coverage = prefix.covered_frames
@@ -2277,6 +2289,7 @@ def _forecast_ecl_births_with_life_callbacks(
             radial_births,
             abstract_rng,
             enemy_kill_all_is_noop,
+            model_player_damage,
         )
         for index, frame_births in enumerate(callback.births, callback_frame):
             births[index].extend(frame_births)
@@ -2448,6 +2461,7 @@ def forecast_ecl_births(
     radial_births: bool = False,
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
+    model_player_damage: bool = True,
 ) -> EclForecast:
     """Forecast one emitter and preserve every bounded hard uncertainty."""
     if (
@@ -2489,4 +2503,5 @@ def forecast_ecl_births(
         radial_births,
         abstract_rng,
         enemy_kill_all_is_noop,
+        model_player_damage,
     )

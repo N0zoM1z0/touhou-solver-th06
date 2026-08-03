@@ -111,49 +111,7 @@ def forecast_world_births(
     # interpreter instead of rebuilding and copying it once per frame. The
     # runtime RNG object and player-position sequence remain exact inputs.
     batch_emitter = emitters[0] if len(emitters) == 1 else None
-    callback_damage = (
-        (
-            70 if batch_emitter is not None and batch_emitter.damageable else 0
-        )
-        + (
-            10
-            if (
-                batch_emitter is not None
-                and batch_emitter.collidable
-                and not batch_emitter.is_boss
-            )
-            else 0
-        )
-    )
-    death_callback_reachable = (
-        batch_emitter is not None
-        and batch_emitter.interactable
-        and batch_emitter.death_callback_sub >= 0
-        and callback_damage > 0
-        and batch_emitter.life > 0
-        and (
-            batch_emitter.life + callback_damage - 1
-        ) // callback_damage < len(player_positions)
-    )
-    life_callback_reachable = (
-        batch_emitter is not None
-        and batch_emitter.interactable
-        and batch_emitter.life_callback_threshold >= 0
-        and batch_emitter.life_callback_sub >= 0
-        and callback_damage > 0
-        and batch_emitter.life > batch_emitter.life_callback_threshold
-        and (
-            batch_emitter.life
-            - batch_emitter.life_callback_threshold
-            + callback_damage
-            - 1
-        ) // callback_damage < len(player_positions)
-    )
-    if (
-        batch_emitter is not None
-        and not death_callback_reachable
-        and not life_callback_reachable
-    ):
+    if batch_emitter is not None:
         emitter = batch_emitter
         try:
             forecast = forecast_ecl_births(
@@ -166,6 +124,13 @@ def forecast_world_births(
                 rng,
                 allow_player_variables=True,
                 radial_births=radial,
+                # Nominal proposal forecasting already assumes no unknown
+                # future player damage: the old per-frame path restored the
+                # captured life before each next frame. Make that source
+                # boundary explicit so one emitter can retain its compiled
+                # ECL state across the whole horizon. Timer callbacks, exact
+                # RNG, and per-frame player positions remain live inputs.
+                model_player_damage=False,
             )
         except UnsupportedBirthModel as error:
             return WorldBirthForecast(
