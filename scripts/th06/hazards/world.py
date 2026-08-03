@@ -106,6 +106,86 @@ def forecast_world_births(
     )
     radial = False
 
+    # With one emitter, frame-first/slot-second order is identical to one
+    # multi-frame ECL execution. Keep its compiled control state in the ECL
+    # interpreter instead of rebuilding and copying it once per frame. The
+    # runtime RNG object and player-position sequence remain exact inputs.
+    batch_emitter = emitters[0] if len(emitters) == 1 else None
+    callback_damage = (
+        (
+            70 if batch_emitter is not None and batch_emitter.damageable else 0
+        )
+        + (
+            10
+            if (
+                batch_emitter is not None
+                and batch_emitter.collidable
+                and not batch_emitter.is_boss
+            )
+            else 0
+        )
+    )
+    death_callback_reachable = (
+        batch_emitter is not None
+        and batch_emitter.interactable
+        and batch_emitter.death_callback_sub >= 0
+        and callback_damage > 0
+        and batch_emitter.life > 0
+        and (
+            batch_emitter.life + callback_damage - 1
+        ) // callback_damage < len(player_positions)
+    )
+    life_callback_reachable = (
+        batch_emitter is not None
+        and batch_emitter.interactable
+        and batch_emitter.life_callback_threshold >= 0
+        and batch_emitter.life_callback_sub >= 0
+        and callback_damage > 0
+        and batch_emitter.life > batch_emitter.life_callback_threshold
+        and (
+            batch_emitter.life
+            - batch_emitter.life_callback_threshold
+            + callback_damage
+            - 1
+        ) // callback_damage < len(player_positions)
+    )
+    if (
+        batch_emitter is not None
+        and not death_callback_reachable
+        and not life_callback_reachable
+    ):
+        emitter = batch_emitter
+        try:
+            forecast = forecast_ecl_births(
+                emitter,
+                player_positions,
+                snapshot.difficulty,
+                snapshot.rank,
+                snapshot.bullet_sizes,
+                snapshot.frame_multiplier,
+                rng,
+                allow_player_variables=True,
+                radial_births=radial,
+            )
+        except UnsupportedBirthModel as error:
+            return WorldBirthForecast(
+                tuple(tuple(frame) for frame in births),
+                _project_hazards(births, radial),
+                0,
+                f"emitter {emitter.slot}: {error}",
+            )
+        for frame_index, frame_births in enumerate(forecast.births):
+            births[frame_index].extend(frame_births)
+        for frame_index, frame_bodies in enumerate(forecast.body_hazards):
+            bodies[frame_index].extend(frame_bodies)
+        return WorldBirthForecast(
+            tuple(tuple(frame) for frame in births),
+            _project_hazards(births, radial),
+            forecast.covered_frames,
+            forecast.reason,
+            tuple(tuple(frame) for frame in bodies),
+        )
+
     for frame_index, player in enumerate(player_positions):
         next_emitters: list[EnemySpawner] = []
         stop_reason = ""
