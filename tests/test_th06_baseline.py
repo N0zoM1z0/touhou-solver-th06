@@ -1075,7 +1075,8 @@ class BaselineTests(unittest.TestCase):
         candidates = certify_actions(state, HARD_SAFETY_HORIZON)
 
         expected = replanning_scores(state, candidates, split=4, horizon=8)
-        actual = NativeSafetyKernel().replanning_scores(
+        kernel = NativeSafetyKernel()
+        actual = kernel.replanning_scores(
             state,
             candidates,
             split=4,
@@ -1084,6 +1085,27 @@ class BaselineTests(unittest.TestCase):
         )
 
         self.assertEqual(actual, expected)
+        self.assertEqual(
+            kernel.replanning_scores_budgeted(
+                state,
+                candidates,
+                split=4,
+                horizon=8,
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            ),
+            expected,
+        )
+        self.assertIsNone(
+            kernel.replanning_scores_budgeted(
+                state,
+                candidates,
+                split=4,
+                horizon=8,
+                collision_margin=0.35,
+                budget_ms=0.000001,
+            )
+        )
 
     def test_replanning_counts_unique_reachable_corner_states(self):
         state = snapshot(x=376.0, y=432.0)

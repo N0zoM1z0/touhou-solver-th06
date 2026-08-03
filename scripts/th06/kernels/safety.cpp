@@ -795,6 +795,67 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
     return 0;
 }
 
+// The ordinary local micro rung uses the focused continuation alphabet above
+// and publishes only a complete all-candidate result.  This keeps future
+// command delivery/transition uncertainty explicit without paying for the
+// broader coarse-tail alphabet.
+TH06_EXPORT std::int32_t th06_replanning_scores_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t split,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* output
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    const bool previousAllControls = gMacroTailAllControls;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    gMacroTailAllControls = false;
+    const std::int32_t status = th06_replanning_scores(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        split,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        output
+    );
+    gMacroTailAllControls = previousAllControls;
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
+}
+
 // Coarse long-horizon proposal: preserve the exact physical first segment,
 // then compare one robust constant tail from the complete 18-action control
 // alphabet.  This is a shortlist comparator only; Hard authority remains in

@@ -19,7 +19,7 @@ from th06.model import (
 )
 from th06.safety import certify_actions
 from th06.solver import Solver
-from th06.viability import nominal_policy_scores
+from th06.viability import nominal_policy_scores, replanning_scores
 
 
 def snapshot(**changes) -> Snapshot:
@@ -913,6 +913,37 @@ class TerminalGuidanceTests(unittest.TestCase):
             [candidate.action.name for candidate in hard],
             expected["hard_actions"],
         )
+
+        if "replanning_scores" in expected:
+            scores = (
+                replanning_scores(
+                    state,
+                    hard,
+                    split=values["segment_length"],
+                    horizon=8,
+                )
+                if kernel is None
+                else kernel.replanning_scores(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    8,
+                    collision_margin=0.35,
+                )
+            )
+            self.assertEqual(
+                {action.name: score for action, score in scores.items()},
+                expected["replanning_scores"],
+            )
+            best = max(scores.values(), default=0)
+            self.assertGreater(best, 0)
+            self.assertEqual(
+                [
+                    action.name for action, score in scores.items()
+                    if score == best
+                ],
+                expected["replanning_actions"],
+            )
 
         constants_by_horizon = {}
         for raw_horizon, expected_actions in expected.get(

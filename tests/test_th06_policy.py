@@ -288,6 +288,44 @@ class TerminalRefinementKernel(BudgetedProgressiveKernel):
         )
 
 
+class DeliveryReplanningKernel(TerminalRefinementKernel):
+    def __init__(
+        self,
+        *args,
+        delivery_scores,
+        delivery_ms=1.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.delivery_scores = delivery_scores
+        self.delivery_ms = delivery_ms
+
+    def replanning_scores_budgeted(
+        self,
+        _state,
+        candidates,
+        segment_length,
+        horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append((
+            "delivery_replanning",
+            segment_length,
+            horizon,
+            tuple(candidate.action for candidate in candidates),
+        ))
+        if self.delivery_ms > budget_ms:
+            self.clock.advance_ms(budget_ms)
+            return None
+        self.clock.advance_ms(self.delivery_ms)
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return {
+            action: score for action, score in self.delivery_scores.items()
+            if action in allowed
+        }
+
+
 class CoarseMacroKernel(TerminalRefinementKernel):
     def __init__(
         self,
@@ -851,7 +889,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 12)
         calls = [call for call in kernel.calls if call[0] == "budgeted_frontier"]
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], BASE_POLICY_HORIZON)
+        self.assertEqual(calls[0][1], 16)
         self.assertGreater(calls[0][2], 0.0)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
@@ -1115,25 +1153,35 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(decision.action, current.action)
 
-    def test_local_constant_reserve_constrains_deep_nominal_winner(self):
+    def test_delivery_aware_local_micro_constrains_nominal_winner(self):
         clock = ManualClock()
         fragile = self.hard[0]
-        reserve_winner = self.hard[1]
-        reserve_other = self.hard[2]
-        kernel = BudgetedProgressiveKernel(
+        robust_winner = self.hard[1]
+        robust_other = self.hard[2]
+        kernel = DeliveryReplanningKernel(
             clock,
             self.hard,
-            frontiers={
-                BASE_POLICY_HORIZON: (reserve_winner, reserve_other),
+            delivery_scores={
+                fragile.action: 0,
+                robust_winner.action: 5,
+                robust_other.action: 3,
+            },
+            terminal_scores_by_horizon={
+                16: {
+                    fragile.action: 20,
+                    robust_winner.action: 12,
+                    robust_other.action: 8,
+                },
             },
             scores_by_horizon={
                 16: {
                     fragile.action: 20,
-                    reserve_winner.action: 12,
-                    reserve_other.action: 8,
+                    robust_winner.action: 12,
+                    robust_other.action: 8,
                 },
             },
             budgeted_ms_by_horizon={16: 2.0},
+            flexible_completed_horizon=16,
         )
         solver = self.solver(kernel, clock)
         solver.effort.rollout_ms_per_work = 0.0
@@ -1141,74 +1189,44 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        self.assertEqual(decision.action, reserve_winner.action)
+        self.assertEqual(decision.action, robust_winner.action)
         self.assertEqual(decision.effort_horizon, 16)
         self.assertIn(
             (
-                "frontier",
+                "delivery_replanning",
+                HARD_SAFETY_HORIZON,
                 BASE_POLICY_HORIZON,
                 tuple(candidate.action for candidate in self.hard),
             ),
             kernel.calls,
         )
 
-    def test_publication_reserve_progresses_through_full_delivery_window(self):
+    def test_zero_delivery_continuation_keeps_nominal_fallback(self):
         clock = ManualClock()
-        nominal_winner = self.hard[0]
-        reserve_winner = self.hard[1]
-        reserve_other = self.hard[2]
-        kernel = BudgetedProgressiveKernel(
-            clock,
-            self.hard,
-            frontiers={
-                6: self.hard,
-                BASE_POLICY_HORIZON: (reserve_winner, reserve_other),
-            },
-            scores_by_horizon={
-                16: {
-                    nominal_winner.action: 20,
-                    reserve_winner.action: 12,
-                    reserve_other.action: 8,
-                },
-            },
-            budgeted_ms_by_horizon={16: 2.0},
-        )
-        solver = self.solver(kernel, clock)
-        solver.effort.rollout_ms_per_work = 0.0
-        solver.effort.last_limit = 16
-
-        decision = solver.decide(snapshot())
-
-        self.assertEqual(decision.action, reserve_winner.action)
-        self.assertEqual(decision.effort_horizon, 16)
-        self.assertIn(
-            (
-                "frontier",
-                BASE_POLICY_HORIZON,
-                tuple(candidate.action for candidate in self.hard),
-            ),
-            kernel.calls,
-        )
-
-    def test_empty_full_publication_reserve_does_not_fall_back_to_h6(self):
-        clock = ManualClock()
-        short_witness = self.hard[0]
+        nominal_other = self.hard[0]
         turn_capable = self.hard[1]
-        kernel = BudgetedProgressiveKernel(
+        kernel = DeliveryReplanningKernel(
             clock,
             self.hard,
-            frontiers={
-                6: (short_witness,),
-                BASE_POLICY_HORIZON: (),
+            delivery_scores={
+                candidate.action: 0 for candidate in self.hard
+            },
+            terminal_scores_by_horizon={
+                16: {
+                    nominal_other.action: 8,
+                    turn_capable.action: 20,
+                    self.hard[2].action: 4,
+                },
             },
             scores_by_horizon={
                 16: {
-                    short_witness.action: 8,
+                    nominal_other.action: 8,
                     turn_capable.action: 20,
                     self.hard[2].action: 4,
                 },
             },
             budgeted_ms_by_horizon={16: 2.0},
+            flexible_completed_horizon=16,
         )
         solver = self.solver(kernel, clock)
         solver.effort.rollout_ms_per_work = 0.0

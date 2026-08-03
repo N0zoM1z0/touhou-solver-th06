@@ -976,6 +976,33 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_replanning_scores(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "replanning_scores_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None or budget_ms <= 0.0:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            BASE_POLICY_HORIZON,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def _budgeted_progressive_terminal_counts(
         self,
         snapshot: Snapshot,
@@ -1222,8 +1249,6 @@ class Solver:
         )
         frontier = hard
         frontier_horizon = HARD_SAFETY_HORIZON
-        local_reserve_ready = False
-        local_reserve: frozenset[Action] = frozenset()
         contracted = False
         constant_exhausted = False
         policy_exhausted = False
@@ -1233,6 +1258,7 @@ class Solver:
         policy_horizon = HARD_SAFETY_HORIZON
         policy_scores = None
         policy_guidance = None
+        delivery_preferred: frozenset[Action] = frozenset()
         terminal_completed = False
         target_guided = False
         target_invalid = False
@@ -1242,6 +1268,53 @@ class Solver:
         progressive_pending_guidance = None
 
         if limit > HARD_SAFETY_HORIZON:
+            planning_candidates = hard
+            if limit >= BASE_POLICY_HORIZON and len(hard) > 1:
+                # The ordinary local micro rung models both the action being
+                # published now and the next correction with the complete
+                # source-observed delivery/transition branch set.  It is
+                # stronger evidence than later nominal-pickup segments, so it
+                # runs first and shortlists (but never enlarges) Hard.
+                elapsed_ms = (self.clock() - started) * 1000.0
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
+                replanning_started = self.clock()
+                replanning = self._budgeted_replanning_scores(
+                    snapshot,
+                    hard,
+                    remaining_ms,
+                )
+                replanning_ms = (
+                    self.clock() - replanning_started
+                ) * 1000.0
+                if replanning is not None:
+                    self.effort.observe_policy(
+                        snapshot,
+                        len(hard),
+                        BASE_POLICY_HORIZON,
+                        replanning_ms,
+                    )
+                    replanning_best = max(
+                        replanning.values(),
+                        default=0,
+                    )
+                    if replanning_best > 0:
+                        delivery_preferred = frozenset(
+                            action for action, score
+                            in replanning.items()
+                            if score == replanning_best
+                        )
+                        planning_candidates = tuple(
+                            candidate for candidate in hard
+                            if candidate.action in delivery_preferred
+                        )
+                        policy_preferred = delivery_preferred
+                        policy_horizon = BASE_POLICY_HORIZON
+                        policy_scores = replanning
+                        terminal_completed = True
             terminal_progressive_native = (
                 getattr(
                     type(self.kernel),
@@ -1285,7 +1358,7 @@ class Solver:
             pending_candidate = next(
                 (
                     candidate
-                    for candidate in hard
+                    for candidate in planning_candidates
                     if (
                         candidate.action == self.pending_target_action
                         and candidate.action == observed_held
@@ -1312,7 +1385,7 @@ class Solver:
             )
             if progressive_terminal_ready:
                 allowed = frozenset(
-                    candidate.action for candidate in hard
+                    candidate.action for candidate in planning_candidates
                 )
                 def accept_progressive(
                     minimum_horizon: int,
@@ -1337,7 +1410,7 @@ class Solver:
                     progressive_terminal = (
                         self._budgeted_progressive_terminal_counts(
                             snapshot,
-                            hard,
+                            planning_candidates,
                             minimum_horizon,
                             maximum_horizon,
                             remaining_ms,
@@ -1467,7 +1540,7 @@ class Solver:
                 # progressive frontier above so h8/h12 are not recomputed
                 # before attempting h16.
                 allowed = frozenset(
-                    candidate.action for candidate in hard
+                    candidate.action for candidate in planning_candidates
                 )
                 for terminal_horizon in TURN_CAPABLE_POLICY_HORIZONS:
                     if terminal_horizon > limit:
@@ -1482,7 +1555,7 @@ class Solver:
                         break
                     terminal_scores = self._budgeted_terminal_counts(
                         snapshot,
-                        hard,
+                        planning_candidates,
                         terminal_horizon,
                         remaining_ms,
                     )
@@ -1526,20 +1599,10 @@ class Solver:
                 if (
                     policy_preferred
                     and horizon <= policy_horizon
-                    and horizon > BASE_POLICY_HORIZON
                 ):
-                    # Constant h6 and h8 form a progressive local publication
-                    # reserve.  H8 covers the four-frame Hard window plus the
-                    # complete 0..3-frame physical delivery window, so a deep
-                    # nominal turn cannot rank an input which already requires
-                    # an unpublishable correction inside that interval.  Work
-                    # beyond this ordinary reserve remains redundant once a
-                    # turn-capable rung is complete.
-                    continue
-                if policy_preferred and horizon < BASE_POLICY_HORIZON:
-                    # H6 cannot serve as a publication reserve by itself.
-                    # Go directly to the complete h8 test, avoiding a second
-                    # delivery scan that can consume its residual deadline.
+                    # The delivery-aware local policy already covers both
+                    # h6 and h8. Rebuilding an unchanged-input prefix cannot
+                    # strengthen it and only consumes publication time.
                     continue
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (
@@ -1561,16 +1624,6 @@ class Solver:
                 ) * 1000.0
                 if next_frontier is None:
                     break
-                if horizon == BASE_POLICY_HORIZON:
-                    # H6 is only the progressive prefix of this full reserve.
-                    # If h8 completes empty, no unchanged input spans Hard-4
-                    # plus the delivery window; falling back to h6 would hide
-                    # the turn-capable policy which is then the only deeper
-                    # evidence.  A timed-out h8 is likewise discarded.
-                    local_reserve_ready = True
-                    local_reserve = frozenset(
-                        candidate.action for candidate in next_frontier
-                    )
                 rollout_horizon = horizon
                 if len(next_frontier) < len(frontier):
                     contracted = True
@@ -1578,13 +1631,6 @@ class Solver:
                     frontier = next_frontier
                     frontier_horizon = horizon
                 else:
-                    if horizon == BASE_POLICY_HORIZON:
-                        # A completed empty h8 invalidates the shorter
-                        # unchanged-input prefix as final ranking evidence.
-                        # Keep the independent turn-capable result, or fall
-                        # back to Hard ranking if that proposal timed out.
-                        frontier = hard
-                        frontier_horizon = HARD_SAFETY_HORIZON
                     constant_exhausted = True
             if (
                 frontier_horizon > HARD_SAFETY_HORIZON
@@ -2169,12 +2215,8 @@ class Solver:
             if frontier_horizon > HARD_SAFETY_HORIZON
             else frozenset()
         )
-        # Deeper constant witnesses remain tie-breakers.  The progressively
-        # completed h8 witness is different: it is the local reserve needed to
-        # leave a fresh correction publishable across the measured delivery
-        # window. H6 is only its progressive prefix and cannot constrain a
-        # deeper policy by itself. Hard-4 eligibility and fail-close authority
-        # remain unchanged.
+        # Deeper constant witnesses remain tie-breakers; they cannot reject a
+        # turn-capable policy merely because holding its first input is worse.
         restricted_preferred: frozenset[Action] = frozenset()
         if (
             policy_preferred
@@ -2200,35 +2242,34 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
-        if (
-            local_reserve_ready
-            and local_reserve
-            and policy_preferred
-        ):
-            retained = preferred & local_reserve
+        if delivery_preferred:
+            # This completed two-delivery p8 result is the strongest fresh
+            # local micro evidence. Later nominal-pickup horizons may rank
+            # inside it but cannot restore an action it rejected.
+            retained = preferred & delivery_preferred
             if retained:
                 preferred = retained
             else:
-                reserve_preferred: frozenset[Action] = frozenset()
+                delivery_ranked: frozenset[Action] = frozenset()
                 if policy_scores is not None:
-                    reserve_best = max(
+                    delivery_best = max(
                         (
                             policy_scores.get(action, 0)
-                            for action in local_reserve
+                            for action in delivery_preferred
                         ),
                         default=0,
                     )
-                    if reserve_best > 0:
-                        reserve_preferred = frozenset(
-                            action for action in local_reserve
-                            if policy_scores.get(action, 0) == reserve_best
+                    if delivery_best > 0:
+                        delivery_ranked = frozenset(
+                            action for action in delivery_preferred
+                            if policy_scores.get(action, 0) == delivery_best
                         )
                 elif policy_guidance is not None:
-                    reserve_preferred = preferred_target_actions(
+                    delivery_ranked = preferred_target_actions(
                         policy_guidance,
-                        local_reserve,
+                        delivery_preferred,
                     )
-                preferred = reserve_preferred or local_reserve
+                preferred = delivery_ranked or delivery_preferred
 
         if pending_candidate is not None:
             # A free-space target is soft state derived from a previously
