@@ -944,6 +944,36 @@ class TerminalGuidanceTests(unittest.TestCase):
                 ],
                 expected["replanning_actions"],
             )
+            if kernel is not None:
+                viability = kernel.replanning_viability_budgeted(
+                    state,
+                    hard,
+                    values["segment_length"],
+                    8,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                self.assertEqual(
+                    viability,
+                    {
+                        action: int(score > 0)
+                        for action, score in scores.items()
+                    },
+                )
+                progressive = (
+                    kernel.replanning_scores_progressive_budgeted(
+                        state,
+                        hard,
+                        values["segment_length"],
+                        8,
+                        collision_margin=0.35,
+                        budget_ms=1000.0,
+                    )
+                )
+                self.assertIsNotNone(progressive)
+                progressive_scores, robustness_complete = progressive
+                self.assertTrue(robustness_complete)
+                self.assertEqual(progressive_scores, scores)
 
         constants_by_horizon = {}
         for raw_horizon, expected_actions in expected.get(

@@ -127,6 +127,13 @@ class NativeSafetyKernel:
             ctypes.POINTER(ctypes.c_int32),
         )
         self.budgeted_replanning_function.restype = ctypes.c_int32
+        self.budgeted_replanning_viability_function = (
+            self.library.th06_replanning_viability_budgeted
+        )
+        self.budgeted_replanning_viability_function.argtypes = (
+            self.budgeted_replanning_function.argtypes
+        )
+        self.budgeted_replanning_viability_function.restype = ctypes.c_int32
         self.macro_tail_function = (
             self.library.th06_macro_tail_scores_budgeted
         )
@@ -973,25 +980,20 @@ class NativeSafetyKernel:
             if action in candidate_actions
         }
 
-    def replanning_scores_budgeted(
+    def _replanning_prepared_budgeted(
         self,
+        function,
         snapshot: Snapshot,
         candidates: tuple[SafeAction, ...],
         split: int,
         horizon: int,
         collision_margin: float,
         budget_ms: float,
+        prepared,
     ) -> dict[Action, int] | None:
-        """Return complete two-delivery local scores, or discard on timeout."""
         if budget_ms <= 0.0:
             return None
-        started = time.perf_counter()
-        bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_fail_closed(snapshot, horizon, collision_margin)
-        )
-        remaining_ms = budget_ms - (time.perf_counter() - started) * 1000.0
-        if remaining_ms <= 0.0:
-            return None
+        bullet_offsets, bullets, laser_offsets, lasers = prepared
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
             1 << index
@@ -999,7 +1001,7 @@ class NativeSafetyKernel:
             if action in candidate_actions
         )
         output = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
-        status = self.budgeted_replanning_function(
+        status = function(
             snapshot.x,
             snapshot.y,
             snapshot.half_width,
@@ -1017,7 +1019,7 @@ class NativeSafetyKernel:
             laser_offsets,
             lasers,
             collision_margin,
-            remaining_ms,
+            budget_ms,
             output,
         )
         if status == 1:
@@ -1031,6 +1033,131 @@ class NativeSafetyKernel:
             for index, action in enumerate(CONTROL_ACTIONS)
             if action in candidate_actions
         }
+
+    def replanning_scores_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        split: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> dict[Action, int] | None:
+        """Return complete two-delivery local scores, or discard on timeout."""
+        if budget_ms <= 0.0:
+            return None
+        started = time.perf_counter()
+        prepared = self._prepare_fail_closed(
+            snapshot, horizon, collision_margin
+        )
+        return self._replanning_prepared_budgeted(
+            self.budgeted_replanning_function,
+            snapshot,
+            candidates,
+            split,
+            horizon,
+            collision_margin,
+            budget_ms - (time.perf_counter() - started) * 1000.0,
+            prepared,
+        )
+
+    def replanning_scores_progressive_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        split: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+        robustness: bool = True,
+    ) -> tuple[dict[Action, int], bool] | None:
+        """Publish viability first, then exact robustness if time remains."""
+        if budget_ms <= 0.0:
+            return None
+        started = time.perf_counter()
+        prepared = self._prepare_fail_closed(
+            snapshot, horizon, collision_margin
+        )
+
+        def remaining_ms() -> float:
+            return budget_ms - (time.perf_counter() - started) * 1000.0
+
+        viability_budget_ms = remaining_ms()
+        if viability_budget_ms <= 0.0:
+            return None
+        viability = self._replanning_prepared_budgeted(
+            self.budgeted_replanning_viability_function,
+            snapshot,
+            candidates,
+            split,
+            horizon,
+            collision_margin,
+            viability_budget_ms,
+            prepared,
+        )
+        if viability is None:
+            return None
+        viable_actions = {
+            action for action, score in viability.items() if score > 0
+        }
+        robustness_budget_ms = remaining_ms()
+        if (
+            not robustness
+            or not viable_actions
+            or robustness_budget_ms <= 0.0
+        ):
+            return viability, False
+
+        viable_candidates = tuple(
+            candidate for candidate in candidates
+            if candidate.action in viable_actions
+        )
+        robustness_scores = self._replanning_prepared_budgeted(
+            self.budgeted_replanning_function,
+            snapshot,
+            viable_candidates,
+            split,
+            horizon,
+            collision_margin,
+            robustness_budget_ms,
+            prepared,
+        )
+        if robustness_scores is None:
+            return viability, False
+        return (
+            {
+                action: robustness_scores.get(action, 0)
+                for action in viability
+            },
+            True,
+        )
+
+    def replanning_viability_budgeted(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        split: int,
+        horizon: int,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> dict[Action, int] | None:
+        """Return the complete per-action next-correction predicate."""
+        if budget_ms <= 0.0:
+            return None
+        started = time.perf_counter()
+        prepared = self._prepare_fail_closed(
+            snapshot, horizon, collision_margin
+        )
+        return self._replanning_prepared_budgeted(
+            self.budgeted_replanning_viability_function,
+            snapshot,
+            candidates,
+            split,
+            horizon,
+            collision_margin,
+            budget_ms - (time.perf_counter() - started) * 1000.0,
+            prepared,
+        )
 
     def macro_tail_scores_budgeted(
         self,

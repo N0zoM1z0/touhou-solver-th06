@@ -294,11 +294,13 @@ class DeliveryReplanningKernel(TerminalRefinementKernel):
         *args,
         delivery_scores,
         delivery_ms=1.0,
+        delivery_robustness_complete=True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.delivery_scores = delivery_scores
         self.delivery_ms = delivery_ms
+        self.delivery_robustness_complete = delivery_robustness_complete
 
     def replanning_scores_budgeted(
         self,
@@ -324,6 +326,18 @@ class DeliveryReplanningKernel(TerminalRefinementKernel):
             action: score for action, score in self.delivery_scores.items()
             if action in allowed
         }
+
+    def replanning_scores_progressive_budgeted(self, *args, **kwargs):
+        robustness = kwargs.pop("robustness", True)
+        scores = self.replanning_scores_budgeted(*args, **kwargs)
+        return (
+            None
+            if scores is None
+            else (
+                scores,
+                robustness and self.delivery_robustness_complete,
+            )
+        )
 
 
 class CoarseMacroKernel(TerminalRefinementKernel):
@@ -1202,9 +1216,9 @@ class AnytimePolicyTests(unittest.TestCase):
         )
 
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
-        for predicted_limit in (
-            HARD_SAFETY_HORIZON,
-            BASE_POLICY_HORIZON,
+        for predicted_limit, robustness_complete in (
+            (HARD_SAFETY_HORIZON, False),
+            (BASE_POLICY_HORIZON, True),
         ):
             with self.subTest(predicted_limit=predicted_limit):
                 clock = ManualClock()
@@ -1215,9 +1229,14 @@ class AnytimePolicyTests(unittest.TestCase):
                     self.hard,
                     delivery_scores={
                         fragile.action: 0,
-                        robust.action: 5,
-                        self.hard[2].action: 3,
+                        robust.action: (
+                            5 if robustness_complete else 1
+                        ),
+                        self.hard[2].action: (
+                            3 if robustness_complete else 1
+                        ),
                     },
+                    delivery_robustness_complete=robustness_complete,
                     terminal_scores_by_horizon={},
                     scores_by_horizon={},
                 )

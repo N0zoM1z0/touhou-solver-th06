@@ -981,7 +981,28 @@ class Solver:
         snapshot: Snapshot,
         candidates,
         budget_ms: float,
+        robustness: bool,
     ):
+        progressive = (
+            getattr(
+                type(self.kernel),
+                "replanning_scores_progressive_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if progressive is not None and budget_ms > 0.0:
+            return progressive(
+                self.kernel,
+                snapshot,
+                candidates,
+                HARD_SAFETY_HORIZON,
+                BASE_POLICY_HORIZON,
+                collision_margin=0.35,
+                budget_ms=budget_ms,
+                robustness=robustness,
+            )
         native = (
             getattr(
                 type(self.kernel),
@@ -991,9 +1012,9 @@ class Solver:
             if self.kernel is not None
             else None
         )
-        if native is None or budget_ms <= 0.0:
+        if native is None or budget_ms <= 0.0 or not robustness:
             return None
-        return native(
+        result = native(
             self.kernel,
             snapshot,
             candidates,
@@ -1002,6 +1023,7 @@ class Solver:
             collision_margin=0.35,
             budget_ms=budget_ms,
         )
+        return None if result is None else (result, True)
 
     def _budgeted_progressive_terminal_counts(
         self,
@@ -1282,15 +1304,17 @@ class Solver:
                 - POLICY_DEADLINE_GUARD_MS
             )
             replanning_started = self.clock()
-            replanning = self._budgeted_replanning_scores(
+            replanning_result = self._budgeted_replanning_scores(
                 snapshot,
                 hard,
                 remaining_ms,
+                limit >= BASE_POLICY_HORIZON,
             )
             replanning_ms = (
                 self.clock() - replanning_started
             ) * 1000.0
-            if replanning is not None:
+            if replanning_result is not None:
+                replanning, _robustness_complete = replanning_result
                 self.effort.observe_policy(
                     snapshot,
                     len(hard),

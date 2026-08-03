@@ -86,6 +86,7 @@ thread_local float* gTerminalProgressiveGuidanceClearance = nullptr;
 thread_local float* gTerminalProgressiveGuidanceX = nullptr;
 thread_local float* gTerminalProgressiveGuidanceY = nullptr;
 thread_local bool gMacroTailAllControls = false;
+thread_local bool gReplanningBooleanOnly = false;
 
 bool policyDeadlineExpired() {
     return gPolicyDeadlineActive && PolicyClock::now() >= gPolicyDeadline;
@@ -783,6 +784,7 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
                         )).second
                     ) {
                         continuationCount++;
+                        if (gReplanningBooleanOnly) break;
                     }
                 }
                 worstBranchCount = std::min(worstBranchCount, continuationCount);
@@ -790,7 +792,10 @@ TH06_EXPORT std::int32_t th06_replanning_scores(
             }
             if (worstBranchCount == 0) break;
         }
-        output[firstIndex] = worstBranchCount;
+        output[firstIndex] = (
+            gReplanningBooleanOnly ? (worstBranchCount > 0 ? 1 : 0)
+                                   : worstBranchCount
+        );
     }
     return 0;
 }
@@ -824,12 +829,14 @@ TH06_EXPORT std::int32_t th06_replanning_scores_budgeted(
     const bool previousActive = gPolicyDeadlineActive;
     const PolicyClock::time_point previousDeadline = gPolicyDeadline;
     const bool previousAllControls = gMacroTailAllControls;
+    const bool previousBooleanOnly = gReplanningBooleanOnly;
     gPolicyDeadlineActive = true;
     gPolicyDeadline = PolicyClock::now() +
         std::chrono::duration_cast<PolicyClock::duration>(
             std::chrono::duration<double, std::milli>(budgetMs)
-        );
+    );
     gMacroTailAllControls = false;
+    gReplanningBooleanOnly = false;
     const std::int32_t status = th06_replanning_scores(
         playerX,
         playerY,
@@ -850,6 +857,72 @@ TH06_EXPORT std::int32_t th06_replanning_scores_budgeted(
         collisionMargin,
         output
     );
+    gReplanningBooleanOnly = previousBooleanOnly;
+    gMacroTailAllControls = previousAllControls;
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
+}
+
+// Cheapest complete local rung: for every Hard candidate, establish whether
+// each physical first-delivery branch has at least one second action that is
+// safe across every second-delivery/transition branch.  It stops counting a
+// branch after the first witness, but still completes all first candidates
+// before publishing any result.
+TH06_EXPORT std::int32_t th06_replanning_viability_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t split,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* output
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    const bool previousAllControls = gMacroTailAllControls;
+    const bool previousBooleanOnly = gReplanningBooleanOnly;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    gMacroTailAllControls = false;
+    gReplanningBooleanOnly = true;
+    const std::int32_t status = th06_replanning_scores(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        split,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        output
+    );
+    gReplanningBooleanOnly = previousBooleanOnly;
     gMacroTailAllControls = previousAllControls;
     gPolicyDeadline = previousDeadline;
     gPolicyDeadlineActive = previousActive;
@@ -885,12 +958,14 @@ TH06_EXPORT std::int32_t th06_macro_tail_scores_budgeted(
     const bool previousActive = gPolicyDeadlineActive;
     const PolicyClock::time_point previousDeadline = gPolicyDeadline;
     const bool previousAllControls = gMacroTailAllControls;
+    const bool previousBooleanOnly = gReplanningBooleanOnly;
     gPolicyDeadlineActive = true;
     gPolicyDeadline = PolicyClock::now() +
         std::chrono::duration_cast<PolicyClock::duration>(
             std::chrono::duration<double, std::milli>(budgetMs)
-        );
+    );
     gMacroTailAllControls = true;
+    gReplanningBooleanOnly = false;
     const std::int32_t status = th06_replanning_scores(
         playerX,
         playerY,
@@ -911,6 +986,7 @@ TH06_EXPORT std::int32_t th06_macro_tail_scores_budgeted(
         collisionMargin,
         output
     );
+    gReplanningBooleanOnly = previousBooleanOnly;
     gMacroTailAllControls = previousAllControls;
     gPolicyDeadline = previousDeadline;
     gPolicyDeadlineActive = previousActive;

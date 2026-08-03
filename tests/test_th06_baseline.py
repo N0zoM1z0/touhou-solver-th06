@@ -1096,6 +1096,31 @@ class BaselineTests(unittest.TestCase):
             ),
             expected,
         )
+        self.assertEqual(
+            kernel.replanning_scores_progressive_budgeted(
+                state,
+                candidates,
+                split=4,
+                horizon=8,
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            ),
+            (expected, any(score > 0 for score in expected.values())),
+        )
+        self.assertEqual(
+            kernel.replanning_viability_budgeted(
+                state,
+                candidates,
+                split=4,
+                horizon=8,
+                collision_margin=0.35,
+                budget_ms=1000.0,
+            ),
+            {
+                action: int(score > 0)
+                for action, score in expected.items()
+            },
+        )
         self.assertIsNone(
             kernel.replanning_scores_budgeted(
                 state,
