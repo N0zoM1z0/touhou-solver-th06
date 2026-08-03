@@ -10,8 +10,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..hazards.bullets import (
-    extend_hazards_by_frame as extend_bullet_hazards_by_frame,
-    hazards_by_frame as bullet_hazards_by_frame,
+    extend_reachable_hazards_by_frame as extend_bullet_hazards_by_frame,
+    reachable_hazards_by_frame as bullet_hazards_by_frame,
 )
 from ..hazards.enemies import hazards_by_frame as enemy_hazards_by_frame
 from ..hazards.lasers import hazards_by_frame as laser_hazards_by_frame
@@ -324,11 +324,13 @@ class NativeSafetyKernel:
                 snapshot,
                 self._bullet_hazards[:self._bullet_horizon],
                 total_horizon,
+                collision_margin,
             )
         else:
             all_bullet_frames = bullet_hazards_by_frame(
                 snapshot,
                 total_horizon,
+                collision_margin,
             )[:total_horizon]
         if not (
             getattr(self, "_bullet_snapshot", None) is snapshot

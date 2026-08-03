@@ -27,9 +27,12 @@ from th06.model import (
 from th06.ranking import ProposalRanker
 from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
 from th06.hazards.bullets import (
+    _may_reach_player,
+    extend_reachable_hazards_by_frame,
     extend_hazards_by_frame as extend_bullet_hazards_by_frame,
     hazard_box,
     hazards_by_frame as bullet_hazards_by_frame,
+    reachable_hazards_by_frame,
 )
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
 from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
@@ -757,6 +760,78 @@ class BaselineTests(unittest.TestCase):
         extended = extend_bullet_hazards_by_frame(state, middle, 16)
 
         self.assertEqual(extended, direct)
+
+    def test_reachable_bullet_sweep_keeps_contact_and_drops_separation(self):
+        state = snapshot(x=192.0, y=380.0)
+        horizon = 4
+        margin = 0.35
+        player_left = (
+            max(8.0, state.x - state.normal_speed * horizon)
+            - state.half_width
+            - margin
+        )
+        touching = Bullet(
+            player_left - 2.0,
+            state.y,
+            0.0,
+            0.0,
+            2.0,
+            2.0,
+            1,
+        )
+        separated = Bullet(
+            player_left - 2.01,
+            state.y,
+            0.0,
+            0.0,
+            2.0,
+            2.0,
+            1,
+        )
+
+        self.assertTrue(_may_reach_player(
+            state, touching, horizon, margin
+        ))
+        self.assertFalse(_may_reach_player(
+            state, separated, horizon, margin
+        ))
+
+    def test_reachable_bullet_projection_extension_matches_direct(self):
+        bullets = (
+            Bullet(192.0, 350.0, 0.0, 2.0, 2.0, 2.0, 1),
+            Bullet(20.0, 20.0, -1.0, -1.0, 2.0, 2.0, 1),
+            Bullet(
+                120.0,
+                300.0,
+                1.0,
+                2.0,
+                2.0,
+                2.0,
+                1,
+                ex_flags=0x10,
+                acceleration_x=0.25,
+                acceleration_y=0.5,
+                acceleration_duration=14,
+            ),
+        )
+        state = snapshot(*bullets)
+        direct = reachable_hazards_by_frame(state, 16, 0.35)
+        prefix = reachable_hazards_by_frame(state, 5, 0.35)
+        middle = extend_reachable_hazards_by_frame(
+            state, prefix, 12, 0.35
+        )
+        extended = extend_reachable_hazards_by_frame(
+            state, middle, 16, 0.35
+        )
+
+        self.assertEqual(
+            NativeSafetyKernel._reachable_aabb_frames(
+                state, extended, 0, 0.35
+            ),
+            NativeSafetyKernel._reachable_aabb_frames(
+                state, direct, 0, 0.35
+            ),
+        )
 
     def test_pickup_delay_branch_rejects_late_escape(self):
         bullet = Bullet(192.0, 371.0, 0.0, 2.0, 2.0, 2.0, 1)

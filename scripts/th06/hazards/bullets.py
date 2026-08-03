@@ -531,6 +531,133 @@ def _linear_hazard_boxes(
     return boxes
 
 
+def _may_reach_player(
+    snapshot: Snapshot,
+    bullet: Bullet,
+    horizon: int,
+    collision_margin: float,
+) -> bool:
+    """Conservatively reject bullets outside the whole reachable sweep.
+
+    ``BulletManager::OnUpdate`` changes only velocity/angle state before its
+    per-frame translation.  The dynamic radius below encloses the broader
+    fail-closed boxes already emitted by :func:`hazard_boxes`; linear motion
+    uses an axis-wise displacement bound.  Intersecting envelopes are always
+    retained and the later per-frame filter remains authoritative.
+    """
+    player_speed = max(
+        abs(snapshot.normal_speed),
+        abs(snapshot.focus_speed),
+        abs(snapshot.normal_diagonal_speed),
+        abs(snapshot.focus_diagonal_speed),
+    )
+    margin = max(0.0, collision_margin)
+    player_left = (
+        max(8.0, snapshot.x - player_speed * horizon)
+        - snapshot.half_width
+        - margin
+    )
+    player_right = (
+        min(376.0, snapshot.x + player_speed * horizon)
+        + snapshot.half_width
+        + margin
+    )
+    player_top = (
+        max(16.0, snapshot.y - player_speed * horizon)
+        - snapshot.half_height
+        - margin
+    )
+    player_bottom = (
+        min(432.0, snapshot.y + player_speed * horizon)
+        + snapshot.half_height
+        + margin
+    )
+
+    if bullet.ex_flags & DYNAMIC_EX_FLAGS:
+        base_speed = max(
+            math.hypot(bullet.vx, bullet.vy),
+            abs(bullet.speed),
+            abs(bullet.turn_speed),
+        )
+        acceleration = max(
+            abs(bullet.acceleration),
+            math.hypot(
+                bullet.acceleration_x,
+                bullet.acceleration_y,
+            ),
+            abs(bullet.curve_speed_acceleration),
+        )
+        reach_x = reach_y = (
+            (base_speed + 5.0) * horizon
+            + acceleration * horizon * (horizon + 1) / 2.0
+        )
+    else:
+        reach_x = abs(bullet.vx) * horizon
+        reach_y = abs(bullet.vy) * horizon
+    bullet_left = bullet.x - bullet.half_width - reach_x
+    bullet_right = bullet.x + bullet.half_width + reach_x
+    bullet_top = bullet.y - bullet.half_height - reach_y
+    bullet_bottom = bullet.y + bullet.half_height + reach_y
+    return not (
+        bullet_right < player_left
+        or bullet_left > player_right
+        or bullet_bottom < player_top
+        or bullet_top > player_bottom
+    )
+
+
+def reachable_hazards_by_frame(
+    snapshot: Snapshot,
+    horizon: int,
+    collision_margin: float,
+) -> list[tuple[tuple[float, float, float, float], ...]]:
+    """Project only bullets whose conservative sweep can reach the player."""
+    frames: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in range(horizon)
+    ]
+    for bullet in snapshot.bullets:
+        if not _may_reach_player(
+            snapshot, bullet, horizon, collision_margin
+        ):
+            continue
+        for frame, box in zip(frames, hazard_boxes(bullet, horizon)):
+            frame.append(box)
+    return [tuple(frame) for frame in frames]
+
+
+def extend_reachable_hazards_by_frame(
+    snapshot: Snapshot,
+    prefix: list[tuple[tuple[float, float, float, float], ...]],
+    total_horizon: int,
+    collision_margin: float,
+) -> list[tuple[tuple[float, float, float, float], ...]]:
+    """Extend a reachable prefix, admitting newly reachable bullet sweeps."""
+    completed_horizon = len(prefix)
+    if total_horizon < completed_horizon:
+        raise ValueError("bullet hazard horizon cannot shrink during extension")
+    frames = [list(frame) for frame in prefix]
+    frames.extend([] for _ in range(total_horizon - completed_horizon))
+    if total_horizon == completed_horizon:
+        return [tuple(frame) for frame in frames]
+    for bullet in snapshot.bullets:
+        if not _may_reach_player(
+            snapshot, bullet, total_horizon, collision_margin
+        ):
+            continue
+        boxes = (
+            hazard_boxes(bullet, total_horizon)[completed_horizon:]
+            if bullet.ex_flags & DYNAMIC_EX_FLAGS
+            else _linear_hazard_boxes(
+                bullet,
+                completed_horizon,
+                total_horizon,
+            )
+        )
+        for frame, box in zip(frames[completed_horizon:], boxes):
+            frame.append(box)
+    return [tuple(frame) for frame in frames]
+
+
 def hazards_by_frame(snapshot: Snapshot, horizon: int) -> list[tuple[tuple[float, float, float, float], ...]]:
     frames: list[list[tuple[float, float, float, float]]] = [
         [] for _ in range(horizon)

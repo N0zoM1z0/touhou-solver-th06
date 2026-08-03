@@ -156,6 +156,14 @@ def main() -> int:
                         if score > 0
                     ],
                 }
+        if kernel._prepared_horizon >= horizons[-1]:
+            bullet_offsets, _bullets, laser_offsets, _lasers = (
+                kernel._prepared_hazards
+            )
+            values["prepared"] = {
+                "aabbs": int(bullet_offsets[horizons[-1]]),
+                "lasers": int(laser_offsets[horizons[-1]]),
+            }
         values["elapsed_ms"] = (time.perf_counter() - started) * 1000.0
         output.append(values)
     if args.compact:
