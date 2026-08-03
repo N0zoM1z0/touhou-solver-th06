@@ -208,19 +208,21 @@ def run(args: argparse.Namespace) -> int:
     except Exception:
         cleanup()
         raise
-    # A retained 256-snapshot physical graph makes a generation-2 scan take
-    # longer than one publication deadline, even though the solver creates
-    # only a small amount of cyclic garbage.  Keep ordinary gen0/gen1 cleanup
-    # but defer the semantics-neutral full scan until physical control has
-    # stopped.  Reference counting still releases acyclic hot-path objects.
-    gc.collect(2)
     control_gc_thresholds = gc.get_threshold()
-    gc.set_threshold(
-        control_gc_thresholds[0],
-        control_gc_thresholds[1],
-        sys.maxsize,
-    )
     try:
+        # A retained 256-snapshot physical graph makes a generation-2 scan
+        # take longer than one publication deadline, even though the solver
+        # creates only a small amount of cyclic garbage.  Keep ordinary
+        # gen0/gen1 cleanup but defer the semantics-neutral full scan until
+        # physical control has stopped.  Reference counting still releases
+        # acyclic hot-path objects.  The exact game uses 32-bit Windows, so
+        # stay inside the C-long accepted by its Python runtime.
+        gc.collect(2)
+        gc.set_threshold(
+            control_gc_thresholds[0],
+            control_gc_thresholds[1],
+            (1 << 31) - 1,
+        )
         with trace_path.open("w", newline="", encoding="utf-8") as output:
             writer = csv.writer(output)
             writer.writerow((
