@@ -132,7 +132,7 @@ class EclOpcodeCoverageTests(unittest.TestCase):
                 )
                 self.assertEqual(forecast.reason, reason)
 
-    def test_final_frame_enemy_creation_audits_source_newborn_setup(self):
+    def test_hard_enemy_creation_audits_child_through_window(self):
         create = instruction(
             0x1000,
             95,
@@ -174,7 +174,7 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         )
         longer = forecast_ecl_births(
             source,
-            ((100.0, 400.0), (100.0, 400.0)),
+            ((100.0, 400.0),) * 4,
             difficulty=2,
             rank=0,
             bullet_sizes=(),
@@ -193,10 +193,47 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(hard.covered_frames, 1, hard.reason)
         self.assertEqual(hard.births, ((),))
         self.assertEqual(hard.body_hazards, ((),))
-        self.assertEqual(longer.covered_frames, 0)
-        self.assertIn("world-emitter insertion", longer.reason)
+        self.assertEqual(longer.covered_frames, 4, longer.reason)
+        self.assertEqual(longer.births, ((), (), (), ()))
+        self.assertEqual(longer.body_hazards, ((), (), (), ()))
         self.assertEqual(nominal.covered_frames, 0)
         self.assertIn("world-emitter insertion", nominal.reason)
+
+    def test_hard_enemy_creation_carries_future_child_body(self):
+        create = instruction(
+            0x1000,
+            95,
+            struct.pack("<ifffhhi", 0, 30.0, 40.0, 0.0, 100, 0, 0),
+            0x24,
+        )
+        parent_wait = replace(
+            instruction(0x1024, 0, bytes(4), 0x10),
+            time=50,
+        )
+        child_wait = replace(
+            instruction(0x2000, 0, bytes(4), 0x10),
+            time=50,
+        )
+        source = replace(
+            emitter(create, parent_wait),
+            interactable=False,
+            ecl_subroutines=(child_wait.address,),
+            ecl_program=(create, parent_wait, child_wait),
+        )
+
+        hard = forecast_ecl_births(
+            source,
+            ((100.0, 400.0),) * 3,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+
+        self.assertEqual(hard.covered_frames, 3, hard.reason)
+        self.assertTrue(all(hard.body_hazards))
 
     def test_bullet_effects_survive_a_frame_boundary_and_reach_spawn(self):
         effects = instruction(

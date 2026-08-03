@@ -1787,14 +1787,14 @@ def _forecast_ecl_births_single(
             elif instruction.opcode == OPCODE_ENEMY_CREATE:
                 # SpawnEnemy first runs the newborn's time-zero ECL inline.
                 # A later free slot may then receive its ordinary update in
-                # this same EnemyManager pass.  At the end of the current
-                # hard window we only need to prove those immediate effects;
-                # any persistent child is captured by the next live snapshot.
-                # Longer forecasts still require a real world insertion.
+                # this same EnemyManager pass.  Fold both slot-order outcomes
+                # into the remaining Hard window: their union is conservative,
+                # and the next live snapshot captures whichever persistent
+                # child source actually inserted.  Nominal forecasting still
+                # needs exact slot/RNG insertion and therefore fails closed.
                 if (
                     not radial_births
                     or not allow_enemy_create_audit
-                    or frame_index + 1 < horizon
                 ):
                     return EclForecast(
                         tuple(map(tuple, births)),
@@ -1855,7 +1855,11 @@ def _forecast_ecl_births_single(
                         f"spawned emitter {sub_id}: {newborn.reason}",
                     )
                 births[frame_index].extend(newborn.births[0])
+                child_states = []
                 if newborn.next_spawner is not None:
+                    # If SpawnEnemy chose an already-passed slot, this inline
+                    # state is the one carried into the next physical frame.
+                    child_states.append(newborn.next_spawner)
                     updated = _forecast_ecl_births_single(
                         newborn.next_spawner,
                         (player,),
@@ -1882,6 +1886,53 @@ def _forecast_ecl_births_single(
                         body_hazards[frame_index].extend(
                             updated.body_hazards[0]
                         )
+                    if updated.next_spawner is not None:
+                        # If the allocated slot is later than the parent, the
+                        # manager reaches it and carries this once-updated
+                        # state into the next physical frame.
+                        child_states.append(updated.next_spawner)
+                remaining_positions = player_positions[frame_index + 1:]
+                if remaining_positions:
+                    # Slot order is observable in a live snapshot but the
+                    # compact ECL forecast owns only one emitter.  Carry both
+                    # physically possible states and union their hazards.  A
+                    # child world mutation that this local audit cannot fold
+                    # remains an ordinary fail-closed boundary.
+                    for child_state in child_states:
+                        future = _forecast_ecl_births_single(
+                            child_state,
+                            remaining_positions,
+                            difficulty,
+                            rank,
+                            bullet_sizes,
+                            frame_multiplier,
+                            None,
+                            allow_player_variables,
+                            radial_births,
+                            abstract_rng,
+                            False,
+                            model_player_damage=True,
+                            allow_enemy_create_audit=False,
+                        )
+                        for offset, frame_births in enumerate(
+                            future.births,
+                            frame_index + 1,
+                        ):
+                            births[offset].extend(frame_births)
+                        for offset, frame_bodies in enumerate(
+                            future.body_hazards,
+                            frame_index + 1,
+                        ):
+                            body_hazards[offset].extend(frame_bodies)
+                        if future.covered_frames < len(remaining_positions):
+                            return EclForecast(
+                                tuple(map(tuple, births)),
+                                frame_index + 1 + future.covered_frames,
+                                f"spawned emitter {sub_id}: {future.reason}",
+                                body_hazards=tuple(
+                                    tuple(frame) for frame in body_hazards
+                                ),
+                            )
             elif instruction.opcode in (
                 OPCODE_LASER_CREATE,
                 OPCODE_LASER_CREATE_AIMED,
