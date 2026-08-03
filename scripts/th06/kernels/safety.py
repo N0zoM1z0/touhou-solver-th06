@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 from array import array
 from dataclasses import replace
@@ -187,6 +188,19 @@ class NativeSafetyKernel:
             *self.progressive_counts_function.argtypes,
         )
         self.progressive_segment_counts_function.restype = ctypes.c_int32
+        self.progressive_segment_guidance_function = (
+            self.library.th06_segment_terminal_guidance_progressive
+        )
+        self.progressive_segment_guidance_function.argtypes = (
+            *self.progressive_segment_counts_function.argtypes[:-2],
+            ctypes.c_int32,
+            *self.progressive_segment_counts_function.argtypes[-2:],
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+        )
+        self.progressive_segment_guidance_function.restype = ctypes.c_int32
         self.progressive_viability_function = (
             self.library.th06_boolean_reachability_progressive
         )
@@ -1060,6 +1074,99 @@ class NativeSafetyKernel:
                 if action in candidate_actions
             },
             status == 0,
+        )
+
+    def segment_terminal_guidance_progressive(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+        guidance_action: Action,
+        collision_margin: float,
+        budget_ms: float,
+    ) -> tuple[
+        int,
+        dict[Action, int],
+        bool,
+        TerminalGuidance | None,
+    ] | None:
+        """Publish survival first, then optional exact route guidance."""
+        bullet_offsets, bullets, laser_offsets, lasers = (
+            self._prepare_reusable(snapshot, maximum_horizon)
+        )
+        candidate_actions = {candidate.action for candidate in candidates}
+        if guidance_action not in candidate_actions:
+            raise ValueError("guidance action must be a candidate")
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        )
+        guidance_index = CONTROL_ACTIONS.index(guidance_action)
+        completed_horizon = ctypes.c_int32()
+        terminal_counts = (ctypes.c_int32 * len(CONTROL_ACTIONS))()
+        guidance_ready = ctypes.c_int32()
+        guidance_clearance = ctypes.c_float()
+        guidance_x = ctypes.c_float()
+        guidance_y = ctypes.c_float()
+        status = self.progressive_segment_guidance_function(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            snapshot.normal_speed,
+            snapshot.focus_speed,
+            snapshot.normal_diagonal_speed,
+            snapshot.focus_diagonal_speed,
+            snapshot.input_mask,
+            segment_length,
+            minimum_horizon,
+            maximum_horizon,
+            candidate_mask,
+            bullet_offsets,
+            bullets,
+            laser_offsets,
+            lasers,
+            collision_margin,
+            budget_ms,
+            guidance_index,
+            ctypes.byref(completed_horizon),
+            terminal_counts,
+            ctypes.byref(guidance_ready),
+            ctypes.byref(guidance_clearance),
+            ctypes.byref(guidance_x),
+            ctypes.byref(guidance_y),
+        )
+        if status == 1:
+            return None
+        if status not in (0, 2):
+            raise RuntimeError(
+                "native segment terminal guidance rejected input "
+                f"with status {status}"
+            )
+        counts = {
+            action: terminal_counts[index]
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in candidate_actions
+        }
+        guidance = (
+            TerminalGuidance(
+                terminal_count=counts[guidance_action],
+                free_clearance=guidance_clearance.value,
+                free_x=guidance_x.value,
+                free_y=guidance_y.value,
+                target_distance_squared=math.inf,
+            )
+            if guidance_ready.value
+            else None
+        )
+        return (
+            completed_horizon.value,
+            counts,
+            status == 0,
+            guidance,
         )
 
     def boolean_reachability_progressive(

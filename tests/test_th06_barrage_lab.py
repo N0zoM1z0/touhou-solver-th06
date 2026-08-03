@@ -15,10 +15,12 @@ from th06.barrage_lab.planner import source_terminal_counts
 from th06.barrage_lab.runner import (
     PlannerMismatch,
     SweepMismatch,
+    python_terminal_guidance,
     python_terminal_counts,
     shrink_planner_mismatch,
     python_action_names,
     shrink_mismatch,
+    source_terminal_guidance,
 )
 from th06.hazards.bullets import hazard_box
 from th06.model import Bullet
@@ -243,6 +245,45 @@ class BarrageLabTests(unittest.TestCase):
             python_terminal_counts(case.snapshot, candidates, 4, 8),
             expected,
         )
+
+    def test_equal_clearance_target_uses_stable_position_order(self):
+        opcode = parse_ecl_bullet_opcodes(
+            ecl_effect_bytes(), "effects.ecl"
+        )[0]
+        case = generate_barrage_case((opcode,), 0, target_bullets=1)
+        state = replace(
+            case.snapshot,
+            x=376.0,
+            y=432.0,
+            input_mask=0x10,
+            bullets=(Bullet(
+                x=384.7381591796875,
+                y=331.3005065917969,
+                vx=-0.7630788683891296,
+                vy=2.961068630218506,
+                half_width=2.0,
+                half_height=2.0,
+                state=1,
+                ex_flags=520,
+                speed=3.057812452316284,
+                angle=1.8230124711990356,
+                timer=20,
+                timer_float=20.0,
+                slot=639,
+            ),),
+        )
+
+        expected = source_terminal_guidance(
+            state, ("up_right",), 4, 8
+        )[0][1]
+        actual = python_terminal_guidance(
+            state, ("up_right",), 4, 8
+        )[0][1]
+
+        self.assertEqual(expected[0], actual[0])
+        self.assertAlmostEqual(expected[1], actual[1], places=3)
+        self.assertEqual(expected[2:], (368.0, 426.3431))
+        self.assertEqual(expected[2:], actual[2:])
 
     def test_planner_reducer_minimizes_horizon_candidate_and_bullets(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

@@ -80,6 +80,11 @@ thread_local std::int32_t gTerminalContinuationLength = 0;
 thread_local std::int32_t gTerminalProgressiveMinimumHorizon = 0;
 thread_local std::int32_t* gTerminalProgressiveCompletedHorizon = nullptr;
 thread_local bool gTerminalProgressiveSegmentMode = false;
+thread_local std::int32_t gTerminalProgressiveGuidanceAction = -1;
+thread_local std::int32_t* gTerminalProgressiveGuidanceReady = nullptr;
+thread_local float* gTerminalProgressiveGuidanceClearance = nullptr;
+thread_local float* gTerminalProgressiveGuidanceX = nullptr;
+thread_local float* gTerminalProgressiveGuidanceY = nullptr;
 thread_local bool gMacroTailAllControls = false;
 
 bool policyDeadlineExpired() {
@@ -1379,6 +1384,22 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                 }
                 return false;
             }
+
+            bool intersects(
+                const OriginBits& other,
+                std::int32_t wordCount
+            ) const {
+                for (
+                    std::int32_t index = 0;
+                    index < wordCount;
+                    ++index
+                ) {
+                    if ((words[index] & other.words[index]) != 0U) {
+                        return true;
+                    }
+                }
+                return false;
+            }
         };
         struct OriginPosition {
             std::uint64_t key;
@@ -1718,6 +1739,160 @@ TH06_EXPORT std::int32_t th06_terminal_guidance(
                         *gTerminalProgressiveCompletedHorizon = horizon;
                         break;
                     }
+                }
+            }
+
+            // The survival counts above are already complete and published.
+            // If one physically picked-up route is waiting for a soft target,
+            // spend only the remaining native deadline aggregating its exact
+            // free endpoint from this same labelled frontier.  A timeout
+            // leaves the guidance-ready flag clear and cannot discard or
+            // shorten the completed survival rung.
+            if (
+                progressiveCounts
+                && gTerminalProgressiveGuidanceAction >= 0
+                && gTerminalProgressiveGuidanceAction
+                    < kControlActionCount
+                && gTerminalProgressiveGuidanceReady != nullptr
+                && gTerminalProgressiveGuidanceClearance != nullptr
+                && gTerminalProgressiveGuidanceX != nullptr
+                && gTerminalProgressiveGuidanceY != nullptr
+                && *gTerminalProgressiveCompletedHorizon == horizon
+                && terminalCountOutput[
+                    gTerminalProgressiveGuidanceAction
+                ] > 0
+                && !deadlineExpired()
+            ) {
+                std::sort(
+                    states.begin(),
+                    states.end(),
+                    [](const LabeledPosition& left,
+                       const LabeledPosition& right) {
+                        return left.key < right.key;
+                    }
+                );
+                std::vector<float> originClearance(
+                    origins.size(),
+                    -std::numeric_limits<float>::infinity()
+                );
+                std::vector<float> originX(origins.size(), playerX);
+                std::vector<float> originY(origins.size(), playerY);
+                OriginBits requestedOrigins;
+                for (
+                    const std::int32_t origin
+                    : branchOrigins[
+                        gTerminalProgressiveGuidanceAction
+                    ]
+                ) {
+                    if (origin >= 0) requestedOrigins.add(origin);
+                }
+                const std::int32_t terminalFrame = horizon - 1;
+                for (const auto& state : states) {
+                    if (countsDeadlineExpired()) return 1;
+                    if (!state.origins.intersects(
+                        requestedOrigins,
+                        originWordCount
+                    )) {
+                        continue;
+                    }
+                    float x;
+                    float y;
+                    positionFromKey(state.key, x, y);
+                    float clearance = std::min({
+                        x - 8.0F,
+                        376.0F - x,
+                        y - 16.0F,
+                        432.0F - y,
+                    });
+                    for (
+                        std::uint32_t index = bulletOffsets[terminalFrame];
+                        index < bulletOffsets[terminalFrame + 1];
+                        ++index
+                    ) {
+                        if (countsDeadlineExpired()) return 1;
+                        clearance = std::min(
+                            clearance,
+                            signedClearance(
+                                x,
+                                y,
+                                playerHalfWidth,
+                                playerHalfHeight,
+                                bullets[index]
+                            )
+                        );
+                    }
+                    for (
+                        std::uint32_t index = laserOffsets[terminalFrame];
+                        index < laserOffsets[terminalFrame + 1];
+                        ++index
+                    ) {
+                        if (countsDeadlineExpired()) return 1;
+                        clearance = std::min(
+                            clearance,
+                            signedLaserClearance(
+                                x,
+                                y,
+                                playerHalfWidth,
+                                playerHalfHeight,
+                                lasers[index]
+                            )
+                        );
+                    }
+                    for (
+                        std::int32_t wordIndex = 0;
+                        wordIndex < originWordCount;
+                        ++wordIndex
+                    ) {
+                        std::uint64_t labels =
+                            state.origins.words[wordIndex]
+                            & requestedOrigins.words[wordIndex];
+                        while (labels != 0U) {
+                            const std::uint32_t origin =
+                                static_cast<std::uint32_t>(
+                                    wordIndex * 64
+                                    + __builtin_ctzll(labels)
+                                );
+                            if (
+                                origin < originClearance.size()
+                                && clearance > originClearance[origin]
+                            ) {
+                                originClearance[origin] = clearance;
+                                originX[origin] = x;
+                                originY[origin] = y;
+                            }
+                            labels &= labels - 1U;
+                        }
+                    }
+                }
+                if (deadlineExpired()) return 1;
+                float worstClearance =
+                    std::numeric_limits<float>::infinity();
+                float worstX = playerX;
+                float worstY = playerY;
+                for (
+                    const std::int32_t origin
+                    : branchOrigins[
+                        gTerminalProgressiveGuidanceAction
+                    ]
+                ) {
+                    const float clearance = origin < 0
+                        ? -std::numeric_limits<float>::infinity()
+                        : originClearance[origin];
+                    if (clearance < worstClearance) {
+                        worstClearance = clearance;
+                        worstX = origin < 0 ? playerX : originX[origin];
+                        worstY = origin < 0 ? playerY : originY[origin];
+                    }
+                }
+                if (
+                    std::isfinite(worstClearance)
+                    && !deadlineExpired()
+                ) {
+                    *gTerminalProgressiveGuidanceClearance =
+                        worstClearance;
+                    *gTerminalProgressiveGuidanceX = worstX;
+                    *gTerminalProgressiveGuidanceY = worstY;
+                    *gTerminalProgressiveGuidanceReady = 1;
                 }
             }
 
@@ -2373,6 +2548,110 @@ TH06_EXPORT std::int32_t th06_segment_terminal_counts_progressive(
         terminalCountOutput
     );
     gTerminalProgressiveSegmentMode = previousMode;
+    return status;
+}
+
+// Variant used only when the main solver already has a physically picked-up
+// pending route. Survival reaches and publishes the deepest complete rung
+// first; exact endpoint guidance is optional residual work on that same
+// labelled frontier.
+TH06_EXPORT std::int32_t th06_segment_terminal_guidance_progressive(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t minimumHorizon,
+    std::int32_t maximumHorizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t guidanceActionIndex,
+    std::int32_t* completedHorizonOutput,
+    std::int32_t* terminalCountOutput,
+    std::int32_t* guidanceReadyOutput,
+    float* guidanceClearanceOutput,
+    float* guidanceXOutput,
+    float* guidanceYOutput
+) {
+    if (
+        guidanceActionIndex < 0
+        || guidanceActionIndex >= kControlActionCount
+        || guidanceReadyOutput == nullptr
+        || guidanceClearanceOutput == nullptr
+        || guidanceXOutput == nullptr
+        || guidanceYOutput == nullptr
+    ) {
+        return -1;
+    }
+    *guidanceReadyOutput = 0;
+    *guidanceClearanceOutput =
+        -std::numeric_limits<float>::infinity();
+    *guidanceXOutput = playerX;
+    *guidanceYOutput = playerY;
+
+    const std::int32_t previousAction =
+        gTerminalProgressiveGuidanceAction;
+    std::int32_t* const previousReady =
+        gTerminalProgressiveGuidanceReady;
+    float* const previousClearance =
+        gTerminalProgressiveGuidanceClearance;
+    float* const previousX = gTerminalProgressiveGuidanceX;
+    float* const previousY = gTerminalProgressiveGuidanceY;
+    gTerminalProgressiveGuidanceAction = guidanceActionIndex;
+    gTerminalProgressiveGuidanceReady = guidanceReadyOutput;
+    gTerminalProgressiveGuidanceClearance = guidanceClearanceOutput;
+    gTerminalProgressiveGuidanceX = guidanceXOutput;
+    gTerminalProgressiveGuidanceY = guidanceYOutput;
+
+    std::int32_t status = th06_segment_terminal_counts_progressive(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        segmentLength,
+        minimumHorizon,
+        maximumHorizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        budgetMs,
+        completedHorizonOutput,
+        terminalCountOutput
+    );
+
+    gTerminalProgressiveGuidanceY = previousY;
+    gTerminalProgressiveGuidanceX = previousX;
+    gTerminalProgressiveGuidanceClearance = previousClearance;
+    gTerminalProgressiveGuidanceReady = previousReady;
+    gTerminalProgressiveGuidanceAction = previousAction;
+
+    if (
+        status == 2
+        && completedHorizonOutput != nullptr
+        && *completedHorizonOutput == maximumHorizon
+    ) {
+        // Only optional guidance exhausted the residual deadline. The
+        // survival maximum was already complete and remains publishable.
+        status = 0;
+    }
     return status;
 }
 

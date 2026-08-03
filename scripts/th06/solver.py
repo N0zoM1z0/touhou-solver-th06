@@ -881,7 +881,29 @@ class Solver:
         minimum_horizon: int,
         maximum_horizon: int,
         budget_ms: float,
+        guidance_action: Action | None = None,
     ):
+        guidance_native = (
+            getattr(
+                type(self.kernel),
+                "segment_terminal_guidance_progressive",
+                None,
+            )
+            if self.kernel is not None and guidance_action is not None
+            else None
+        )
+        if guidance_native is not None:
+            return guidance_native(
+                self.kernel,
+                snapshot,
+                candidates,
+                HARD_SAFETY_HORIZON,
+                minimum_horizon,
+                maximum_horizon,
+                guidance_action,
+                collision_margin=0.35,
+                budget_ms=budget_ms,
+            )
         native = (
             getattr(
                 type(self.kernel),
@@ -1113,6 +1135,7 @@ class Solver:
         policy_probe_ready = False
         pending_candidate = None
         acquisition_horizon = HARD_SAFETY_HORIZON
+        progressive_pending_guidance = None
 
         if limit > HARD_SAFETY_HORIZON:
             terminal_progressive_native = (
@@ -1178,12 +1201,14 @@ class Solver:
                 def accept_progressive(
                     minimum_horizon: int,
                     maximum_horizon: int,
+                    guidance_action: Action | None = None,
                 ) -> bool:
                     nonlocal policy_preferred
                     nonlocal policy_horizon
                     nonlocal policy_scores
                     nonlocal policy_guidance
                     nonlocal terminal_completed
+                    nonlocal progressive_pending_guidance
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
@@ -1200,6 +1225,7 @@ class Solver:
                             minimum_horizon,
                             maximum_horizon,
                             remaining_ms,
+                            guidance_action,
                         )
                     )
                     terminal_ms = (
@@ -1211,11 +1237,22 @@ class Solver:
                             maximum_horizon,
                         )
                         return False
-                    (
-                        completed_horizon,
-                        terminal_scores,
-                        _reached_maximum,
-                    ) = progressive_terminal
+                    completed_horizon = progressive_terminal[0]
+                    terminal_scores = progressive_terminal[1]
+                    optional_guidance = (
+                        progressive_terminal[3]
+                        if len(progressive_terminal) > 3
+                        else None
+                    )
+                    if (
+                        optional_guidance is not None
+                        and guidance_action is not None
+                    ):
+                        progressive_pending_guidance = (
+                            guidance_action,
+                            completed_horizon,
+                            optional_guidance,
+                        )
                     self.effort.observe_policy(
                         snapshot,
                         len(hard),
@@ -1284,6 +1321,11 @@ class Solver:
                         accept_progressive(
                             TURN_CAPABLE_POLICY_HORIZONS[1],
                             deepest_affordable,
+                            (
+                                pending_candidate.action
+                                if pending_candidate is not None
+                                else None
+                            ),
                         )
             elif terminal_native is not None and len(hard) > 1:
                 # Non-native test doubles and older kernels retain the same
@@ -2001,9 +2043,26 @@ class Solver:
             # survival work and only if that action remains in the final fresh
             # survival-preferred set.  Target work can consume residual effort
             # but cannot shorten or replace the survival continuation.
+            pending_still_preferred = pending_candidate.action in preferred
             elapsed_ms = (self.clock() - started) * 1000.0
-            if (
-                pending_candidate.action in preferred
+            acquisition_complete = False
+            guidance = None
+            if pending_still_preferred and (
+                progressive_pending_guidance is not None
+                and progressive_pending_guidance[0]
+                    == pending_candidate.action
+                and progressive_pending_guidance[1]
+                    >= acquisition_horizon
+            ):
+                # This optional endpoint was aggregated only after the native
+                # progressive call had published its complete survival rung.
+                # Reuse it without charging a second projection.
+                guidance = {
+                    pending_candidate.action:
+                        progressive_pending_guidance[2]
+                }
+            elif (
+                pending_still_preferred
                 and self.effort.target_affordable(
                     "acquire",
                     snapshot,
@@ -2035,20 +2094,54 @@ class Solver:
                         acquisition_horizon,
                         guidance_ms,
                     )
-                    value = guidance.get(pending_candidate.action)
-                    if (
-                        value is not None
-                        and value.terminal_count > 0
-                        and math.isfinite(value.free_clearance)
-                    ):
-                        self.guidance_target = (
-                            value.free_x,
-                            value.free_y,
-                        )
-                        self.guidance_deadline = (
-                            snapshot.frame + acquisition_horizon
-                        )
-            self.pending_target_action = None
+            if guidance is not None:
+                acquisition_complete = True
+                value = guidance.get(pending_candidate.action)
+                if (
+                    value is not None
+                    and value.terminal_count > 0
+                    and math.isfinite(value.free_clearance)
+                ):
+                    self.guidance_target = (
+                        value.free_x,
+                        value.free_y,
+                    )
+                    self.guidance_deadline = (
+                        snapshot.frame + acquisition_horizon
+                    )
+            if not pending_still_preferred or acquisition_complete:
+                self.pending_target_action = None
+
+        if (
+            self.guidance_target is not None
+            and not target_guided
+            and len(preferred) > 1
+        ):
+            # Exact target tracking is residual work and may legitimately
+            # miss its budget.  Within an otherwise exact tie in the strongest
+            # fresh continuation evidence, use the already Hard-certified
+            # delivery endpoint as a zero-projection local micro step.  This
+            # cannot admit a weaker route or alter Hard eligibility.
+            target_x, target_y = self.guidance_target
+            target_candidates = tuple(
+                candidate for candidate in hard
+                if candidate.action in preferred
+            )
+            best_local_distance = min(
+                (
+                    (candidate.final_x - target_x) ** 2
+                    + (candidate.final_y - target_y) ** 2
+                )
+                for candidate in target_candidates
+            )
+            preferred = frozenset(
+                candidate.action for candidate in target_candidates
+                if (
+                    (candidate.final_x - target_x) ** 2
+                    + (candidate.final_y - target_y) ** 2
+                    == best_local_distance
+                )
+            )
 
         chosen = self.ranker.choose(
             snapshot,
@@ -2072,9 +2165,12 @@ class Solver:
                 else HARD_SAFETY_HORIZON
             ),
         )
+        preferred_directions = frozenset(
+            (action.dx, action.dy) for action in preferred
+        )
         if (
             self.guidance_target is None
-            and len(preferred) == 1
+            and len(preferred_directions) == 1
             and target_source_horizon > HARD_SAFETY_HORIZON
             and chosen.action != held
         ):

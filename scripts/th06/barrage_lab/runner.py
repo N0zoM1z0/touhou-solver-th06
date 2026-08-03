@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, replace
+import math
 import time
 from typing import Callable
 
@@ -17,13 +18,14 @@ from .generator import (
     stress_player_position,
 )
 from .oracle import certify_linear_source
-from .planner import source_terminal_counts
+from .planner import PlannerGuidanceValue, source_terminal_counts
 
 
 Certifier = Callable[[Snapshot, int], tuple[str, ...]]
+PlannerValue = int | tuple[int, float, float, float]
 Planner = Callable[
     [Snapshot, tuple[str, ...], int, int],
-    tuple[tuple[str, int], ...],
+    tuple[tuple[str, PlannerValue], ...],
 ]
 
 
@@ -71,6 +73,82 @@ def python_terminal_counts(
     )
     return tuple(
         (name, values[_ACTION_BY_NAME[name]].terminal_count)
+        for name in candidate_names
+    )
+
+
+def _guidance_value(value) -> tuple[int, float, float, float]:
+    return (
+        value.terminal_count,
+        round(value.free_clearance, 4),
+        round(value.free_x, 4),
+        round(value.free_y, 4),
+    )
+
+
+def _planner_value_equal(left: PlannerValue, right: PlannerValue) -> bool:
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, int) or isinstance(right, int):
+        return left == right
+    if left[0] == right[0] == 0:
+        # An empty terminal set has no usable soft endpoint; its placeholder
+        # coordinate is intentionally irrelevant.
+        return True
+    return (
+        left[0] == right[0]
+        and all(
+            first == second
+            or math.isclose(first, second, abs_tol=0.005)
+            for first, second in zip(left[1:], right[1:])
+        )
+    )
+
+
+def _planner_results_equal(left, right) -> bool:
+    if tuple(name for name, _value in left) != tuple(
+        name for name, _value in right
+    ):
+        return False
+    return all(
+        _planner_value_equal(first, second)
+        for (_name, first), (_other, second) in zip(left, right)
+    )
+
+
+def source_terminal_guidance(
+    snapshot: Snapshot,
+    candidate_names: tuple[str, ...],
+    segment_length: int,
+    horizon: int,
+) -> tuple[tuple[str, PlannerValue], ...]:
+    values = source_terminal_counts(
+        snapshot,
+        candidate_names,
+        segment_length,
+        horizon,
+        include_guidance=True,
+    ).counts
+    return tuple(
+        (name, _guidance_value(value))
+        for name, value in values
+    )
+
+
+def python_terminal_guidance(
+    snapshot: Snapshot,
+    candidate_names: tuple[str, ...],
+    segment_length: int,
+    horizon: int,
+) -> tuple[tuple[str, PlannerValue], ...]:
+    values = terminal_guidance_scores(
+        snapshot,
+        _candidate_values(snapshot, candidate_names),
+        segment_length,
+        horizon,
+    )
+    return tuple(
+        (name, _guidance_value(values[_ACTION_BY_NAME[name]]))
         for name in candidate_names
     )
 
@@ -127,6 +205,50 @@ def native_progressive_terminal_counts(
     return plan
 
 
+def native_progressive_terminal_guidance(
+    kernel, *, budget_ms: float = 1000.0
+) -> Planner:
+    """Fuzz optional guidance aggregated after survival publication."""
+    def plan(
+        snapshot: Snapshot,
+        candidate_names: tuple[str, ...],
+        segment_length: int,
+        horizon: int,
+    ) -> tuple[tuple[str, PlannerValue], ...]:
+        candidates = _candidate_values(snapshot, candidate_names)
+        values = []
+        for name in candidate_names:
+            action = _ACTION_BY_NAME[name]
+            result = kernel.segment_terminal_guidance_progressive(
+                snapshot,
+                candidates,
+                segment_length,
+                horizon,
+                horizon,
+                action,
+                COLLISION_MARGIN,
+                budget_ms,
+            )
+            if result is None or result[0] != horizon or not result[2]:
+                values.append((name, (-1, -math.inf, 0.0, 0.0)))
+                continue
+            guidance = result[3]
+            if guidance is None:
+                values.append((
+                    name,
+                    (
+                        result[1][action],
+                        -math.inf,
+                        0.0,
+                        0.0,
+                    ),
+                ))
+                continue
+            values.append((name, _guidance_value(guidance)))
+        return tuple(values)
+    return plan
+
+
 @dataclass(frozen=True)
 class SweepMismatch:
     seed: int
@@ -158,8 +280,8 @@ class PlannerMismatch:
     segment_length: int
     horizon: int
     candidate_names: tuple[str, ...]
-    expected: tuple[tuple[str, int], ...]
-    actual: tuple[tuple[str, int], ...]
+    expected: tuple[tuple[str, PlannerValue], ...]
+    actual: tuple[tuple[str, PlannerValue], ...]
     snapshot: Snapshot
     sources: tuple[tuple[str, int, int], ...]
 
@@ -169,7 +291,10 @@ class PlannerMismatch:
         actual = dict(self.actual)
         return tuple(
             name for name in self.candidate_names
-            if expected.get(name) != actual.get(name)
+            if not _planner_value_equal(
+                expected.get(name),
+                actual.get(name),
+            )
         )
 
 
@@ -244,6 +369,7 @@ def shrink_mismatch(
 def shrink_planner_mismatch(
     mismatch: PlannerMismatch,
     planner: Planner,
+    oracle_planner: Planner | None = None,
 ) -> PlannerMismatch:
     """Minimize horizon, independent candidate branches, then bullets."""
     segment_length = mismatch.segment_length
@@ -258,30 +384,48 @@ def shrink_planner_mismatch(
         tuple[tuple[str, int], ...],
         tuple[tuple[str, int], ...],
     ]:
-        expected = source_terminal_counts(
-            snapshot, names, segment_length, candidate_horizon
-        ).counts
+        expected = (
+            source_terminal_counts(
+                snapshot,
+                names,
+                segment_length,
+                candidate_horizon,
+            ).counts
+            if oracle_planner is None
+            else oracle_planner(
+                snapshot,
+                names,
+                segment_length,
+                candidate_horizon,
+            )
+        )
         return expected, planner(
             snapshot, names, segment_length, candidate_horizon
         )
 
-    for candidate_horizon in range(segment_length, horizon):
+    # Progressive native entries require at least one frame beyond the
+    # physical delivery segment; keep reduced cases replayable by every
+    # planner implementation under comparison.
+    for candidate_horizon in range(segment_length + 1, horizon):
         expected, actual = evaluate(
             mismatch.snapshot, candidate_names, candidate_horizon
         )
-        if expected != actual:
+        if not _planner_results_equal(expected, actual):
             horizon = candidate_horizon
             break
 
     expected, actual = evaluate(mismatch.snapshot, candidate_names, horizon)
     differing = tuple(
         name for name in candidate_names
-        if dict(expected).get(name) != dict(actual).get(name)
+        if not _planner_value_equal(
+            dict(expected).get(name),
+            dict(actual).get(name),
+        )
     )
     for name in differing:
         one = (name,)
         one_expected, one_actual = evaluate(mismatch.snapshot, one, horizon)
-        if one_expected != one_actual:
+        if not _planner_results_equal(one_expected, one_actual):
             candidate_names = one
             expected, actual = one_expected, one_actual
             break
@@ -293,7 +437,7 @@ def shrink_planner_mismatch(
         expected_value, actual_value = evaluate(
             snapshot, candidate_names, horizon
         )
-        return expected_value != actual_value
+        return not _planner_results_equal(expected_value, actual_value)
 
     granularity = 2
     while len(bullets) >= 2:
@@ -382,10 +526,15 @@ def run_planner_sweep(
     segment_length: int,
     horizon: int,
     placement: str = "interior",
+    oracle_planner: Planner | None = None,
+    base_planners: tuple[tuple[str, Planner], ...] = (
+        ("python", python_terminal_counts),
+    ),
     extra_planners: tuple[tuple[str, Planner], ...] = (),
+    one_candidate: bool = False,
 ) -> tuple[PlannerSweepSummary, PlannerMismatch | None]:
     """Differentially test production planners on source-valid barrages."""
-    planners = (("python", python_terminal_counts),) + extra_planners
+    planners = base_planners + extra_planners
     total_bullets = 0
     candidate_actions = 0
     viable_cases = 0
@@ -406,16 +555,42 @@ def run_planner_sweep(
         ).actions
         if not candidate_names:
             continue
+        if one_candidate:
+            candidate_names = (
+                candidate_names[seed % len(candidate_names)],
+            )
         viable_cases += 1
         candidate_actions += len(candidate_names)
         started = time.perf_counter()
         oracle = source_terminal_counts(
-            case.snapshot, candidate_names, segment_length, horizon
+            case.snapshot,
+            candidate_names,
+            segment_length,
+            horizon,
+            include_guidance=(oracle_planner is source_terminal_guidance),
+        )
+        expected = (
+            oracle.counts
+            if oracle_planner is None
+            else tuple(
+                (name, _guidance_value(value))
+                for name, value in oracle.counts
+            )
+            if oracle_planner is source_terminal_guidance
+            else oracle_planner(
+                case.snapshot,
+                candidate_names,
+                segment_length,
+                horizon,
+            )
         )
         elapsed["oracle"] += time.perf_counter() - started
         expanded_states += oracle.expanded_states
         generated_transitions += oracle.generated_transitions
-        scores = dict(oracle.counts)
+        scores = {
+            name: value if isinstance(value, int) else value[0]
+            for name, value in expected
+        }
         best = max(scores.values())
         best_sizes[sum(value == best for value in scores.values())] += 1
 
@@ -425,14 +600,14 @@ def run_planner_sweep(
                 case.snapshot, candidate_names, segment_length, horizon
             )
             elapsed[name] += time.perf_counter() - started
-            if actual != oracle.counts:
+            if not _planner_results_equal(actual, expected):
                 mismatch = PlannerMismatch(
                     seed,
                     name,
                     segment_length,
                     horizon,
                     candidate_names,
-                    oracle.counts,
+                    expected,
                     actual,
                     case.snapshot,
                     case.sources,
@@ -450,7 +625,11 @@ def run_planner_sweep(
                         generated_transitions,
                         tuple(elapsed.items()),
                     ),
-                    shrink_planner_mismatch(mismatch, planner),
+                    shrink_planner_mismatch(
+                        mismatch,
+                        planner,
+                        oracle_planner,
+                    ),
                 )
 
     return (

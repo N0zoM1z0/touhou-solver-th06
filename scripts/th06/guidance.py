@@ -196,7 +196,10 @@ def terminal_guidance_scores(
         free_x, free_y = start_x, start_y
         target_distance_squared = math.inf
         terminal_frame = horizon - 1
-        for x, y in states:
+        # Native position keys order these positive playfield coordinates by
+        # x bits and then y bits.  Keep equal-clearance target selection
+        # deterministic and parity-stable instead of inheriting set order.
+        for x, y in sorted(states):
             clearance = min(x - 8.0, 376.0 - x, y - 16.0, 432.0 - y)
             for hazard in aabb_frames[terminal_frame]:
                 clearance = min(

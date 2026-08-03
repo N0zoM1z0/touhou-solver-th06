@@ -836,6 +836,66 @@ class TerminalGuidanceTests(unittest.TestCase):
                 self.assertTrue(reached_maximum)
                 self.assertEqual(counts, expected)
 
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_progressive_route_guidance_matches_exact_query(self):
+        state = snapshot(x=192.0, y=380.0, input_mask=0x04)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify_selected(
+            state,
+            4,
+            CONTROL_ACTIONS,
+            collision_margin=0.35,
+        )
+
+        for action in CONTROL_ACTIONS:
+            with self.subTest(action=action.name):
+                candidate = next(
+                    item for item in hard if item.action == action
+                )
+                result = kernel.segment_terminal_guidance_progressive(
+                    state,
+                    hard,
+                    4,
+                    8,
+                    16,
+                    action,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                expected = kernel.terminal_guidance(
+                    state,
+                    (candidate,),
+                    4,
+                    16,
+                    collision_margin=0.35,
+                )[action]
+
+                self.assertIsNotNone(result)
+                completed, counts, reached_maximum, guidance = result
+                self.assertEqual(completed, 16)
+                self.assertTrue(reached_maximum)
+                self.assertIsNotNone(guidance)
+                self.assertEqual(guidance.terminal_count, counts[action])
+                self.assertEqual(
+                    guidance.terminal_count,
+                    expected.terminal_count,
+                )
+                self.assertAlmostEqual(
+                    guidance.free_clearance,
+                    expected.free_clearance,
+                    places=4,
+                )
+                self.assertAlmostEqual(
+                    guidance.free_x,
+                    expected.free_x,
+                    places=4,
+                )
+                self.assertAlmostEqual(
+                    guidance.free_y,
+                    expected.free_y,
+                    places=4,
+                )
+
     def replay_segment_terminal_progressive_case(self, case, kernel=None):
         values = case["input"]
         expected = case["expect"]
@@ -1526,6 +1586,227 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertEqual(guided.action.name, "right")
         self.assertIn("acquire", {call[0] for call in kernel.calls})
         self.assertIn("target", {call[0] for call in kernel.calls})
+
+    def test_focus_variants_of_one_route_can_anchor_one_target(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in CONTROL_ACTIONS
+        )
+        clock = ManualClock()
+
+        class DirectionalTieKernel(GuidanceKernel):
+            def nominal_policy_counts(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                horizon,
+                collision_margin,
+            ):
+                self.calls.append(("policy", horizon))
+                return {
+                    item.action: (
+                        9
+                        if (item.action.dx, item.action.dy) == (1, 0)
+                        else 1
+                    )
+                    for item in candidates
+                }
+
+        kernel = DirectionalTieKernel(clock, hard)
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 6
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action.name, "right")
+        self.assertEqual(
+            {candidate.action.name for candidate in decision.safe_actions},
+            {action.name for action in CONTROL_ACTIONS},
+        )
+        self.assertEqual(solver.pending_target_action.name, "right")
+
+    def test_pending_target_retries_after_an_unaffordable_frame(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        kernel = GuidanceKernel(clock, hard)
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 6
+
+        proposed = solver.decide(state)
+        self.assertEqual(proposed.action.name, "right")
+        self.assertEqual(solver.pending_target_action.name, "right")
+
+        solver.effort.target_affordable = lambda *_args: False
+        kernel.calls.clear()
+        deferred = solver.decide(
+            replace(state, frame=101, input_mask=0x84)
+        )
+        self.assertEqual(deferred.action.name, "right")
+        self.assertEqual(solver.pending_target_action.name, "right")
+        self.assertIsNone(solver.guidance_target)
+        self.assertNotIn("acquire", {call[0] for call in kernel.calls})
+
+        solver.effort.target_affordable = lambda *_args: True
+        acquired = solver.decide(
+            replace(state, frame=102, input_mask=0x84)
+        )
+        self.assertEqual(acquired.action.name, "right")
+        self.assertIsNone(solver.pending_target_action)
+        self.assertEqual(solver.guidance_target, (80.0, 120.0))
+
+    def test_progressive_survival_can_publish_optional_pending_target(self):
+        state = snapshot(x=192.0, y=380.0)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+
+        class OptionalGuidanceKernel(GuidanceKernel):
+            def segment_terminal_counts_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append(("progressive", maximum_horizon))
+                return (
+                    maximum_horizon,
+                    {
+                        item.action: (
+                            9 if item.action.name == "right" else 1
+                        )
+                        for item in candidates
+                    },
+                    True,
+                )
+
+            def segment_terminal_guidance_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _minimum_horizon,
+                maximum_horizon,
+                guidance_action,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append(("progressive_guidance", maximum_horizon))
+                counts = {
+                    item.action: (
+                        9 if item.action.name == "right" else 1
+                    )
+                    for item in candidates
+                }
+                return (
+                    maximum_horizon,
+                    counts,
+                    True,
+                    TerminalGuidance(
+                        terminal_count=counts[guidance_action],
+                        free_clearance=12.0,
+                        free_x=80.0,
+                        free_y=120.0,
+                        target_distance_squared=float("inf"),
+                    ),
+                )
+
+        kernel = OptionalGuidanceKernel(clock, hard)
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = kernel
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        proposed = solver.decide(state)
+        self.assertEqual(proposed.action.name, "right")
+        self.assertEqual(solver.pending_target_action.name, "right")
+
+        solver.effort.target_affordable = lambda *_args: False
+        kernel.calls.clear()
+        acquired = solver.decide(
+            replace(state, frame=101, input_mask=0x84)
+        )
+
+        self.assertEqual(acquired.action.name, "right")
+        self.assertEqual(solver.guidance_target, (80.0, 120.0))
+        self.assertIsNone(solver.pending_target_action)
+        self.assertIn(
+            "progressive_guidance",
+            {call[0] for call in kernel.calls},
+        )
+        self.assertNotIn("acquire", {call[0] for call in kernel.calls})
+
+    def test_hard_endpoint_tracks_target_only_inside_survival_tie(self):
+        state = snapshot(x=192.0, y=380.0, input_mask=0x84)
+        hard = tuple(
+            SafeAction(
+                action,
+                10.0,
+                state.x + action.dx * 4.0,
+                state.y + action.dy * 4.0,
+            )
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+
+        class TargetTieKernel(GuidanceKernel):
+            def segment_terminal_counts_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                return (
+                    maximum_horizon,
+                    {
+                        item.action: (
+                            9
+                            if item.action.name in ("stay", "up", "right")
+                            else 1
+                        )
+                        for item in candidates
+                    },
+                    True,
+                )
+
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = TargetTieKernel(clock, hard)
+        solver.backend = "test"
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+        solver.effort.target_affordable = lambda *_args: False
+        solver.guidance_target = (192.0, 300.0)
+        solver.guidance_deadline = state.frame + 16
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action.name, "up")
+        self.assertEqual(
+            {item.action.name for item in decision.safe_actions},
+            {action.name for action in ACTIONS},
+        )
 
     def test_pending_target_cannot_acquire_before_native_pickup(self):
         state = snapshot(x=192.0, y=380.0)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from ..model import ACTIONS, CONTROL_ACTIONS, Action, Snapshot
 from .oracle import (
@@ -22,9 +23,37 @@ _ACTION_BY_NAME = {action.name: action for action in CONTROL_ACTIONS}
 class PlannerOracleResult:
     """Per-first-action terminal volume plus slow-oracle work counters."""
 
-    counts: tuple[tuple[str, int], ...]
+    counts: tuple[tuple[str, int | PlannerGuidanceValue], ...]
     expanded_states: int
     generated_transitions: int
+
+
+@dataclass(frozen=True)
+class PlannerGuidanceValue:
+    terminal_count: int
+    free_clearance: float
+    free_x: float
+    free_y: float
+
+
+def _signed_clearance(
+    snapshot: Snapshot,
+    x: float,
+    y: float,
+    box: tuple[float, float, float, float],
+) -> float:
+    left, top, right, bottom = box
+    gap_x = max(
+        left - (x + snapshot.half_width),
+        (x - snapshot.half_width) - right,
+    )
+    gap_y = max(
+        top - (y + snapshot.half_height),
+        (y - snapshot.half_height) - bottom,
+    )
+    if gap_x <= 0.0 and gap_y <= 0.0:
+        return max(gap_x, gap_y)
+    return math.hypot(max(0.0, gap_x), max(0.0, gap_y))
 
 
 def _safe_at(
@@ -57,6 +86,7 @@ def source_terminal_counts(
     collision_margin: float = 0.35,
     continuation_length: int | None = None,
     continuation_actions: tuple[Action, ...] = ACTIONS,
+    include_guidance: bool = False,
 ) -> PlannerOracleResult:
     """Exhaust physical delivery, then deduplicate exact reachable positions.
 
@@ -83,7 +113,10 @@ def source_terminal_counts(
     expanded_states = 0
     generated_transitions = 0
     safety_cache: dict[tuple[float, float, int], bool] = {}
-    terminal_cache: dict[tuple[float, float], int] = {}
+    terminal_cache: dict[
+        tuple[float, float],
+        PlannerGuidanceValue,
+    ] = {}
 
     def safe_at(x: float, y: float, frame_index: int) -> bool:
         key = (x, y, frame_index)
@@ -100,7 +133,10 @@ def source_terminal_counts(
             safety_cache[key] = value
         return value
 
-    def terminal_count(start_x: float, start_y: float) -> int:
+    def terminal_stats(
+        start_x: float,
+        start_y: float,
+    ) -> PlannerGuidanceValue:
         nonlocal expanded_states, generated_transitions
         cache_key = (start_x, start_y)
         cached = terminal_cache.get(cache_key)
@@ -126,14 +162,41 @@ def source_terminal_counts(
             states = next_states
             if not states:
                 break
-        count = len(states)
-        terminal_cache[cache_key] = count
-        return count
+        free_clearance = -math.inf
+        free_x, free_y = start_x, start_y
+        if include_guidance:
+            terminal_frame = frames[horizon - 1]
+            for x, y in sorted(states):
+                clearance = min(
+                    x - 8.0,
+                    376.0 - x,
+                    y - 16.0,
+                    432.0 - y,
+                )
+                for box in terminal_frame:
+                    clearance = min(
+                        clearance,
+                        _signed_clearance(snapshot, x, y, box),
+                    )
+                if clearance > free_clearance:
+                    free_clearance = clearance
+                    free_x, free_y = x, y
+        result = PlannerGuidanceValue(
+            len(states),
+            free_clearance,
+            free_x,
+            free_y,
+        )
+        terminal_cache[cache_key] = result
+        return result
 
     counts = []
+    guidance = []
     for candidate in candidates:
         prefixes = _transitions(snapshot.input_mask, candidate)
         worst = None
+        worst_free = math.inf
+        worst_free_x, worst_free_y = snapshot.x, snapshot.y
         for delay in _DELAYS:
             branches = (None,) + (prefixes if delay > 0 else ())
             for prefix in branches:
@@ -154,13 +217,34 @@ def source_terminal_counts(
                     if not safe_at(x, y, frame - 1):
                         survived = False
                         break
-                branch_count = terminal_count(x, y) if survived else 0
+                branch_stats = (
+                    terminal_stats(x, y)
+                    if survived
+                    else PlannerGuidanceValue(0, -math.inf, x, y)
+                )
+                branch_count = branch_stats.terminal_count
                 worst = (
                     branch_count
                     if worst is None
                     else min(worst, branch_count)
                 )
+                if branch_stats.free_clearance < worst_free:
+                    worst_free = branch_stats.free_clearance
+                    worst_free_x = branch_stats.free_x
+                    worst_free_y = branch_stats.free_y
         counts.append((candidate.name, 0 if worst is None else worst))
+        if include_guidance:
+            guidance.append((
+                candidate.name,
+                PlannerGuidanceValue(
+                    0 if worst is None else worst,
+                    worst_free,
+                    worst_free_x,
+                    worst_free_y,
+                ),
+            ))
     return PlannerOracleResult(
         tuple(counts), expanded_states, generated_transitions
+    ) if not include_guidance else PlannerOracleResult(
+        tuple(guidance), expanded_states, generated_transitions
     )
