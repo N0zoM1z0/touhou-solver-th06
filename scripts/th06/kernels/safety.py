@@ -216,6 +216,7 @@ class NativeSafetyKernel:
         self.progressive_viability_function.restype = ctypes.c_int32
         self._prepared_snapshot: Snapshot | None = None
         self._prepared_horizon = 0
+        self._prepared_collision_margin = -math.inf
         self._prepared_hazards = None
         self._hard_birth_snapshot: Snapshot | None = None
         self._hard_birth_horizon = 0
@@ -252,12 +253,62 @@ class NativeSafetyKernel:
         )
         return offset_array, value_array
 
+    @staticmethod
+    def _reachable_aabb_frames(
+        snapshot: Snapshot,
+        frames,
+        start_frame: int,
+        collision_margin: float,
+    ):
+        """Drop boxes outside a conservative player-reachable rectangle."""
+        margin = max(0.0, collision_margin)
+        speed = max(
+            abs(snapshot.normal_speed),
+            abs(snapshot.focus_speed),
+            abs(snapshot.normal_diagonal_speed),
+            abs(snapshot.focus_diagonal_speed),
+        )
+        result = []
+        for relative_frame, frame in enumerate(frames, 1):
+            steps = start_frame + relative_frame
+            minimum_x = (
+                max(8.0, snapshot.x - speed * steps)
+                - snapshot.half_width
+                - margin
+            )
+            maximum_x = (
+                min(376.0, snapshot.x + speed * steps)
+                + snapshot.half_width
+                + margin
+            )
+            minimum_y = (
+                max(16.0, snapshot.y - speed * steps)
+                - snapshot.half_height
+                - margin
+            )
+            maximum_y = (
+                min(432.0, snapshot.y + speed * steps)
+                + snapshot.half_height
+                + margin
+            )
+            result.append(tuple(
+                hazard for hazard in frame
+                if not (
+                    hazard[2] < minimum_x
+                    or hazard[0] > maximum_x
+                    or hazard[3] < minimum_y
+                    or hazard[1] > maximum_y
+                )
+            ))
+        return tuple(result)
+
     def _prepare_window(
         self,
         snapshot: Snapshot,
         start_frame: int,
         horizon: int,
         fail_closed_horizon: int = 4,
+        collision_margin: float = 0.35,
     ):
         total_horizon = start_frame + horizon
         if (
@@ -382,6 +433,12 @@ class NativeSafetyKernel:
                 forecast_body_frames,
             )
         )
+        aabb_frames = self._reachable_aabb_frames(
+            snapshot,
+            aabb_frames,
+            start_frame,
+            collision_margin,
+        )
         bullet_offsets, bullets = self._flatten(
             aabb_frames,
             _Aabb,
@@ -401,30 +458,58 @@ class NativeSafetyKernel:
         )
         return bullet_offsets, bullets, laser_offsets, lasers
 
-    def _prepare(self, snapshot: Snapshot, horizon: int):
-        return self._prepare_window(snapshot, 0, horizon)
+    def _prepare(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        collision_margin: float = 0.35,
+    ):
+        return self._prepare_window(
+            snapshot,
+            0,
+            horizon,
+            collision_margin=collision_margin,
+        )
 
-    def _prepare_fail_closed(self, snapshot: Snapshot, horizon: int):
+    def _prepare_fail_closed(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        collision_margin: float,
+    ):
         prepared = self._prepare_window(
             snapshot,
             0,
             horizon,
             fail_closed_horizon=horizon,
+            collision_margin=collision_margin,
         )
         self._prepared_snapshot = snapshot
         self._prepared_horizon = horizon
+        self._prepared_collision_margin = collision_margin
         self._prepared_hazards = prepared
         return prepared
 
-    def _prepare_reusable(self, snapshot: Snapshot, horizon: int):
+    def _prepare_reusable(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        collision_margin: float = 0.35,
+    ):
         if (
             self._prepared_snapshot is snapshot
             and self._prepared_horizon >= horizon
+            and getattr(
+                self,
+                "_prepared_collision_margin",
+                -math.inf,
+            ) >= collision_margin
         ):
             return self._prepared_hazards
-        prepared = self._prepare(snapshot, horizon)
+        prepared = self._prepare(snapshot, horizon, collision_margin)
         self._prepared_snapshot = snapshot
         self._prepared_horizon = horizon
+        self._prepared_collision_margin = collision_margin
         self._prepared_hazards = prepared
         return prepared
 
@@ -506,7 +591,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
         )[0]
 
     def certify_selected(
@@ -528,7 +613,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             candidate_mask,
         )[0]
 
@@ -553,7 +638,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             candidate_mask,
             budget_ms=budget_ms,
         )
@@ -578,7 +663,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             candidate_mask,
             include_extended=True,
         )[2]
@@ -601,7 +686,9 @@ class NativeSafetyKernel:
         )
         if not candidate_mask:
             return (), ()
-        prepared = self._prepare_reusable(snapshot, effort_horizon)
+        prepared = self._prepare_reusable(
+            snapshot, effort_horizon, collision_margin
+        )
         hard = self._certify_prepared(
             snapshot,
             hard_horizon,
@@ -636,7 +723,9 @@ class NativeSafetyKernel:
         )
         if not candidate_mask:
             return 0
-        prepared = self._prepare_reusable(snapshot, maximum_horizon)
+        prepared = self._prepare_reusable(
+            snapshot, maximum_horizon, collision_margin
+        )
         for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
             if self._certify_prepared(
                 snapshot,
@@ -671,7 +760,9 @@ class NativeSafetyKernel:
         # This selected continuation may extend physical publication
         # authority, so every included ECL frame must use fail-closed source
         # semantics rather than the nominal soft-proposal forecast.
-        prepared = self._prepare_fail_closed(snapshot, selected_horizon)
+        prepared = self._prepare_fail_closed(
+            snapshot, selected_horizon, collision_margin
+        )
         hard, age_zero, _extended = self._certify_prepared(
             snapshot,
             hard_horizon,
@@ -702,7 +793,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare(snapshot, horizon),
+            self._prepare(snapshot, horizon, collision_margin),
         )
         return hard, age_zero
 
@@ -723,7 +814,7 @@ class NativeSafetyKernel:
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             candidate_mask,
         )
         return hard, age_zero
@@ -737,7 +828,9 @@ class NativeSafetyKernel:
     ) -> tuple[tuple[SafeAction, ...], tuple[SafeAction, ...]]:
         if effort_horizon < hard_horizon:
             raise ValueError("effort horizon cannot be shorter than hard horizon")
-        prepared = self._prepare_reusable(snapshot, effort_horizon)
+        prepared = self._prepare_reusable(
+            snapshot, effort_horizon, collision_margin
+        )
         hard, _age_zero, _extended = self._certify_prepared(
             snapshot, hard_horizon, collision_margin, prepared
         )
@@ -761,7 +854,9 @@ class NativeSafetyKernel:
     ]:
         if effort_horizon < hard_horizon:
             raise ValueError("effort horizon cannot be shorter than hard horizon")
-        prepared = self._prepare_reusable(snapshot, effort_horizon)
+        prepared = self._prepare_reusable(
+            snapshot, effort_horizon, collision_margin
+        )
         hard, age_zero, _extended = self._certify_prepared(
             snapshot, hard_horizon, collision_margin, prepared
         )
@@ -782,7 +877,9 @@ class NativeSafetyKernel:
         """Find the longest nonempty constant-action set with one hazard build."""
         if maximum_horizon < minimum_horizon:
             return ()
-        prepared = self._prepare_reusable(snapshot, maximum_horizon)
+        prepared = self._prepare_reusable(
+            snapshot, maximum_horizon, collision_margin
+        )
         for horizon in range(maximum_horizon, minimum_horizon - 1, -1):
             certified, _age_zero, _extended = self._certify_prepared(
                 snapshot,
@@ -802,7 +899,9 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
     ):
-        prepared = self._prepare_reusable(snapshot, horizon)
+        prepared = self._prepare_reusable(
+            snapshot, horizon, collision_margin
+        )
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
@@ -852,7 +951,7 @@ class NativeSafetyKernel:
     ) -> dict[Action, int] | None:
         """Compare complete 18-action constant tails, or discard on timeout."""
         bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, horizon)
+            self._prepare_reusable(snapshot, horizon, collision_margin)
         )
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
@@ -902,7 +1001,9 @@ class NativeSafetyKernel:
         horizon: int,
         collision_margin: float,
     ):
-        prepared = self._prepare_reusable(snapshot, horizon)
+        prepared = self._prepare_reusable(
+            snapshot, horizon, collision_margin
+        )
         return self._nominal_policy_counts_prepared(
             snapshot,
             candidates,
@@ -922,7 +1023,9 @@ class NativeSafetyKernel:
         budget_ms: float,
     ):
         """Return a complete policy volume, or None when its budget expires."""
-        prepared = self._prepare_reusable(snapshot, horizon)
+        prepared = self._prepare_reusable(
+            snapshot, horizon, collision_margin
+        )
         return self._nominal_policy_counts_prepared(
             snapshot,
             candidates,
@@ -950,7 +1053,7 @@ class NativeSafetyKernel:
             horizon,
             collision_margin,
             target,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
         )
 
     def terminal_guidance_budgeted(
@@ -971,7 +1074,7 @@ class NativeSafetyKernel:
             horizon,
             collision_margin,
             target,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             budget_ms,
         )
 
@@ -990,7 +1093,7 @@ class NativeSafetyKernel:
             segment_length,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
         )
 
     def terminal_counts_budgeted(
@@ -1009,7 +1112,7 @@ class NativeSafetyKernel:
             segment_length,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon),
+            self._prepare_reusable(snapshot, horizon, collision_margin),
             budget_ms,
         )
 
@@ -1029,7 +1132,9 @@ class NativeSafetyKernel:
         a false value means the next rung timed out and was discarded.
         """
         bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, maximum_horizon)
+            self._prepare_reusable(
+                snapshot, maximum_horizon, collision_margin
+            )
         )
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
@@ -1091,7 +1196,9 @@ class NativeSafetyKernel:
     ) -> tuple[int, dict[Action, int], bool] | None:
         """Return the deepest complete delivery-segment terminal rung."""
         bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, maximum_horizon)
+            self._prepare_reusable(
+                snapshot, maximum_horizon, collision_margin
+            )
         )
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
@@ -1159,7 +1266,9 @@ class NativeSafetyKernel:
     ] | None:
         """Publish survival first, then optional exact route guidance."""
         bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, maximum_horizon)
+            self._prepare_reusable(
+                snapshot, maximum_horizon, collision_margin
+            )
         )
         candidate_actions = {candidate.action for candidate in candidates}
         if guidance_action not in candidate_actions:
@@ -1246,7 +1355,9 @@ class NativeSafetyKernel:
     ) -> tuple[int, dict[Action, int], bool] | None:
         """Return deepest complete robust Boolean viability membership."""
         bullet_offsets, bullets, laser_offsets, lasers = (
-            self._prepare_reusable(snapshot, maximum_horizon)
+            self._prepare_reusable(
+                snapshot, maximum_horizon, collision_margin
+            )
         )
         candidate_actions = {candidate.action for candidate in candidates}
         candidate_mask = sum(
@@ -1476,7 +1587,7 @@ class NativeSafetyKernel:
         planned = assumed_action or current
         maximum_ahead = max(ahead_frames)
         prepared = self._prepare_reusable(
-            snapshot, maximum_ahead + horizon
+            snapshot, maximum_ahead + horizon, collision_margin
         )
         result = {}
         for ahead in ahead_frames:

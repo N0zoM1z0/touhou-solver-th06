@@ -1047,6 +1047,37 @@ class BaselineTests(unittest.TestCase):
             0,
             6,
             fail_closed_horizon=6,
+            collision_margin=0.35,
+        )
+
+    def test_native_window_prunes_only_unreachable_aabbs(self):
+        state = snapshot(x=192.0, y=380.0)
+        frames = (
+            (
+                (197.6, 380.0, 197.6, 380.0),
+                (197.61, 380.0, 197.61, 380.0),
+                (192.0, 374.4, 192.0, 374.4),
+                (192.0, 374.39, 192.0, 374.39),
+            ),
+            (
+                (201.6, 380.0, 201.6, 380.0),
+                (201.61, 380.0, 201.61, 380.0),
+            ),
+        )
+
+        filtered = NativeSafetyKernel._reachable_aabb_frames(
+            state,
+            frames,
+            start_frame=0,
+            collision_margin=0.35,
+        )
+
+        self.assertEqual(
+            filtered,
+            (
+                (frames[0][0], frames[0][2]),
+                (frames[1][0],),
+            ),
         )
 
     def test_fully_fail_closed_native_window_skips_unused_nominal_ecl(self):
@@ -1274,7 +1305,7 @@ class BaselineTests(unittest.TestCase):
         )
 
         self.assertEqual(actual, (fast_hard, fast_long))
-        kernel._prepare.assert_called_once_with(state, 40)
+        kernel._prepare.assert_called_once_with(state, 40, 0.35)
         self.assertEqual(kernel._certify_prepared.call_count, 2)
 
     def test_native_held_frontier_reuses_the_effort_hazards(self):
@@ -1284,6 +1315,7 @@ class BaselineTests(unittest.TestCase):
         kernel = object.__new__(NativeSafetyKernel)
         kernel._prepared_snapshot = state
         kernel._prepared_horizon = 8
+        kernel._prepared_collision_margin = 0.35
         kernel._prepared_hazards = prepared
         kernel._prepare = mock.Mock()
         kernel._certify_prepared = mock.Mock(side_effect=(
