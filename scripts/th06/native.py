@@ -24,6 +24,7 @@ from .model import (
     PLAYER_ALIVE,
     PLAYER_INVULNERABLE,
     Snapshot,
+    StageTimelineInstruction,
 )
 
 
@@ -65,6 +66,7 @@ GAME_FLAGS_OFFSET = 0x181F
 GAME_FRAMES_OFFSET = 0x1A30
 GAME_STAGE_OFFSET = 0x1A34
 GAME_RANK_OFFSET = 0x1A70
+GAME_CURRENT_POWER_OFFSET = 0x1810
 PLAYER_POSITION_OFFSET = 0x440
 PLAYER_HITBOX_TOP_LEFT_OFFSET = 0x458
 PLAYER_HITBOX_BOTTOM_RIGHT_OFFSET = 0x464
@@ -155,9 +157,13 @@ ENEMY_LIFE_CALLBACK_SUB_OFFSET = 0xEAC
 ENEMY_TIMER_CALLBACK_THRESHOLD_OFFSET = 0xEB0
 ENEMY_TIMER_CALLBACK_SUB_OFFSET = 0xEB4
 ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
+ENEMY_TIMELINE_INSTRUCTION_OFFSET = 0xEE5DC
+ENEMY_TIMELINE_TIMER_OFFSET = 0xEE5E0
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 96
 ECL_SUBROUTINE_LIMIT = 512
+ECL_TIMELINE_INSTRUCTION_LIMIT = 4096
+ECL_TIMELINE_SNAPSHOT_LIMIT = 96
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -354,6 +360,12 @@ class NativeProcess:
         self.pid = pid
         self.ecl_instruction_cache: dict[int, EclInstruction] = {}
         self.ecl_program_cache: dict[int, tuple[EclInstruction, ...]] = {}
+        self.ecl_timeline_instruction_cache: dict[
+            int, StageTimelineInstruction
+        ] = {}
+        self.ecl_timeline_cache: dict[
+            int, tuple[StageTimelineInstruction, ...]
+        ] = {}
         self.ecl_cache_stage: int | None = None
         self.ecl_subroutines: tuple[int, ...] = ()
 
@@ -498,6 +510,69 @@ def _read_ecl_subroutines(process: NativeProcess) -> tuple[int, ...]:
     return tuple(addresses)
 
 
+def _read_stage_timeline(
+    process: NativeProcess,
+    start_address: int,
+) -> tuple[StageTimelineInstruction, ...]:
+    """Read the immutable remaining source stage timeline once per pointer."""
+    if not start_address:
+        return ()
+    if not 0x10000 <= start_address < 0x80000000:
+        raise RuntimeError(
+            f"invalid ECL timeline pointer 0x{start_address:08X}"
+        )
+    timeline_cache = getattr(process, "ecl_timeline_cache", None)
+    if timeline_cache is not None:
+        cached = timeline_cache.get(start_address)
+        if cached is not None:
+            return cached
+    instruction_cache = getattr(
+        process, "ecl_timeline_instruction_cache", None
+    )
+    result: list[StageTimelineInstruction] = []
+    address = start_address
+    for _ in range(ECL_TIMELINE_INSTRUCTION_LIMIT):
+        instruction = (
+            instruction_cache.get(address)
+            if instruction_cache is not None
+            else None
+        )
+        if instruction is None:
+            header = process.read(address, 8)
+            time_value, arg0, opcode, size = struct.unpack("<hhhh", header)
+            if time_value < 0:
+                raw = header
+            else:
+                # The encoded timeline legitimately uses an 8-byte header for
+                # argument-free opcodes and larger records for source argument
+                # views. EnemyManager walks the encoded ``size`` field, so
+                # retain that source behavior rather than assuming one stride.
+                if not 0x08 <= size <= 0x100:
+                    raise RuntimeError(
+                        "invalid ECL timeline instruction size "
+                        f"{size} at 0x{address:08X}"
+                    )
+                raw = process.read(address, size)
+            instruction = StageTimelineInstruction(
+                address,
+                time_value,
+                arg0,
+                opcode,
+                size,
+                raw.hex(),
+            )
+            if instruction_cache is not None:
+                instruction_cache[address] = instruction
+        result.append(instruction)
+        if instruction.time < 0:
+            timeline = tuple(result)
+            if timeline_cache is not None:
+                timeline_cache[start_address] = timeline
+            return timeline
+        address += instruction.size
+    raise RuntimeError("ECL stage timeline exceeds bounded instruction limit")
+
+
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
     api = _kernel32()
 
@@ -594,6 +669,8 @@ def _read_snapshot_once(
     if process.ecl_cache_stage != stage:
         process.ecl_instruction_cache.clear()
         process.ecl_program_cache.clear()
+        process.ecl_timeline_instruction_cache.clear()
+        process.ecl_timeline_cache.clear()
         process.ecl_cache_stage = stage
         process.ecl_subroutines = _read_ecl_subroutines(process)
     difficulty = struct.unpack(
@@ -609,6 +686,9 @@ def _read_snapshot_once(
     is_replay = bool(struct.unpack("<I", process.read(ADDR_GAME_MANAGER + 0x1C, 4))[0])
     frame_multiplier = struct.unpack("<f", process.read(ADDR_FRAME_MULTIPLIER, 4))[0]
     input_mask = struct.unpack("<H", process.read(ADDR_CURRENT_INPUT, 2))[0]
+    current_power = struct.unpack(
+        "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
+    )[0]
 
     player = process.read(ADDR_PLAYER + PLAYER_POSITION_OFFSET, PLAYER_SPEEDS_OFFSET + 16 - PLAYER_POSITION_OFFSET)
     relative = lambda absolute: absolute - PLAYER_POSITION_OFFSET
@@ -657,8 +737,38 @@ def _read_snapshot_once(
         ADDR_ECL_EX_TABLE,
         ECL_EX_COUNT * 4,
     )
+    manager_relative = lambda absolute: (
+        ADDR_ENEMY_MANAGER + absolute - pool_start
+    )
+    timeline_instruction_address = struct.unpack_from(
+        "<I",
+        native_pools,
+        manager_relative(ENEMY_TIMELINE_INSTRUCTION_OFFSET),
+    )[0]
+    _timeline_previous, timeline_subframe, timeline_time = struct.unpack_from(
+        "<ifi",
+        native_pools,
+        manager_relative(ENEMY_TIMELINE_TIMER_OFFSET),
+    )
+    if (
+        not math.isfinite(timeline_subframe)
+        or not 0.0 <= timeline_subframe < 1.0
+        or timeline_time < -1000
+        or timeline_time >= 10_000_000
+    ):
+        raise RuntimeError("invalid source stage timeline timer")
     if capture_epoch is not None:
         capture_epoch(frame)
+
+    remaining_timeline = _read_stage_timeline(
+        process,
+        timeline_instruction_address,
+    )
+    timeline_instructions = remaining_timeline[:ECL_TIMELINE_SNAPSHOT_LIMIT]
+    timeline_complete = bool(
+        timeline_instructions
+        and timeline_instructions[-1].time < 0
+    )
 
     bullets: list[Bullet] = []
     despawning_bullets: list[Bullet] = []
@@ -1143,6 +1253,8 @@ def _read_snapshot_once(
         bool(is_replay or demo_mode), tuple(lasers), tuple(enemies),
         tuple(despawning_bullets), bullet_read_retries, tuple(spawners),
         difficulty, rank, bullet_sizes, rng_seed, rng_generation,
+        current_power, timeline_time, timeline_time + timeline_subframe,
+        timeline_instructions, timeline_complete,
     )
 
 

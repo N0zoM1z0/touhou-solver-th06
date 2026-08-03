@@ -153,6 +153,18 @@ class EclInstruction:
 
 
 @dataclass(frozen=True)
+class StageTimelineInstruction:
+    """One immutable source ``EclTimelineInstr`` from the loaded stage."""
+
+    address: int
+    time: int
+    arg0: int
+    opcode: int
+    size: int
+    raw_hex: str
+
+
+@dataclass(frozen=True)
 class EnemyEclContext:
     instruction_address: int
     time: int
@@ -266,6 +278,11 @@ class Snapshot:
     bullet_sizes: tuple[tuple[float, float], ...] = ()
     rng_seed: int = 0
     rng_generation: int = 0
+    current_power: int = 0
+    timeline_time: int = 0
+    timeline_time_float: float = 0.0
+    timeline_instructions: tuple[StageTimelineInstruction, ...] = ()
+    timeline_complete: bool = False
 
 
 @dataclass(frozen=True)

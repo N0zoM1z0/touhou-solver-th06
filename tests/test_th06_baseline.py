@@ -70,6 +70,7 @@ from th06.native import (
     PROCESS_ACCESS,
     RESULT_SCREEN_ON_UPDATE,
     _decode_bullet_tail,
+    _read_stage_timeline,
     read_result_screen,
 )
 from th06.replay import ALPHABET, _move_character, _next_character_key, validate_replay_bytes
@@ -136,6 +137,36 @@ def enemy_body(**changes):
 
 
 class BaselineTests(unittest.TestCase):
+    def test_source_stage_timeline_is_decoded_and_cached_by_pointer(self):
+        first = struct.pack("<hhhh", 100, 7, 4, 0x18) + bytes(0x10)
+        second = struct.pack("<hhhh", 120, 8, 9, 0x08)
+        sentinel = struct.pack("<hhhh", -1, 0, 0, 0)
+        memory = first + second + sentinel
+
+        class Process:
+            ecl_timeline_instruction_cache = {}
+            ecl_timeline_cache = {}
+
+            def __init__(self):
+                self.reads = 0
+
+            def read(self, address, size):
+                self.reads += 1
+                offset = address - 0x10000
+                return memory[offset:offset + size]
+
+        process = Process()
+        decoded = _read_stage_timeline(process, 0x10000)
+        first_read_count = process.reads
+
+        self.assertEqual(
+            [(item.time, item.arg0, item.opcode, item.size) for item in decoded],
+            [(100, 7, 4, 0x18), (120, 8, 9, 0x08), (-1, 0, 0, 0)],
+        )
+        self.assertEqual(decoded[1].raw_hex, second.hex())
+        self.assertIs(_read_stage_timeline(process, 0x10000), decoded)
+        self.assertEqual(process.reads, first_read_count)
+
     def test_snapshot_read_retries_a_torn_game_frame(self):
         first = snapshot()
         second = Snapshot(**{**first.__dict__, "frame": 2})

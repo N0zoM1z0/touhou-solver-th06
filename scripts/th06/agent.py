@@ -565,6 +565,10 @@ def run(args: argparse.Namespace) -> int:
                                     asdict(instruction)
                                     for instruction in process.ecl_instruction_cache.values()
                                 ],
+                                "ecl_timeline_instruction_cache": [
+                                    asdict(instruction)
+                                    for instruction in process.ecl_timeline_instruction_cache.values()
+                                ],
                             },
                             indent=2,
                             sort_keys=True,
