@@ -10,11 +10,13 @@ from th06.hazards.births import (
     spawn_pattern,
     spawn_pattern_envelope,
 )
+from th06.hazards.bullets import hazard_box
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
-from th06.hazards.world import forecast_world_births
+from th06.hazards.world import _project_hazards, forecast_world_births
 from th06.birth_parity import compare_periodic_births
 from th06.model import (
+    Bullet,
     BulletPattern,
     EnemyEclContext,
     EnemySpawner,
@@ -118,6 +120,36 @@ def snapshot(frame: int, **changes) -> Snapshot:
 
 
 class PeriodicBirthTests(unittest.TestCase):
+    def test_world_birth_projection_matches_scalar_source_motion(self):
+        turning = Bullet(
+            10.0,
+            20.0,
+            2.0,
+            0.0,
+            2.0,
+            3.0,
+            1,
+            ex_flags=0x40,
+            speed=2.0,
+            turn_speed=1.5,
+            angle=0.0,
+            direction_rotation=math.pi / 4.0,
+            direction_interval=2,
+            direction_max_times=3,
+        )
+        linear = Bullet(30.0, 40.0, -1.0, 2.0, 2.0, 3.0, 1)
+
+        actual = _project_hazards(
+            [[turning], [linear], []],
+            radial=False,
+        )
+
+        self.assertEqual(actual, (
+            (hazard_box(turning, 1),),
+            (hazard_box(turning, 2), hazard_box(linear, 1)),
+            (hazard_box(turning, 3), hazard_box(linear, 2)),
+        ))
+
     def test_enemy_kill_all_is_neutral_only_without_callback_targets(self):
         kill_all = EclInstruction(
             0x1000,

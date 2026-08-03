@@ -390,7 +390,7 @@ def radial_hazard_box(
     )
 
 
-def _hazard_boxes(
+def hazard_boxes(
     bullet: Bullet,
     horizon: int,
 ) -> list[tuple[float, float, float, float]]:
@@ -523,7 +523,7 @@ def hazards_by_frame(snapshot: Snapshot, horizon: int) -> list[tuple[tuple[float
         [] for _ in range(horizon)
     ]
     for bullet in snapshot.bullets:
-        for frame, box in zip(frames, _hazard_boxes(bullet, horizon)):
+        for frame, box in zip(frames, hazard_boxes(bullet, horizon)):
             frame.append(box)
     return [tuple(frame) for frame in frames]
 

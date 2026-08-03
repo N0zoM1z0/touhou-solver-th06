@@ -7,7 +7,7 @@ from typing import Literal
 
 from ..model import Bullet, EnemySpawner, Snapshot
 from .births import UnsupportedBirthModel
-from .bullets import hazard_box, radial_hazard_box
+from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import forecast_ecl_births
 from .rng import RngState
 
@@ -29,12 +29,18 @@ def _project_hazards(
         [] for _ in births
     ]
     for birth_frame, bullets in enumerate(births):
-        for frame_index in range(birth_frame, len(frames)):
-            age = frame_index - birth_frame + 1
-            frames[frame_index].extend(
-                (radial_hazard_box if radial else hazard_box)(bullet, age)
-                for bullet in bullets
+        remaining = len(frames) - birth_frame
+        for bullet in bullets:
+            hazards = (
+                (
+                    radial_hazard_box(bullet, age)
+                    for age in range(1, remaining + 1)
+                )
+                if radial
+                else hazard_boxes(bullet, remaining)
             )
+            for frame_index, hazard in enumerate(hazards, birth_frame):
+                frames[frame_index].append(hazard)
     return tuple(tuple(frame) for frame in frames)
 
 
