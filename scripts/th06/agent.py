@@ -6,6 +6,7 @@ import argparse
 from collections import deque
 import csv
 import ctypes
+import gc
 import json
 import os
 import sys
@@ -207,6 +208,18 @@ def run(args: argparse.Namespace) -> int:
     except Exception:
         cleanup()
         raise
+    # A retained 256-snapshot physical graph makes a generation-2 scan take
+    # longer than one publication deadline, even though the solver creates
+    # only a small amount of cyclic garbage.  Keep ordinary gen0/gen1 cleanup
+    # but defer the semantics-neutral full scan until physical control has
+    # stopped.  Reference counting still releases acyclic hot-path objects.
+    gc.collect(2)
+    control_gc_thresholds = gc.get_threshold()
+    gc.set_threshold(
+        control_gc_thresholds[0],
+        control_gc_thresholds[1],
+        sys.maxsize,
+    )
     try:
         with trace_path.open("w", newline="", encoding="utf-8") as output:
             writer = csv.writer(output)
@@ -647,7 +660,10 @@ def run(args: argparse.Namespace) -> int:
                     diagnostic_failure_active = False
                 previous_snapshot = snapshot
     finally:
-        cleanup()
+        try:
+            cleanup()
+        finally:
+            gc.set_threshold(*control_gc_thresholds)
     return exit_code
 
 
