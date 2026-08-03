@@ -154,6 +154,31 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(coherent.frame, 2)
 
+    def test_snapshot_epoch_excludes_local_decode_work(self):
+        state = Snapshot(**{**snapshot().__dict__, "frame": 7})
+        process = object()
+        events = []
+
+        def captured_then_decoded(_process, capture_epoch, _retries):
+            capture_epoch(state.frame)
+            events.append("decoded")
+            return state
+
+        with mock.patch.object(
+            native,
+            "read_game_frame",
+            side_effect=lambda _process: events.append("epoch") or 7,
+        ) as frame_reads, mock.patch.object(
+            native,
+            "_read_snapshot_once",
+            side_effect=captured_then_decoded,
+        ):
+            coherent = native.read_snapshot(process)
+
+        self.assertIs(coherent, state)
+        self.assertEqual(events, ["epoch", "epoch", "decoded"])
+        self.assertEqual(frame_reads.call_count, 2)
+
     def test_native_direction_precedence(self):
         self.assertEqual(action_from_input(BUTTON_LEFT).name, "left_fast")
         self.assertEqual(

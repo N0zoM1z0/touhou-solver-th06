@@ -182,6 +182,10 @@ class NativeDecodeError(RuntimeError):
         self.evidence = evidence
 
 
+class _SnapshotEpochChanged(RuntimeError):
+    pass
+
+
 def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
     relative = lambda absolute: absolute - BULLET_SIZE_OFFSET
     state = struct.unpack_from("<H", tail, relative(BULLET_STATE_OFFSET))[0]
@@ -575,7 +579,11 @@ def attach_exact(game_dir: Path, timeout: float = 20.0) -> NativeProcess:
     raise RuntimeError(f"exact target not found at {game_dir / TARGET_EXE}")
 
 
-def _read_snapshot_once(process: NativeProcess) -> Snapshot:
+def _read_snapshot_once(
+    process: NativeProcess,
+    capture_epoch=None,
+    bullet_read_retries: int = 0,
+) -> Snapshot:
     game = process.read(ADDR_GAME_MANAGER + GAME_FLAGS_OFFSET, GAME_STAGE_OFFSET + 4 - GAME_FLAGS_OFFSET)
     game_menu, retry_menu, gameplay_active, _completed, _practice, demo_mode = game[0:6]
     # Despite its name, GameManager::OnUpdate sets isInMenu=1 during normal
@@ -630,32 +638,34 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     if player_state in (PLAYER_ALIVE, PLAYER_INVULNERABLE) and not active_geometry:
         in_menu = True
 
-    pool = process.read(
-        ADDR_BULLET_ARRAY,
-        ADDR_LASER_ARRAY + LASER_COUNT * LASER_STRIDE - ADDR_BULLET_ARRAY,
+    # The source layouts place EnemyManager's runtime array, BulletManager's
+    # templates/bullets, and its laser pool in one mapped interval.  Copy it in
+    # one ReadProcessMemory call so all hazard pools share the tightest native
+    # capture boundary, then decode only the immutable local bytes.
+    pool_start = ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET
+    pool_end = ADDR_LASER_ARRAY + LASER_COUNT * LASER_STRIDE
+    native_pools = process.read(pool_start, pool_end - pool_start)
+    enemy_pool = native_pools[:ENEMY_COUNT * ENEMY_STRIDE]
+    template_offset = ADDR_BULLET_MANAGER - pool_start
+    bullet_templates = native_pools[
+        template_offset:
+        template_offset + BULLET_TEMPLATE_COUNT * BULLET_TEMPLATE_STRIDE
+    ]
+    bullet_offset = ADDR_BULLET_ARRAY - pool_start
+    pool = native_pools[bullet_offset:]
+    ex_function_table = process.read(
+        ADDR_ECL_EX_TABLE,
+        ECL_EX_COUNT * 4,
     )
+    if capture_epoch is not None:
+        capture_epoch(frame)
+
     bullets: list[Bullet] = []
     despawning_bullets: list[Bullet] = []
-    bullet_read_retries = 0
     for index in range(BULLET_COUNT):
         base = index * BULLET_STRIDE
         tail = bytes(pool[base + BULLET_SIZE_OFFSET : base + BULLET_STRIDE])
-        for attempt in range(4):
-            try:
-                bullet = _decode_bullet_tail(tail, index)
-                break
-            except NativeDecodeError as error:
-                if attempt == 3:
-                    error.evidence["read_retries"] = attempt
-                    raise
-                # SpawnSingleBullet publishes state before the collision size,
-                # position, and velocity. Re-read this exact tail until that
-                # short source-defined publication window has closed.
-                tail = process.read(
-                    ADDR_BULLET_ARRAY + base + BULLET_SIZE_OFFSET,
-                    BULLET_STRIDE - BULLET_SIZE_OFFSET,
-                )
-                bullet_read_retries += 1
+        bullet = _decode_bullet_tail(tail, index)
         if bullet is None:
             continue
         if bullet.state == 5:
@@ -733,14 +743,6 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     # EnemyManager ends exactly at its separately mapped calc-chain global:
     # 0x4B79C8 + 0xEE5EC == 0x5A5FB4. The source layout puts the 256 runtime
     # slots after two archive pointers and one 0xEC8-byte template.
-    enemy_pool = process.read(
-        ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET,
-        ENEMY_COUNT * ENEMY_STRIDE,
-    )
-    bullet_templates = process.read(
-        ADDR_BULLET_MANAGER,
-        BULLET_TEMPLATE_COUNT * BULLET_TEMPLATE_STRIDE,
-    )
     bullet_sizes = tuple(
         tuple(
             value / 2.0 for value in struct.unpack_from(
@@ -753,7 +755,7 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
     )
     ex_function_addresses = struct.unpack(
         "<" + "I" * ECL_EX_COUNT,
-        process.read(ADDR_ECL_EX_TABLE, ECL_EX_COUNT * 4),
+        ex_function_table,
     )
     ex_index_by_address = {
         address: index for index, address in enumerate(ex_function_addresses)
@@ -1147,13 +1149,47 @@ def _read_snapshot_once(process: NativeProcess) -> Snapshot:
 def read_snapshot(process: NativeProcess) -> Snapshot:
     """Return one frame-coherent native snapshot or fail closed."""
     observed_epochs = []
+    last_decode_error = None
+    bullet_read_retries = 0
     for _attempt in range(8):
         before = read_game_frame(process)
-        snapshot = _read_snapshot_once(process)
-        after = read_game_frame(process)
-        observed_epochs.append((before, snapshot.frame, after))
-        if before == snapshot.frame == after:
-            return snapshot
+        epoch_checked = False
+
+        def capture_epoch(snapshot_frame):
+            nonlocal epoch_checked
+            after = read_game_frame(process)
+            observed_epochs.append((before, snapshot_frame, after))
+            epoch_checked = True
+            if before != snapshot_frame or snapshot_frame != after:
+                raise _SnapshotEpochChanged
+
+        try:
+            snapshot = _read_snapshot_once(
+                process,
+                capture_epoch,
+                bullet_read_retries,
+            )
+        except _SnapshotEpochChanged:
+            continue
+        except NativeDecodeError as error:
+            # SpawnSingleBullet publishes state before geometry and velocity.
+            # Discard the whole captured pool instead of mixing a later tail
+            # into it, then retry from a fresh epoch.
+            bullet_read_retries += 1
+            last_decode_error = error
+            continue
+        if not epoch_checked:
+            # Keep the helper independently mockable in focused tests.
+            after = read_game_frame(process)
+            observed_epochs.append((before, snapshot.frame, after))
+            if before != snapshot.frame or snapshot.frame != after:
+                continue
+        return snapshot
+    if last_decode_error is not None:
+        evidence = dict(last_decode_error.evidence)
+        evidence["read_retries"] = bullet_read_retries
+        evidence["observed_epochs"] = observed_epochs
+        raise NativeDecodeError(str(last_decode_error), evidence)
     raise NativeDecodeError(
         "native state changed throughout snapshot reads",
         {"observed_epochs": observed_epochs},
