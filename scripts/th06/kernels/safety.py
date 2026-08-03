@@ -79,6 +79,15 @@ class NativeSafetyKernel:
             ctypes.POINTER(_SafeResult),
         )
         self.function.restype = ctypes.c_int32
+        self.budgeted_certify_function = (
+            self.library.th06_certify_actions_budgeted
+        )
+        self.budgeted_certify_function.argtypes = (
+            *self.function.argtypes[:-3],
+            ctypes.c_double,
+            *self.function.argtypes[-3:],
+        )
+        self.budgeted_certify_function.restype = ctypes.c_int32
         self.replanning_function = self.library.th06_replanning_scores
         self.replanning_function.argtypes = (
             ctypes.c_float,
@@ -343,16 +352,17 @@ class NativeSafetyKernel:
         prepared,
         candidate_mask: int = (1 << len(ACTIONS)) - 1,
         include_extended: bool = False,
+        budget_ms: float | None = None,
     ) -> tuple[
         tuple[SafeAction, ...],
         tuple[SafeAction, ...],
         tuple[SafeAction, ...],
-    ]:
+    ] | None:
         bullet_offsets, bullets, laser_offsets, lasers = prepared
         output = (_SafeResult * len(CONTROL_ACTIONS))()
         age_zero_output = (_SafeResult * len(CONTROL_ACTIONS))()
         extended_output = (_SafeResult * len(CONTROL_ACTIONS))()
-        status = self.function(
+        arguments = (
             snapshot.x,
             snapshot.y,
             snapshot.half_width,
@@ -369,10 +379,21 @@ class NativeSafetyKernel:
             laser_offsets,
             lasers,
             collision_margin,
+        )
+        outputs = (
             output,
             age_zero_output,
             extended_output if include_extended else None,
         )
+        status = (
+            self.function(*arguments, *outputs)
+            if budget_ms is None
+            else self.budgeted_certify_function(
+                *arguments, budget_ms, *outputs
+            )
+        )
+        if status == 1 and budget_ms is not None:
+            return None
         if status != 0:
             raise RuntimeError(f"native safety kernel rejected input with status {status}")
         fixed = tuple(
@@ -422,6 +443,33 @@ class NativeSafetyKernel:
             self._prepare_reusable(snapshot, horizon),
             candidate_mask,
         )[0]
+
+    def certify_selected_budgeted(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+        collision_margin: float,
+        budget_ms: float,
+    ) -> tuple[SafeAction, ...] | None:
+        """Return one complete constant witness set, or None on timeout."""
+        selected = frozenset(actions)
+        candidate_mask = sum(
+            1 << index
+            for index, action in enumerate(CONTROL_ACTIONS)
+            if action in selected
+        )
+        if not candidate_mask:
+            return ()
+        result = self._certify_prepared(
+            snapshot,
+            horizon,
+            collision_margin,
+            self._prepare_reusable(snapshot, horizon),
+            candidate_mask,
+            budget_ms=budget_ms,
+        )
+        return None if result is None else result[0]
 
     def certify_selected_extended_delivery(
         self,

@@ -569,6 +569,50 @@ class AnytimePolicyTests(unittest.TestCase):
             [(8, 16)],
         )
 
+    def test_deep_constant_scan_discards_on_residual_budget_timeout(self):
+        clock = ManualClock()
+        deep_action = self.hard[1].action
+
+        class BudgetedConstantKernel(TerminalRefinementKernel):
+            def certify_selected_budgeted(
+                self,
+                _state,
+                horizon,
+                actions,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append(
+                    ("budgeted_frontier", horizon, budget_ms, tuple(actions))
+                )
+                self.clock.advance_ms(budget_ms)
+                return None
+
+        kernel = BudgetedConstantKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                12: {
+                    self.hard[0].action: 4,
+                    deep_action: 9,
+                    self.hard[2].action: 2,
+                },
+            },
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep_action)
+        self.assertEqual(decision.effort_horizon, 12)
+        calls = [call for call in kernel.calls if call[0] == "budgeted_frontier"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], 16)
+        self.assertGreater(calls[0][2], 0.0)
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_missing_extended_authority_caps_only_current_effort(self):
         clock = ManualClock()
         shallow_action = self.hard[0].action
@@ -1067,6 +1111,41 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(progressive[4], hard)
         self.assertEqual(decision.action, retained)
         self.assertEqual(decision.effort_horizon, 16)
+
+    @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
+    def test_native_budgeted_constant_is_complete_or_discarded(self):
+        state = snapshot()
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify(
+            state,
+            HARD_SAFETY_HORIZON,
+            collision_margin=0.35,
+        )
+        actions = tuple(candidate.action for candidate in hard)
+        expected = kernel.certify_selected(
+            state,
+            16,
+            actions,
+            collision_margin=0.35,
+        )
+
+        completed = kernel.certify_selected_budgeted(
+            state,
+            16,
+            actions,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.certify_selected_budgeted(
+            state,
+            16,
+            actions,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertEqual(completed, expected)
+        self.assertIsNone(expired)
 
     @unittest.skipUnless(os.name == "nt", "native policy needs Windows")
     def test_native_budgeted_policy_is_complete_or_discarded(self):

@@ -372,9 +372,14 @@ TH06_EXPORT std::int32_t th06_certify_actions(
     ) {
         return -1;
     }
+    const auto deadlineExpired = []() {
+        return gPolicyDeadlineActive && policyDeadlineExpired();
+    };
+    if (deadlineExpired()) return 1;
     const ControlAction current = actionFromInput(inputMask);
 
     for (std::int32_t actionIndex = 0; actionIndex < kControlActionCount; ++actionIndex) {
+        if (deadlineExpired()) return 1;
         if ((candidateMask & (1U << actionIndex)) == 0U) {
             output[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
             ageZeroOutput[actionIndex] = SafeResult{0, 0.0F, playerX, playerY};
@@ -392,17 +397,20 @@ TH06_EXPORT std::int32_t th06_certify_actions(
         );
         const std::int32_t delayCount = extendedOutput == nullptr ? 4 : 5;
         for (std::int32_t delayIndex = 0; delayIndex < delayCount; ++delayIndex) {
+            if (deadlineExpired()) return 1;
             const std::int32_t delay = kExtendedDelays[delayIndex];
             float normalFinalX = playerX;
             float normalFinalY = playerY;
             const std::int32_t branchCount = 1 + (delay > 0 ? transitionCount : 0);
             for (std::int32_t branch = 0; branch < branchCount; ++branch) {
+                if (deadlineExpired()) return 1;
                 const ControlAction* transition = branch == 0
                     ? nullptr
                     : &transitions[branch - 1];
                 float x = playerX;
                 float y = playerY;
                 for (std::int32_t frame = 1; frame <= horizon; ++frame) {
+                    if (deadlineExpired()) return 1;
                     stepPlayer(
                         x,
                         y,
@@ -460,6 +468,65 @@ TH06_EXPORT std::int32_t th06_certify_actions(
         }
     }
     return 0;
+}
+
+// Soft constant witnesses share the exact certification semantics but may
+// consume only the residual proposal budget. Status 1 discards every partial
+// output. Hard authority always calls th06_certify_actions directly.
+TH06_EXPORT std::int32_t th06_certify_actions_budgeted(
+    float playerX,
+    float playerY,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float collisionMargin,
+    double budgetMs,
+    SafeResult* output,
+    SafeResult* ageZeroOutput,
+    SafeResult* extendedOutput
+) {
+    if (!(budgetMs > 0.0) || !std::isfinite(budgetMs)) return -1;
+    const bool previousActive = gPolicyDeadlineActive;
+    const PolicyClock::time_point previousDeadline = gPolicyDeadline;
+    gPolicyDeadlineActive = true;
+    gPolicyDeadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const std::int32_t status = th06_certify_actions(
+        playerX,
+        playerY,
+        playerHalfWidth,
+        playerHalfHeight,
+        normalSpeed,
+        focusSpeed,
+        normalDiagonalSpeed,
+        focusDiagonalSpeed,
+        inputMask,
+        horizon,
+        candidateMask,
+        bulletOffsets,
+        bullets,
+        laserOffsets,
+        lasers,
+        collisionMargin,
+        output,
+        ageZeroOutput,
+        extendedOutput
+    );
+    gPolicyDeadline = previousDeadline;
+    gPolicyDeadlineActive = previousActive;
+    return status;
 }
 
 // This is a proposal score only. candidateMask must already come from the

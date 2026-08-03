@@ -669,6 +669,31 @@ class Solver:
             )
         return certify_actions(snapshot, horizon, actions=actions)
 
+    def _budgeted_certify_selected(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+        budget_ms: float,
+    ):
+        native = (
+            getattr(type(self.kernel), "certify_selected_budgeted", None)
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return self._certify_selected(snapshot, horizon, actions)
+        if budget_ms <= 0.0:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            horizon,
+            actions,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def _hard_authority(self, snapshot: Snapshot):
         held = action_from_input(snapshot.input_mask)
         combined = (
@@ -1242,20 +1267,25 @@ class Solver:
                     # stronger fresh continuation has already completed.
                     continue
                 elapsed_ms = (self.clock() - started) * 1000.0
-                if (
-                    elapsed_ms
-                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
-                ):
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
+                if remaining_ms <= 0.0:
                     break
                 operation_started = self.clock()
-                next_frontier = self._certify_selected(
+                next_frontier = self._budgeted_certify_selected(
                     snapshot,
                     horizon,
                     tuple(candidate.action for candidate in frontier),
+                    remaining_ms,
                 )
                 rollout_ms += (
                     self.clock() - operation_started
                 ) * 1000.0
+                if next_frontier is None:
+                    break
                 rollout_horizon = horizon
                 if len(next_frontier) < len(frontier):
                     contracted = True
@@ -1447,21 +1477,26 @@ class Solver:
                 if horizon > limit:
                     break
                 elapsed_ms = (self.clock() - started) * 1000.0
-                if (
-                    elapsed_ms
-                    >= self.effort.budget_ms() - POLICY_DEADLINE_GUARD_MS
-                ):
+                remaining_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - POLICY_DEADLINE_GUARD_MS
+                )
+                if remaining_ms <= 0.0:
                     break
                 if not constant_exhausted:
                     operation_started = self.clock()
-                    next_frontier = self._certify_selected(
+                    next_frontier = self._budgeted_certify_selected(
                         snapshot,
                         horizon,
                         tuple(candidate.action for candidate in frontier),
+                        remaining_ms,
                     )
                     rollout_ms += (
                         self.clock() - operation_started
                     ) * 1000.0
+                    if next_frontier is None:
+                        break
                     rollout_horizon = horizon
                     if len(next_frontier) < len(frontier):
                         contracted = True
