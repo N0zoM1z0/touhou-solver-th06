@@ -429,6 +429,22 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(first, frozenset(guidance))
         self.assertEqual(second, frozenset((fast,)))
 
+    def test_stateful_closed_loop_reports_actual_minimum_clearance(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+
+        result = run_closed_loop(
+            snapshot,
+            lambda _snapshot: CONTROL_ACTIONS[0],
+            frames=2,
+            delivery_seed=0,
+        )
+
+        self.assertEqual(result.minimum_clearance, 999.0)
+
     def test_stateful_frame_continuation_is_an_explicit_count_policy(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         snapshot = replace(

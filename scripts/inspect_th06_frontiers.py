@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 import time
@@ -24,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--horizons", default="8,12,16")
     parser.add_argument("--budget-ms", type=float, default=1000.0)
     parser.add_argument("--compact", action="store_true")
+    parser.add_argument(
+        "--trace-csv",
+        type=Path,
+        help="optional online trace used to align the published action",
+    )
     return parser.parse_args()
 
 
@@ -63,6 +69,13 @@ def main() -> int:
     missing = set(requested_frames) - set(by_frame)
     if missing:
         raise ValueError(f"frames missing from artifact: {sorted(missing)}")
+    online_by_frame = {}
+    if args.trace_csv is not None:
+        with args.trace_csv.open(newline="", encoding="utf-8") as source:
+            online_by_frame = {
+                int(row["frame"]): row for row in csv.DictReader(source)
+                if int(row["frame"]) in requested_frames
+            }
 
     output = []
     for frame in requested_frames:
@@ -86,6 +99,32 @@ def main() -> int:
             "segment": {},
             "boolean": {},
         }
+        online = online_by_frame.get(frame)
+        if online is not None:
+            values["online"] = {
+                "action": online["action"],
+                "effort_horizon": int(online["effort_horizon"] or 0),
+                "effort_safe": int(online["effort_safe"] or 0),
+                "decision_age": (
+                    int(online["decision_age"])
+                    if online["decision_age"] else None
+                ),
+                "attack_x": (
+                    float(online["attack_x"])
+                    if online["attack_x"] else None
+                ),
+                "clearance": float(online["clearance"]),
+                "solve_ms": float(online["solve_ms"]),
+                "reason": online["reason"],
+            }
+        if not args.compact:
+            values["hard_detail"] = {
+                value.action.name: {
+                    "clearance": value.clearance,
+                    "final": [value.final_x, value.final_y],
+                }
+                for value in hard
+            }
         if not hard:
             values["elapsed_ms"] = (time.perf_counter() - started) * 1000.0
             output.append(values)

@@ -34,6 +34,7 @@ from ..model import (
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
 from ..guidance import terminal_reachability_counts
+from ..hazards.geometry import signed_clearance
 from ..hazards.births import spawn_pattern
 from ..hazards.rng import RngState
 from .oracle import (
@@ -305,6 +306,29 @@ def collides_now(snapshot: Snapshot) -> bool:
         )
         for bullet in snapshot.bullets
         if bullet.state == 1
+    )
+
+
+def current_bullet_clearance(snapshot: Snapshot) -> float:
+    """Return source kill-box clearance at the current updated frame."""
+    return min(
+        (
+            signed_clearance(
+                snapshot.x,
+                snapshot.y,
+                snapshot.half_width,
+                snapshot.half_height,
+                (
+                    bullet.x - bullet.half_width,
+                    bullet.y - bullet.half_height,
+                    bullet.x + bullet.half_width,
+                    bullet.y + bullet.half_height,
+                ),
+            )
+            for bullet in snapshot.bullets
+            if bullet.state == 1
+        ),
+        default=999.0,
     )
 
 
@@ -671,6 +695,7 @@ class ClosedLoopResult:
     actions: tuple[str, ...]
     born_bullets: int
     decision_trace: tuple[tuple[int, str], ...]
+    minimum_clearance: float
 
 
 def _delivery_choice(
@@ -709,6 +734,7 @@ def run_closed_loop(
     action_trace: list[str] = []
     decision_trace: list[tuple[int, str]] = []
     born_bullets = 0
+    minimum_clearance = current_bullet_clearance(state)
     births_by_update = {
         update: tuple(
             (event.pattern, event.origin)
@@ -719,6 +745,9 @@ def run_closed_loop(
     }
 
     for update in range(frames):
+        minimum_clearance = min(
+            minimum_clearance, current_bullet_clearance(state)
+        )
         if collides_now(state):
             outcome = "hit"
             break
@@ -765,6 +794,9 @@ def run_closed_loop(
             step_action,
             births_by_update.get(update, ()),
         )
+        minimum_clearance = min(
+            minimum_clearance, current_bullet_clearance(state)
+        )
         born_bullets += sum(
             bullet.slot not in before_slots for bullet in state.bullets
         )
@@ -783,6 +815,7 @@ def run_closed_loop(
         tuple(action_trace),
         born_bullets,
         tuple(decision_trace),
+        minimum_clearance,
     )
 
 
@@ -871,10 +904,11 @@ class StatefulSweepSummary:
     mean_survival: tuple[tuple[int, float], ...]
     mean_commands: tuple[tuple[int, float], ...]
     mean_decisions: tuple[tuple[int, float], ...]
+    mean_minimum_clearance: tuple[tuple[int, float], ...]
     deeper_wins: tuple[tuple[int, int, int], ...]
     birth_events_per_case: int
     case_metrics: tuple[
-        tuple[int, tuple[tuple[int, str, int, int], ...]], ...
+        tuple[int, tuple[tuple[int, str, int, int, float], ...]], ...
     ]
 
 
@@ -1084,6 +1118,7 @@ def run_stateful_sweep(
     survival = {horizon: 0 for horizon in horizons}
     commands = {horizon: 0 for horizon in horizons}
     decisions = {horizon: 0 for horizon in horizons}
+    minimum_clearances = {horizon: 0.0 for horizon in horizons}
     case_metrics = {horizon: [] for horizon in horizons}
     wins = Counter()
     viable_cases = 0
@@ -1100,7 +1135,14 @@ def run_stateful_sweep(
                 if runtime_templates else None
             ),
         )
-        if not certify_linear_source(case.snapshot, 4).actions:
+        # A generated seed that is already touching a kill box is not a
+        # decision problem.  The four-frame certifier starts at the next
+        # update, so it cannot be used as a substitute for this current-frame
+        # source collision gate.
+        if (
+            collides_now(case.snapshot)
+            or not certify_linear_source(case.snapshot, 4).actions
+        ):
             continue
         birth_schedule = generate_barrage_births(
             catalogue,
@@ -1124,11 +1166,13 @@ def run_stateful_sweep(
             survival[horizon] += result.survived_frames
             commands[horizon] += result.commands
             decisions[horizon] += result.decisions
+            minimum_clearances[horizon] += result.minimum_clearance
             case_metrics[horizon].append((
                 seed,
                 result.outcome,
                 result.survived_frames,
                 result.commands,
+                result.minimum_clearance,
             ))
         for shallow_horizon, deep_horizon in zip(horizons, horizons[1:]):
             shallow = results[shallow_horizon]
@@ -1173,6 +1217,14 @@ def run_stateful_sweep(
             (
                 horizon,
                 decisions[horizon] / viable_cases if viable_cases else 0.0,
+            )
+            for horizon in horizons
+        ),
+        tuple(
+            (
+                horizon,
+                minimum_clearances[horizon] / viable_cases
+                if viable_cases else 0.0,
             )
             for horizon in horizons
         ),

@@ -7,7 +7,13 @@ from th06.attack import (
     suppression_target,
 )
 from th06.hazards.timeline import decode_enemy_spawn
-from th06.model import ACTIONS, SafeAction, Snapshot, StageTimelineInstruction
+from th06.model import (
+    ACTIONS,
+    CONTROL_ACTIONS,
+    SafeAction,
+    Snapshot,
+    StageTimelineInstruction,
+)
 
 
 def timeline_spawn(
@@ -181,6 +187,40 @@ class TimelineAttackTests(unittest.TestCase):
         self.assertEqual(
             preferred_suppression_actions(candidates, allowed, target),
             frozenset((ACTIONS[3],)),
+        )
+
+    def test_attack_cannot_discard_focused_correction_reserve(self):
+        focused = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "down_right"
+        )
+        fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "down_fast"
+        )
+        candidates = (
+            SafeAction(focused, 2.075, 335.0, 366.0),
+            SafeAction(fast, 0.405, 334.0, 368.0),
+        )
+        target = suppression_target(snapshot(timeline_instructions=(
+            timeline_spawn(
+                address=0x2000,
+                time=1379,
+                sub_id=1,
+                opcode=0,
+                x=192.0,
+                y=160.0,
+                life=200,
+            ),
+        )))
+
+        self.assertEqual(
+            preferred_suppression_actions(
+                candidates,
+                frozenset((focused, fast)),
+                target,
+            ),
+            frozenset((focused,)),
         )
 
 

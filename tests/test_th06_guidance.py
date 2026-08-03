@@ -1505,6 +1505,27 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertGreater(value.free_x, state.x)
         self.assertLess(value.free_y, state.y)
 
+    def test_target_cannot_discard_focused_correction_reserve(self):
+        focused = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right"
+        )
+        fast = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "right_fast"
+        )
+        guidance = {
+            focused: TerminalGuidance(9, 4.0, 200.0, 200.0, 9.0),
+            fast: TerminalGuidance(9, 4.0, 200.0, 200.0, 1.0),
+        }
+
+        self.assertEqual(
+            preferred_target_actions(
+                guidance, frozenset((focused, fast))
+            ),
+            frozenset((focused,)),
+        )
+
     @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
     def test_native_matches_reference_terminal_values(self):
         state = snapshot()

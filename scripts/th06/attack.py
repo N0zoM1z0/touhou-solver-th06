@@ -7,6 +7,7 @@ import math
 
 from .hazards.timeline import decode_enemy_spawn
 from .model import Action, SafeAction, Snapshot
+from .ranking import precision_preferred_actions
 
 
 MOVEMENT_LEFT = 8.0
@@ -135,6 +136,13 @@ def preferred_suppression_actions(
     )
     if not eligible:
         return frozenset()
+    precise = precision_preferred_actions(frozenset(
+        candidate.action for candidate in eligible
+    ))
+    eligible = tuple(
+        candidate for candidate in eligible
+        if candidate.action in precise
+    )
     best = min(abs(candidate.final_x - target.x) for candidate in eligible)
     return frozenset(
         candidate.action

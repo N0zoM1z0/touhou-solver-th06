@@ -169,10 +169,17 @@ def main() -> int:
                 losses = []
                 survival_delta = 0
                 command_delta = 0
-                for seed, _outcome, survived, commands in cases:
-                    _base_outcome, base_survived, base_commands = baseline[seed]
+                minimum_clearance_delta = 0.0
+                for seed, _outcome, survived, commands, clearance in cases:
+                    (
+                        _base_outcome,
+                        base_survived,
+                        base_commands,
+                        base_clearance,
+                    ) = baseline[seed]
                     survival_delta += survived - base_survived
                     command_delta += commands - base_commands
+                    minimum_clearance_delta += clearance - base_clearance
                     if survived > base_survived:
                         wins.append(seed)
                     elif survived < base_survived:
@@ -184,6 +191,7 @@ def main() -> int:
                     "ties": len(cases) - len(wins) - len(losses),
                     "survival_frame_delta": survival_delta,
                     "command_delta": command_delta,
+                    "minimum_clearance_delta": minimum_clearance_delta,
                 })
             comparisons[metric]["paired_vs_first"] = paired
         if args.shrink_comparison:

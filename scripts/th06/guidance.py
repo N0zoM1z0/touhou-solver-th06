@@ -20,6 +20,7 @@ from .model import (
     Snapshot,
     action_from_input,
 )
+from .ranking import precision_preferred_actions
 from .safety import (
     COLLISION_MARGIN,
     DELIVERY_DELAYS,
@@ -60,6 +61,11 @@ def preferred_target_actions(
         action: value
         for action, value in reachable.items()
         if value.terminal_count == best_count
+    }
+    precise = precision_preferred_actions(frozenset(robust))
+    robust = {
+        action: value for action, value in robust.items()
+        if action in precise
     }
     best_distance = min(
         value.target_distance_squared for value in robust.values()

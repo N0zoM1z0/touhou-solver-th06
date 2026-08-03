@@ -222,6 +222,7 @@ def run(args: argparse.Namespace) -> int:
                 "effort_horizon",
                 "effort_safe", "repairable",
                 "attack_x", "attack_deadline", "attack_life", "attack_source",
+                "guidance_x", "guidance_y", "guidance_deadline",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
@@ -532,6 +533,18 @@ def run(args: argparse.Namespace) -> int:
                     ),
                     decision.suppression_life,
                     decision.suppression_source,
+                    (
+                        "" if solver.guidance_target is None
+                        else f"{solver.guidance_target[0]:.3f}"
+                    ),
+                    (
+                        "" if solver.guidance_target is None
+                        else f"{solver.guidance_target[1]:.3f}"
+                    ),
+                    (
+                        "" if solver.guidance_deadline is None
+                        else solver.guidance_deadline
+                    ),
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}",
                     int(dialogue.active),

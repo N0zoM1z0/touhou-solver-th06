@@ -13,6 +13,14 @@ _MOVEMENT_TOP = 16.0
 _MOVEMENT_BOTTOM = 432.0
 
 
+def precision_preferred_actions(
+    actions: frozenset[Action],
+) -> frozenset[Action]:
+    """Preserve focused correction reserve inside an exact survival tie."""
+    focused = frozenset(action for action in actions if action.focused)
+    return focused or actions
+
+
 def _preferred_free_space(candidate: SafeAction) -> float:
     """Source-defined movement-area clearance for an otherwise exact tie."""
     return min(
@@ -57,6 +65,7 @@ class ProposalRanker:
             if candidate.action in preferred_actions
         )
         preferred_clearance_tied = len(preferred_clearances) == 1
+        precision_preferred = precision_preferred_actions(preferred_actions)
 
         discontinuity = (
             self.last_frame is not None and snapshot.frame <= self.last_frame
@@ -146,7 +155,7 @@ class ProposalRanker:
                 # motion preserves correction reserve if the next soft rung
                 # misses its compute deadline; Hard has already certified
                 # the required Focus transition and retains sole authority.
-                preferred and candidate.action.focused,
+                preferred and candidate.action in precision_preferred,
                 (
                     _preferred_free_space(candidate)
                     if preferred and preferred_clearance_tied

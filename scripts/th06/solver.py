@@ -20,7 +20,7 @@ from .model import (
     Snapshot,
     action_from_input,
 )
-from .ranking import ProposalRanker
+from .ranking import ProposalRanker, precision_preferred_actions
 from .safety import DELIVERY_DELAYS, certify_actions
 from .viability import nominal_policy_scores
 
@@ -2255,9 +2255,10 @@ class Solver:
             # delivery endpoint as a zero-projection local micro step.  This
             # cannot admit a weaker route or alter Hard eligibility.
             target_x, target_y = self.guidance_target
+            precise = precision_preferred_actions(preferred)
             target_candidates = tuple(
                 candidate for candidate in hard
-                if candidate.action in preferred
+                if candidate.action in precise
             )
             best_local_distance = min(
                 (
