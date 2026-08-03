@@ -818,6 +818,44 @@ class AnytimePolicyTests(unittest.TestCase):
             ],
         )
 
+    def test_promoted_projection_cost_protects_completed_local_result(self):
+        clock = ManualClock()
+        local = self.hard[0].action
+        witness = self.hard[1].action
+
+        class PromotedProjectionKernel(CoarseMacroKernel):
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms({8: 0.0, 16: 2.5}.get(horizon, 10.0))
+
+        kernel = PromotedProjectionKernel(
+            clock,
+            self.hard,
+            terminal_scores_by_horizon={
+                8: {candidate.action: 1 for candidate in self.hard},
+                16: {
+                    local: 9,
+                    witness: 5,
+                    self.hard[2].action: 1,
+                },
+            },
+            coarse_frontier=(self.hard[1],),
+            macro_scores={local: 0, witness: 1},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 8
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, local)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertEqual(
+            [call[1] for call in kernel.calls if call[0] == "prepare"],
+            [8, 16],
+        )
+        self.assertNotIn("coarse_frontier", {call[0] for call in kernel.calls})
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_budgeted_coarse_macro_adjudicates_local_winner_and_long_witness(self):
         clock = ManualClock()
         local = self.hard[0].action

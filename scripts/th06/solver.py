@@ -1581,6 +1581,31 @@ class Solver:
                             self.clock() - operation_started
                         ) * 1000.0
                         rollout_ms += deep_prepare_ms
+                        # The initial preparation can be an almost-free cache
+                        # hit at h8 while this promotion performs the real ECL
+                        # and hazard extension to h16.  Keep an equivalent
+                        # full-window cost floor from that measured marginal
+                        # work; otherwise the optional coarse rung can
+                        # extrapolate a cached h8 sample to h48 and consume the
+                        # publication deadline after a stronger local result
+                        # has already completed.
+                        promoted_span = (
+                            deepest_affordable - previous_horizon
+                        )
+                        if promoted_span > 0:
+                            soft_prepare_ms = max(
+                                soft_prepare_ms
+                                    * deepest_affordable
+                                    / max(1, previous_horizon),
+                                deep_prepare_ms
+                                    * deepest_affordable
+                                    / promoted_span,
+                            )
+                        self.effort.observe_projection(
+                            snapshot,
+                            deepest_affordable,
+                            deep_prepare_ms,
+                        )
                         soft_prepare_horizon = deepest_affordable
                         next_horizon = min(
                             horizon for horizon
