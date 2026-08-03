@@ -29,6 +29,7 @@ HARD_CURRENT_HOLD_HORIZON = HARD_SAFETY_HORIZON + 1
 EFFORT_HORIZONS = (6, 8, 12, 16, 20)
 TURN_CAPABLE_POLICY_HORIZONS = (8, 12, 16)
 BASE_POLICY_HORIZON = HARD_SAFETY_HORIZON * 2
+COARSE_GLOBAL_HORIZON = 64
 DECISION_FRAME_MS = 1000.0 / 60.0
 DEFAULT_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.75
 SAME_FRAME_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.5
@@ -798,6 +799,33 @@ class Solver:
             budget_ms=budget_ms,
         )
 
+    def _budgeted_coarse_scores(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        budget_ms: float,
+    ):
+        native = (
+            getattr(
+                type(self.kernel),
+                "coarse_survival_scores_budgeted",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        if native is None:
+            return None
+        return native(
+            self.kernel,
+            snapshot,
+            candidates,
+            HARD_SAFETY_HORIZON,
+            COARSE_GLOBAL_HORIZON,
+            collision_margin=0.35,
+            budget_ms=budget_ms,
+        )
+
     def selected_delivery_safe(
         self,
         snapshot: Snapshot,
@@ -973,6 +1001,7 @@ class Solver:
         policy_horizon = HARD_SAFETY_HORIZON
         policy_scores = None
         policy_guidance = None
+        coarse_scores = None
         target_guided = False
         target_invalid = False
         policy_probe_ready = False
@@ -1044,6 +1073,29 @@ class Solver:
                     candidate.action for candidate in frontier
                 )
                 policy_horizon = frontier_horizon
+
+            coarse_native = (
+                getattr(
+                    type(self.kernel),
+                    "coarse_survival_scores_budgeted",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            if coarse_native is not None and len(frontier) > 1:
+                elapsed_ms = (self.clock() - started) * 1000.0
+                coarse_budget_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - 2.0 * POLICY_DEADLINE_GUARD_MS
+                )
+                if coarse_budget_ms > 0.0:
+                    coarse_scores = self._budgeted_coarse_scores(
+                        snapshot,
+                        hard,
+                        coarse_budget_ms,
+                    )
 
             budgeted_policy = (
                 getattr(
@@ -1502,6 +1554,21 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
+        if coarse_scores is not None and preferred:
+            coarse_best = max(
+                (
+                    score for action, score in coarse_scores.items()
+                    if action in preferred
+                ),
+                default=None,
+            )
+            if coarse_best is not None:
+                coarse_preferred = frozenset(
+                    action for action, score in coarse_scores.items()
+                    if action in preferred and score == coarse_best
+                )
+                if coarse_preferred:
+                    preferred = coarse_preferred
 
         if pending_candidate is not None:
             # A free-space target is soft state derived from a previously

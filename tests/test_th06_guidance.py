@@ -838,6 +838,43 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertTrue(all(membership.values()))
         self.assertIsNone(expired)
 
+    @unittest.skipUnless(os.name == "nt", "native guidance needs Windows")
+    def test_native_coarse_survival_is_complete_or_discarded(self):
+        state = snapshot(x=376.0, y=432.0, input_mask=0x24)
+        kernel = NativeSafetyKernel()
+        hard = kernel.certify_selected(
+            state,
+            4,
+            CONTROL_ACTIONS,
+            collision_margin=0.35,
+        )
+
+        completed = kernel.coarse_survival_scores_budgeted(
+            state,
+            hard,
+            4,
+            64,
+            collision_margin=0.35,
+            budget_ms=1000.0,
+        )
+        expired = kernel.coarse_survival_scores_budgeted(
+            replace(state, frame=state.frame + 1),
+            hard,
+            4,
+            64,
+            collision_margin=0.35,
+            budget_ms=0.000001,
+        )
+
+        self.assertIsNotNone(completed)
+        self.assertEqual(set(completed), set(CONTROL_ACTIONS))
+        best = max(completed.values())
+        self.assertTrue(any(
+            action.dx < 0 and score == best
+            for action, score in completed.items()
+        ))
+        self.assertIsNone(expired)
+
     def replay_terminal_reachability_case(self, case, kernel=None):
         values = case["input"]
         state = decode_snapshot(values["snapshot"])

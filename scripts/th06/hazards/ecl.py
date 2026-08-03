@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, replace
+from functools import lru_cache
 import math
 import struct
 
@@ -226,6 +227,14 @@ class EclForecast:
 class FloatInterval:
     low: float
     high: float
+
+
+@lru_cache(maxsize=256)
+def _compiled_program(
+    instructions: tuple[EclInstruction, ...],
+) -> dict[int, EclInstruction]:
+    """Compile the immutable captured ECL graph once across snapshots."""
+    return {instruction.address: instruction for instruction in instructions}
 
 
 def _float_add(left: float | FloatInterval, right: float | FloatInterval) -> float | FloatInterval:
@@ -580,7 +589,7 @@ def _forecast_ecl_births_single(
         return EclForecast(tuple(map(tuple, births)), 0, "missing ECL instruction graph")
     if spawner.repeat_ex_index is not None:
         return EclForecast(tuple(map(tuple, births)), 0, "unsupported repeating ECL callback")
-    program = {instruction.address: instruction for instruction in spawner.ecl_program}
+    program = _compiled_program(spawner.ecl_program)
     instruction_address = spawner.next_instruction.address
     current_time = spawner.ecl_time
     time_subframe = spawner.ecl_time_float - spawner.ecl_time
@@ -1993,10 +2002,7 @@ def _forecast_ecl_births_with_death_callbacks(
             enemy_kill_all_is_noop,
         )
 
-    program = {
-        instruction.address: instruction
-        for instruction in spawner.ecl_program
-    }
+    program = _compiled_program(spawner.ecl_program)
     callback_address = spawner.ecl_subroutines[spawner.death_callback_sub]
     callback_instruction = program.get(callback_address)
     if callback_instruction is None:
@@ -2177,7 +2183,7 @@ def _forecast_ecl_births_with_life_callbacks(
             enemy_kill_all_is_noop,
         )
 
-    program = {instruction.address: instruction for instruction in spawner.ecl_program}
+    program = _compiled_program(spawner.ecl_program)
     callback_address = spawner.ecl_subroutines[spawner.life_callback_sub]
     callback_instruction = program.get(callback_address)
     if callback_instruction is None:

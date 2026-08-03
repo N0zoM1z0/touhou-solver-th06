@@ -2500,3 +2500,317 @@ TH06_EXPORT std::int32_t th06_boolean_reachability_progressive(
     }
     return 0;
 }
+
+// Proposal-only long-view search on a coarse source-defined playfield grid.
+// Exact Hard authority remains in th06_certify_actions.  This kernel consumes
+// the same fresh projected hazards, including runtime ECL/RNG births supplied
+// by the caller, and returns only a ranking label for already-Hard actions.
+TH06_EXPORT std::int32_t th06_coarse_survival_scores_budgeted(
+    float playerX,
+    float playerY,
+    float normalSpeed,
+    float focusSpeed,
+    float normalDiagonalSpeed,
+    float focusDiagonalSpeed,
+    std::uint16_t inputMask,
+    std::int32_t segmentLength,
+    std::int32_t horizon,
+    std::uint32_t candidateMask,
+    const std::uint32_t* bulletOffsets,
+    const Aabb* bullets,
+    const std::uint32_t* laserOffsets,
+    const LaserHazard* lasers,
+    float playerHalfWidth,
+    float playerHalfHeight,
+    float collisionMargin,
+    double budgetMs,
+    std::int32_t* survivalFramesOutput,
+    float* utilityOutput
+) {
+    constexpr std::uint32_t controlMask = (
+        (1U << kControlActionCount) - 1U
+    );
+    constexpr std::int32_t kStep = 4;
+    constexpr float kSpacing = 16.0F;
+    constexpr std::int32_t kWidth = 24;
+    constexpr std::int32_t kHeight = 27;
+    constexpr std::int32_t kCells = kWidth * kHeight;
+    constexpr float kCoverRadius = 11.313709F;
+    constexpr std::int32_t kMoves[9][2] = {
+        {0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1},
+        {-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+    };
+    if (
+        segmentLength != 4 || horizon <= segmentLength || horizon > 128
+        || (horizon - segmentLength) % kStep != 0
+        || candidateMask == 0U || (candidateMask & ~controlMask) != 0U
+        || bulletOffsets == nullptr || laserOffsets == nullptr
+        || survivalFramesOutput == nullptr || utilityOutput == nullptr
+        || !(budgetMs > 0.0) || !std::isfinite(budgetMs)
+    ) {
+        return -1;
+    }
+    std::fill(
+        survivalFramesOutput,
+        survivalFramesOutput + kControlActionCount,
+        0
+    );
+    std::fill(
+        utilityOutput,
+        utilityOutput + kControlActionCount,
+        -std::numeric_limits<float>::infinity()
+    );
+    const PolicyClock::time_point deadline = PolicyClock::now() +
+        std::chrono::duration_cast<PolicyClock::duration>(
+            std::chrono::duration<double, std::milli>(budgetMs)
+        );
+    const auto deadlineExpired = [&]() {
+        return PolicyClock::now() >= deadline;
+    };
+
+    const std::int32_t layerCount = (
+        horizon - segmentLength
+    ) / kStep;
+    std::vector<std::array<std::uint8_t, kCells>> blocked(layerCount);
+    const auto cellX = [](std::int32_t index) {
+        return 8.0F + static_cast<float>(index) * kSpacing;
+    };
+    const auto cellY = [](std::int32_t index) {
+        return 16.0F + static_cast<float>(index) * kSpacing;
+    };
+    for (std::int32_t layer = 0; layer < layerCount; ++layer) {
+        if (deadlineExpired()) return 1;
+        const std::int32_t frame = (
+            segmentLength + (layer + 1) * kStep - 1
+        );
+        auto& layerBlocked = blocked[layer];
+        const float expandX = (
+            playerHalfWidth + collisionMargin + kCoverRadius
+        );
+        const float expandY = (
+            playerHalfHeight + collisionMargin + kCoverRadius
+        );
+        for (
+            std::uint32_t index = bulletOffsets[frame];
+            index < bulletOffsets[frame + 1];
+            ++index
+        ) {
+            const Aabb& box = bullets[index];
+            if (
+                box.right + expandX < 8.0F
+                || box.left - expandX > 376.0F
+                || box.bottom + expandY < 16.0F
+                || box.top - expandY > 432.0F
+            ) {
+                continue;
+            }
+            const std::int32_t firstX = std::clamp(
+                static_cast<std::int32_t>(std::ceil(
+                    (box.left - expandX - 8.0F) / kSpacing
+                )),
+                0,
+                kWidth - 1
+            );
+            const std::int32_t lastX = std::clamp(
+                static_cast<std::int32_t>(std::floor(
+                    (box.right + expandX - 8.0F) / kSpacing
+                )),
+                0,
+                kWidth - 1
+            );
+            const std::int32_t firstY = std::clamp(
+                static_cast<std::int32_t>(std::ceil(
+                    (box.top - expandY - 16.0F) / kSpacing
+                )),
+                0,
+                kHeight - 1
+            );
+            const std::int32_t lastY = std::clamp(
+                static_cast<std::int32_t>(std::floor(
+                    (box.bottom + expandY - 16.0F) / kSpacing
+                )),
+                0,
+                kHeight - 1
+            );
+            if (firstX > lastX || firstY > lastY) continue;
+            for (std::int32_t y = firstY; y <= lastY; ++y) {
+                for (std::int32_t x = firstX; x <= lastX; ++x) {
+                    layerBlocked[y * kWidth + x] = 1U;
+                }
+            }
+        }
+        for (
+            std::uint32_t laser = laserOffsets[frame];
+            laser < laserOffsets[frame + 1];
+            ++laser
+        ) {
+            for (std::int32_t y = 0; y < kHeight; ++y) {
+                for (std::int32_t x = 0; x < kWidth; ++x) {
+                    if (withinLaserMargin(
+                        cellX(x),
+                        cellY(y),
+                        playerHalfWidth,
+                        playerHalfHeight,
+                        lasers[laser],
+                        collisionMargin + kCoverRadius
+                    )) {
+                        layerBlocked[y * kWidth + x] = 1U;
+                    }
+                }
+            }
+        }
+    }
+
+    struct CoarseLabel {
+        std::int32_t layers;
+        float utility;
+    };
+    std::array<CoarseLabel, kCells> next{};
+    std::array<CoarseLabel, kCells> currentLabels{};
+    for (std::int32_t layer = layerCount - 1; layer >= 0; --layer) {
+        if (deadlineExpired()) return 1;
+        for (std::int32_t y = 0; y < kHeight; ++y) {
+            for (std::int32_t x = 0; x < kWidth; ++x) {
+                const std::int32_t cell = y * kWidth + x;
+                CoarseLabel best{0, -std::numeric_limits<float>::infinity()};
+                for (const auto& move : kMoves) {
+                    const std::int32_t nextX = x + move[0];
+                    const std::int32_t nextY = y + move[1];
+                    if (
+                        nextX < 0 || nextX >= kWidth
+                        || nextY < 0 || nextY >= kHeight
+                    ) {
+                        continue;
+                    }
+                    const std::int32_t destination = (
+                        nextY * kWidth + nextX
+                    );
+                    if (blocked[layer][destination] != 0U) continue;
+                    const float boundaryClearance = std::min({
+                        cellX(nextX) - 8.0F,
+                        376.0F - cellX(nextX),
+                        cellY(nextY) - 16.0F,
+                        432.0F - cellY(nextY),
+                    });
+                    const CoarseLabel candidate{
+                        next[destination].layers + 1,
+                        next[destination].utility + boundaryClearance,
+                    };
+                    if (
+                        candidate.layers > best.layers
+                        || (
+                            candidate.layers == best.layers
+                            && candidate.utility > best.utility
+                        )
+                    ) {
+                        best = candidate;
+                    }
+                }
+                currentLabels[cell] = best;
+            }
+        }
+        next = currentLabels;
+    }
+
+    std::array<std::vector<std::int32_t>, kControlActionCount> originCells;
+    const ControlAction held = actionFromInput(inputMask);
+    for (
+        std::int32_t firstIndex = 0;
+        firstIndex < kControlActionCount;
+        ++firstIndex
+    ) {
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+        ControlAction transitions[5];
+        const std::int32_t transitionCount = transitionActions(
+            inputMask, kActionMasks[firstIndex], transitions
+        );
+        for (const std::int32_t delay : kDelays) {
+            const std::int32_t branchCount = 1 + (
+                delay > 0 ? transitionCount : 0
+            );
+            for (
+                std::int32_t branch = 0;
+                branch < branchCount;
+                ++branch
+            ) {
+                const ControlAction* transition = branch == 0
+                    ? nullptr
+                    : &transitions[branch - 1];
+                float x = playerX;
+                float y = playerY;
+                for (
+                    std::int32_t frame = 1;
+                    frame <= segmentLength;
+                    ++frame
+                ) {
+                    stepPlayer(
+                        x,
+                        y,
+                        scheduledAction(
+                            frame,
+                            delay,
+                            held,
+                            kActions[firstIndex],
+                            transition
+                        ),
+                        normalSpeed,
+                        focusSpeed,
+                        normalDiagonalSpeed,
+                        focusDiagonalSpeed
+                    );
+                }
+                const std::int32_t gridX = std::clamp(
+                    static_cast<std::int32_t>(std::lround(
+                        (x - 8.0F) / kSpacing
+                    )),
+                    0,
+                    kWidth - 1
+                );
+                const std::int32_t gridY = std::clamp(
+                    static_cast<std::int32_t>(std::lround(
+                        (y - 16.0F) / kSpacing
+                    )),
+                    0,
+                    kHeight - 1
+                );
+                originCells[firstIndex].push_back(gridY * kWidth + gridX);
+            }
+        }
+        auto& cells = originCells[firstIndex];
+        std::sort(cells.begin(), cells.end());
+        cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
+    }
+    if (deadlineExpired()) return 1;
+
+    for (
+        std::int32_t firstIndex = 0;
+        firstIndex < kControlActionCount;
+        ++firstIndex
+    ) {
+        if ((candidateMask & (1U << firstIndex)) == 0U) continue;
+        CoarseLabel worst{
+            std::numeric_limits<std::int32_t>::max(),
+            std::numeric_limits<float>::infinity(),
+        };
+        for (const std::int32_t cell : originCells[firstIndex]) {
+            const CoarseLabel value = next[cell];
+            if (
+                value.layers < worst.layers
+                || (
+                    value.layers == worst.layers
+                    && value.utility < worst.utility
+                )
+            ) {
+                worst = value;
+            }
+        }
+        if (worst.layers == std::numeric_limits<std::int32_t>::max()) {
+            worst = CoarseLabel{0, -std::numeric_limits<float>::infinity()};
+        }
+        survivalFramesOutput[firstIndex] = (
+            segmentLength + worst.layers * kStep
+        );
+        utilityOutput[firstIndex] = worst.utility;
+    }
+    return deadlineExpired() ? 1 : 0;
+}

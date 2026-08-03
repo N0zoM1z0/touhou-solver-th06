@@ -232,6 +232,29 @@ class PublicationFragileKernel(BudgetedProgressiveKernel):
         )
 
 
+class CoarseKernel(ProgressiveKernel):
+    def __init__(self, *args, coarse_scores, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.coarse_scores = coarse_scores
+
+    def coarse_survival_scores_budgeted(
+        self,
+        _state,
+        candidates,
+        _segment_length,
+        _horizon,
+        collision_margin,
+        budget_ms,
+    ):
+        self.calls.append(("coarse", tuple(candidates), budget_ms))
+        self.clock.advance_ms(min(1.0, budget_ms))
+        allowed = frozenset(candidate.action for candidate in candidates)
+        return {
+            action: score for action, score in self.coarse_scores.items()
+            if action in allowed
+        }
+
+
 class AnytimePolicyTests(unittest.TestCase):
     def setUp(self):
         state = snapshot()
@@ -366,6 +389,29 @@ class AnytimePolicyTests(unittest.TestCase):
 
         calls = [(call[0], call[1]) for call in kernel.calls]
         self.assertLess(calls.index(("frontier", 12)), calls.index(("policy", 8)))
+
+    def test_coarse_global_ranks_only_inside_fresh_exact_frontier(self):
+        clock = ManualClock()
+        kernel = CoarseKernel(
+            clock,
+            self.hard,
+            frontiers={16: self.hard[:2]},
+            coarse_scores={
+                self.hard[0].action: (64, 10.0),
+                self.hard[1].action: (64, 20.0),
+                self.hard[2].action: (64, 999.0),
+            },
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.rollout_ms_per_work = 0.0
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, self.hard[1].action)
+        self.assertEqual(decision.effort_horizon, 20)
+        coarse = next(call for call in kernel.calls if call[0] == "coarse")
+        self.assertEqual(coarse[1], self.hard)
+        self.assertNotEqual(decision.action, self.hard[2].action)
 
     def test_progressive_reachability_uses_fresh_completed_evidence(self):
         clock = ManualClock()
