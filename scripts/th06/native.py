@@ -421,6 +421,29 @@ class NativeProcess:
             raise RuntimeError("life patch did not verify")
         return "patched-01-to-00"
 
+    def set_diagnostic_rng_seed(self, seed: int) -> tuple[int, int]:
+        """Fix only the source RNG initial state for reproducible trials."""
+        if not 0 <= seed <= 0xFFFF:
+            raise ValueError("diagnostic RNG seed must fit u16")
+        before = self.read(ADDR_RNG, 8)
+        old_seed, old_generation = struct.unpack("<HxxI", before)
+        replacement = bytearray(before)
+        struct.pack_into("<H", replacement, 0, seed)
+        struct.pack_into("<I", replacement, 4, 0)
+        data = ctypes.create_string_buffer(bytes(replacement))
+        written = ctypes.c_size_t()
+        if not self.kernel32.WriteProcessMemory(
+            self.handle,
+            ctypes.c_void_p(ADDR_RNG),
+            data,
+            len(replacement),
+            ctypes.byref(written),
+        ) or written.value != len(replacement):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if self.read(ADDR_RNG, 8) != bytes(replacement):
+            raise RuntimeError("diagnostic RNG seed did not verify")
+        return old_seed, old_generation
+
     def read_ecl_instruction(self, address: int) -> EclInstruction:
         cached = self.ecl_instruction_cache.get(address)
         if cached is not None:

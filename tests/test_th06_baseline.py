@@ -390,6 +390,16 @@ class BaselineTests(unittest.TestCase):
         ))
         self.assertTrue(args.continue_on_failure)
 
+    def test_diagnostic_rng_seed_accepts_source_u16_notation(self):
+        args = parse_args((
+            "--armed",
+            "--practice-stage",
+            "5",
+            "--rng-seed",
+            "0x1234",
+        ))
+        self.assertEqual(args.rng_seed, 0x1234)
+
     def test_terminal_trial_releases_input_before_exact_process_stop(self):
         events = []
         keyboard = mock.Mock()

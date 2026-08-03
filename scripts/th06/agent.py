@@ -103,6 +103,14 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("--continue-on-failure is Practice-only")
     if args.continue_on_failure and not args.patch_lives:
         raise RuntimeError("--continue-on-failure requires --patch-lives")
+    if args.rng_seed is not None and not args.armed:
+        raise RuntimeError("--rng-seed requires --armed")
+    if (
+        args.rng_seed is not None
+        and not args.start_hard
+        and args.practice_stage is None
+    ):
+        raise RuntimeError("--rng-seed requires a fresh menu-started trial")
     _prioritize_control_loop()
     process = attach_exact(Path(args.game_dir).resolve())
     keyboard = Keyboard(process.pid) if args.armed else None
@@ -112,10 +120,18 @@ def run(args: argparse.Namespace) -> int:
         if args.save_replay and keyboard is not None
         else None
     )
+    rng_suffix = (
+        f"_rng{args.rng_seed:04x}" if args.rng_seed is not None else ""
+    )
     if args.practice_stage is not None:
-        trace_name = f"th06_practice_stage{args.practice_stage}_latest.csv"
+        trace_name = (
+            f"th06_practice_stage{args.practice_stage}{rng_suffix}_latest.csv"
+        )
     else:
-        trace_name = "th06_baseline_latest.csv" if args.armed else "th06_observe_latest.csv"
+        trace_name = (
+            f"th06_baseline{rng_suffix}_latest.csv"
+            if args.armed else "th06_observe_latest.csv"
+        )
     trace_path = Path(__file__).resolve().parents[2] / "artifacts" / trace_name
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     diagnostic_path = trace_path.with_name(
@@ -163,6 +179,17 @@ def run(args: argparse.Namespace) -> int:
         print("control priority: high/highest", flush=True)
         if args.patch_lives:
             print(f"life patch: {process.patch_lives()} at 0x{ADDR_LIFE_PATCH:08X}", flush=True)
+        if args.rng_seed is not None:
+            old_seed, old_generation = process.set_diagnostic_rng_seed(
+                args.rng_seed
+            )
+            print(
+                "diagnostic RNG: "
+                f"0x{old_seed:04X}/{old_generation} -> "
+                f"0x{args.rng_seed:04X}/0; source generator unchanged; "
+                "not clear validation",
+                flush=True,
+            )
         if args.start_hard:
             assert keyboard is not None
             start_hard_reimu_a(process, keyboard)
@@ -187,6 +214,7 @@ def run(args: argparse.Namespace) -> int:
                 "wall_s", "frame", "stage", "state", "x", "y", "bullets", "lasers",
                 "enemies", "spawners", "emitter_state", "despawning",
                 "bullet_retries",
+                "rng_seed", "rng_generation", "power", "timeline_time",
                 "replay", "native_input", "held_desired_input", "input_transitions",
                 "decision_age", "command_issue_age",
                 "input_lease",
@@ -240,7 +268,11 @@ def run(args: argparse.Namespace) -> int:
                         input_lease.cleared()
                     stop_immediately()
                     exit_code = 2
-                    failure_path = trace_path.with_name("th06_failure_latest.json")
+                    failure_path = trace_path.with_name(
+                        "th06_failure_latest.json"
+                        if args.rng_seed is None
+                        else f"th06_failure_rng{args.rng_seed:04x}_latest.json"
+                    )
                     failure_path.write_text(
                         json.dumps(
                             {
@@ -478,6 +510,8 @@ def run(args: argparse.Namespace) -> int:
                     len(snapshot.spawners),
                     _emitter_trace(snapshot),
                     len(snapshot.despawning_bullets), snapshot.bullet_read_retries,
+                    snapshot.rng_seed, snapshot.rng_generation,
+                    snapshot.current_power, snapshot.timeline_time,
                     int(snapshot.replay_or_demo),
                     f"0x{snapshot.input_mask:04X}",
                     f"0x{(keyboard.base_input_mask if keyboard is not None else 0):04X}",
@@ -543,7 +577,11 @@ def run(args: argparse.Namespace) -> int:
                         diagnostic_failure_active = True
                         previous_snapshot = snapshot
                         continue
-                    failure_path = trace_path.with_name("th06_failure_latest.json")
+                    failure_path = trace_path.with_name(
+                        "th06_failure_latest.json"
+                        if args.rng_seed is None
+                        else f"th06_failure_rng{args.rng_seed:04x}_latest.json"
+                    )
                     failure_path.write_text(
                         json.dumps(
                             {
@@ -608,6 +646,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--replay-slot", type=int, choices=range(1, 16), metavar="1..15")
     parser.add_argument("--replay-name", default="TH06")
+    parser.add_argument(
+        "--rng-seed",
+        type=lambda value: int(value, 0),
+        choices=range(0x10000),
+        metavar="0..0xffff",
+        help=(
+            "diagnostic only: fix the source RNG initial seed while keeping "
+            "the original generator and consumer order"
+        ),
+    )
     parser.add_argument("--seconds", type=float, default=0.0, help="zero runs until Ctrl+C")
     return parser.parse_args(argv)
 
