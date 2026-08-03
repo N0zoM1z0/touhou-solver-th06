@@ -353,10 +353,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, deep_action)
         self.assertEqual(decision.effort_horizon, 16)
         self.assertEqual(decision.held_horizon, HARD_SAFETY_HORIZON)
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "policy"],
-            [8],
-        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
         progressive = next(
             call for call in kernel.calls if call[0] == "progressive"
         )
@@ -402,10 +399,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, deep_action)
         self.assertEqual(decision.effort_horizon, 16)
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "policy"],
-            [8],
-        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
         self.assertEqual(
             [call[0] for call in kernel.calls].count("progressive"),
             1,
@@ -713,10 +707,7 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[0] for call in kernel.calls].count("progressive"),
             1,
         )
-        self.assertLess(
-            [call[0] for call in kernel.calls].index("policy"),
-            [call[0] for call in kernel.calls].index("progressive"),
-        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
         self.assertLessEqual(
             clock.seconds * 1000.0 - second_started_ms,
             12.5,
@@ -759,10 +750,7 @@ class AnytimePolicyTests(unittest.TestCase):
         progressive = next(
             call for call in kernel.calls if call[0] == "progressive"
         )
-        self.assertEqual(
-            [call[1] for call in kernel.calls if call[0] == "policy"],
-            [8],
-        )
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
         self.assertEqual(progressive[1:3], (8, 20))
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
@@ -875,7 +863,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
 
-    def test_stale_base_cost_uses_residual_before_progressive_rung(self):
+    def test_stale_nominal_cost_does_not_block_progressive_rung(self):
         clock = ManualClock()
         expected = self.hard[1].action
         kernel = BudgetedProgressiveKernel(
@@ -905,10 +893,8 @@ class AnytimePolicyTests(unittest.TestCase):
         decision = solver.decide(state)
 
         call_names = [call[0] for call in kernel.calls]
-        self.assertLess(
-            call_names.index("budgeted_policy"),
-            call_names.index("progressive"),
-        )
+        self.assertNotIn("budgeted_policy", call_names)
+        self.assertIn("progressive", call_names)
         self.assertNotIn("policy", [call[0] for call in kernel.calls])
         self.assertEqual(decision.action, expected)
         self.assertEqual(decision.effort_horizon, 8)

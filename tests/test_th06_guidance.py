@@ -1280,7 +1280,17 @@ class TerminalGuidanceTests(unittest.TestCase):
             for action in ACTIONS
         )
         clock = ManualClock()
-        kernel = GuidanceKernel(clock, hard)
+
+        class OrderedGuidanceKernel(GuidanceKernel):
+            def certify_selected(
+                self, state, horizon, actions, collision_margin
+            ):
+                self.calls.append(("frontier", horizon))
+                return super().certify_selected(
+                    state, horizon, actions, collision_margin
+                )
+
+        kernel = OrderedGuidanceKernel(clock, hard)
         solver = Solver(decision_budget_ms=100.0, clock=clock)
         solver.kernel = kernel
         solver.backend = "test"
@@ -1291,12 +1301,18 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertEqual(proposed.action.name, "right")
         self.assertEqual(solver.pending_target_action.name, "right")
 
+        kernel.calls.clear()
         acquired = solver.decide(
             replace(state, frame=101, input_mask=0x84)
         )
         self.assertEqual(acquired.action.name, "right")
         self.assertEqual(solver.guidance_target, (80.0, 120.0))
         self.assertIsNone(solver.pending_target_action)
+        call_names = [call[0] for call in kernel.calls]
+        self.assertLess(
+            call_names.index("frontier"),
+            call_names.index("acquire"),
+        )
 
         guided = solver.decide(
             replace(state, frame=102, input_mask=0x84)
@@ -1494,7 +1510,7 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertEqual(decision.action.name, "down")
         self.assertEqual(decision.effort_horizon, 20)
 
-    def test_progressive_timeout_keeps_completed_base_survival_rung(self):
+    def test_progressive_timeout_preserves_other_survival_evidence(self):
         state = snapshot(x=364.0, y=161.858, input_mask=0x14)
         hard = tuple(
             SafeAction(action, 10.0, state.x, state.y)
@@ -1518,8 +1534,8 @@ class TerminalGuidanceTests(unittest.TestCase):
             [call[1] for call in kernel.calls if call[0] == "budgeted_policy"],
             [],
         )
-        self.assertEqual(decision.action.name, "right")
-        self.assertEqual(decision.effort_horizon, 8)
+        self.assertIn(decision.action, {item.action for item in hard})
+        self.assertEqual(decision.effort_horizon, 20)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
     def test_physical_discontinuity_discards_only_soft_plan_state(self):

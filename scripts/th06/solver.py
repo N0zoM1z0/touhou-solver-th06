@@ -930,8 +930,9 @@ class Solver:
         policy_guidance = None
         target_guided = False
         target_invalid = False
-        acquired_pending_target = False
         policy_probe_ready = False
+        pending_candidate = None
+        acquisition_horizon = HARD_SAFETY_HORIZON
 
         if limit > HARD_SAFETY_HORIZON:
             operation_started = self.clock()
@@ -954,55 +955,7 @@ class Solver:
                 limit,
                 self.pending_target_horizon,
             )
-            if (
-                pending_candidate is not None
-                and self.effort.target_affordable(
-                    "acquire",
-                    snapshot,
-                    1,
-                    acquisition_horizon,
-                    elapsed_ms,
-                )
-            ):
-                guidance_started = self.clock()
-                guidance = self._terminal_guidance(
-                    snapshot,
-                    (pending_candidate,),
-                    acquisition_horizon,
-                )
-                guidance_ms = (
-                    self.clock() - guidance_started
-                ) * 1000.0
-                if guidance is not None:
-                    self.effort.observe_target(
-                        "acquire",
-                        snapshot,
-                        1,
-                        acquisition_horizon,
-                        guidance_ms,
-                    )
-                    value = guidance.get(pending_candidate.action)
-                    if (
-                        value is not None
-                        and value.terminal_count > 0
-                        and math.isfinite(value.free_clearance)
-                    ):
-                        self.guidance_target = (
-                            value.free_x,
-                            value.free_y,
-                        )
-                        self.guidance_deadline = (
-                            snapshot.frame + acquisition_horizon
-                        )
-                        policy_preferred = frozenset(
-                            (pending_candidate.action,)
-                        )
-                        policy_horizon = acquisition_horizon
-                        policy_guidance = guidance
-                        policy_scores = None
-                        acquired_pending_target = True
-                self.pending_target_action = None
-            elif pending_candidate is None:
+            if pending_candidate is None:
                 self.pending_target_action = None
 
             budgeted_policy = (
@@ -1014,9 +967,17 @@ class Solver:
                 if self.kernel is not None
                 else None
             )
+            progressive_reachability = (
+                getattr(
+                    type(self.kernel),
+                    "flexible_terminal_counts_progressive",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
             if (
-                not acquired_pending_target
-                and budgeted_policy is not None
+                progressive_reachability is not None
                 and len(hard) > 1
                 and limit >= BASE_POLICY_HORIZON
             ):
@@ -1024,138 +985,58 @@ class Solver:
                     candidate.action for candidate in hard
                 )
                 elapsed_ms = (self.clock() - started) * 1000.0
-                base_policy_horizon = BASE_POLICY_HORIZON
-                base_policy_affordable = self.effort.policy_affordable(
-                    snapshot,
-                    len(hard),
-                    base_policy_horizon,
-                    elapsed_ms,
+                reachability_budget_ms = (
+                    self.effort.budget_ms()
+                    - elapsed_ms
+                    - 2.0 * POLICY_DEADLINE_GUARD_MS
                 )
-                policy_started = self.clock()
-                base_probe_attempted = False
-                scores = None
-                if base_policy_affordable:
-                    scores = self._policy_scores(
-                        snapshot,
-                        hard,
-                        base_policy_horizon,
-                    )
-                else:
-                    base_budget_ms = (
-                        self.effort.budget_ms()
-                        - elapsed_ms
-                        - 2.0 * POLICY_DEADLINE_GUARD_MS
-                    )
-                    if base_budget_ms > 0.0:
-                        base_probe_attempted = True
-                        scores = self._budgeted_policy_scores(
+                policy_exhausted = True
+                if reachability_budget_ms > 0.0:
+                    policy_started = self.clock()
+                    progressive = (
+                        self._budgeted_flexible_terminal_counts(
                             snapshot,
                             hard,
-                            base_policy_horizon,
-                            base_budget_ms,
+                            limit,
+                            reachability_budget_ms,
                         )
-                policy_ms = (
-                    self.clock() - policy_started
-                ) * 1000.0
-                base_policy_completed = scores is not None
-                if base_policy_completed:
-                    self.effort.observe_policy(
-                        snapshot,
-                        len(hard),
-                        base_policy_horizon,
-                        policy_ms,
                     )
-                elif base_probe_attempted:
-                    self.effort.observe_policy_timeout(
-                        snapshot,
-                        base_policy_horizon,
-                    )
-                policy_exhausted = True
-                best_score = max(
-                    (
-                        score for action, score in (
-                            scores or {}
-                        ).items()
-                        if action in allowed
-                    ),
-                    default=0,
-                )
-                if best_score > 0:
-                    policy_preferred = frozenset(
-                        action for action, score in scores.items()
-                        if score == best_score and action in allowed
-                    )
-                    policy_horizon = base_policy_horizon
-                    policy_scores = scores
-                    policy_guidance = None
-
-                progressive_reachability = (
-                    getattr(
-                        type(self.kernel),
-                        "flexible_terminal_counts_progressive",
-                        None,
-                    )
-                    if self.kernel is not None
-                    else None
-                )
-                if (
-                    base_policy_completed
-                    and progressive_reachability is not None
-                ):
-                    elapsed_ms = (
-                        self.clock() - started
+                    policy_ms = (
+                        self.clock() - policy_started
                     ) * 1000.0
-                    reachability_budget_ms = (
-                        self.effort.budget_ms()
-                        - elapsed_ms
-                        - 2.0 * POLICY_DEADLINE_GUARD_MS
-                    )
-                    if reachability_budget_ms > 0.0:
-                        policy_started = self.clock()
-                        progressive = (
-                            self._budgeted_flexible_terminal_counts(
-                                snapshot,
-                                hard,
-                                limit,
-                                reachability_budget_ms,
-                            )
+                    if progressive is not None:
+                        (
+                            completed_horizon,
+                            flexible_scores,
+                            _reached_maximum,
+                        ) = progressive
+                        self.effort.observe_target(
+                            "survival",
+                            snapshot,
+                            len(hard),
+                            completed_horizon,
+                            policy_ms,
                         )
-                        policy_ms = (
-                            self.clock() - policy_started
-                        ) * 1000.0
-                        if progressive is not None:
+                        flexible_best = max(
                             (
-                                completed_horizon,
-                                flexible_scores,
-                                _reached_maximum,
-                            ) = progressive
-                            self.effort.observe_target(
-                                "survival",
-                                snapshot,
-                                len(hard),
-                                completed_horizon,
-                                policy_ms,
-                            )
-                            flexible_best = max(
-                                (
-                                    score for action, score
-                                    in flexible_scores.items()
-                                    if action in allowed
-                                ),
-                                default=0,
-                            )
-                            if flexible_best > 0:
-                                policy_preferred = frozenset(
-                                    action for action, score
-                                    in flexible_scores.items()
-                                    if (
-                                        score == flexible_best
-                                        and action in allowed
-                                    )
+                                score for action, score
+                                in flexible_scores.items()
+                                if action in allowed
+                            ),
+                            default=0,
+                        )
+                        if flexible_best > 0:
+                            policy_preferred = frozenset(
+                                action for action, score
+                                in flexible_scores.items()
+                                if (
+                                    score == flexible_best
+                                    and action in allowed
                                 )
-                                policy_horizon = completed_horizon
-                                policy_scores = flexible_scores
-                                policy_guidance = None
+                            )
+                            policy_horizon = completed_horizon
+                            policy_scores = flexible_scores
+                            policy_guidance = None
                 policy_probe_ready = bool(policy_preferred)
 
                 if (
@@ -1216,7 +1097,7 @@ class Solver:
 
             for horizon in (
                 ()
-                if acquired_pending_target or policy_probe_ready
+                if policy_probe_ready
                 else EFFORT_HORIZONS
             ):
                 if horizon > limit:
@@ -1478,9 +1359,10 @@ class Solver:
                     policy_scores = deep_scores
                     policy_guidance = None
 
+            policy_probe_ready = bool(policy_preferred)
+
             if (
                 self.guidance_target is not None
-                and not acquired_pending_target
                 and target_invalid
             ):
                 self._clear_target()
@@ -1529,6 +1411,55 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
+
+        if pending_candidate is not None:
+            # A free-space target is soft state derived from a previously
+            # selected action.  Acquire it only after this snapshot's ordinary
+            # survival work and only if that action remains in the final fresh
+            # survival-preferred set.  Target work can consume residual effort
+            # but cannot shorten or replace the survival continuation.
+            elapsed_ms = (self.clock() - started) * 1000.0
+            if (
+                pending_candidate.action in preferred
+                and self.effort.target_affordable(
+                    "acquire",
+                    snapshot,
+                    1,
+                    acquisition_horizon,
+                    elapsed_ms,
+                )
+            ):
+                guidance_started = self.clock()
+                guidance = self._terminal_guidance(
+                    snapshot,
+                    (pending_candidate,),
+                    acquisition_horizon,
+                )
+                guidance_ms = (
+                    self.clock() - guidance_started
+                ) * 1000.0
+                if guidance is not None:
+                    self.effort.observe_target(
+                        "acquire",
+                        snapshot,
+                        1,
+                        acquisition_horizon,
+                        guidance_ms,
+                    )
+                    value = guidance.get(pending_candidate.action)
+                    if (
+                        value is not None
+                        and value.terminal_count > 0
+                        and math.isfinite(value.free_clearance)
+                    ):
+                        self.guidance_target = (
+                            value.free_x,
+                            value.free_y,
+                        )
+                        self.guidance_deadline = (
+                            snapshot.frame + acquisition_horizon
+                        )
+            self.pending_target_action = None
 
         chosen = self.ranker.choose(
             snapshot,
