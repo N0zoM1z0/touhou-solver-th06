@@ -42,6 +42,11 @@ from .planner import source_terminal_counts
 
 SOURCE_DYNAMIC_FLAGS = 0xDF1
 SOURCE_EXACT_DYNAMIC_FLAGS = 0x0F1
+TERMINAL_METRICS = (
+    "count",
+    "count-clearance",
+    "clearance-count",
+)
 # BulletManager::OnUpdate advances these three spawn states before calling the
 # installed bullet ANM script.  The standard archive completes the scripts on
 # timer 9/15/31 respectively; every physical transition in the retained
@@ -278,10 +283,13 @@ def collides_now(snapshot: Snapshot) -> bool:
 class ExactTerminalPolicy:
     """Independent exact terminal-volume policy for closed-loop comparison."""
 
-    def __init__(self, horizon: int) -> None:
+    def __init__(self, horizon: int, metric: str = "count") -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
+        if metric not in TERMINAL_METRICS:
+            raise ValueError(f"unknown terminal metric {metric!r}")
         self.horizon = horizon
+        self.metric = metric
         self.ranker = ProposalRanker()
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
@@ -303,17 +311,24 @@ class ExactTerminalPolicy:
         if self.horizon == 4:
             preferred = frozenset()
         else:
-            counts = dict(source_terminal_counts(
+            guidance = dict(source_terminal_counts(
                 snapshot,
                 hard.actions,
                 4,
                 self.horizon,
+                include_guidance=self.metric != "count",
             ).counts)
-            best = max(counts.values(), default=0)
+            scores = {
+                name: _terminal_metric(value, self.metric)
+                for name, value in guidance.items()
+            }
+            best = max(scores.values(), default=None)
             preferred = frozenset(
                 candidate.action
                 for candidate in candidates
-                if best > 0 and counts[candidate.action.name] == best
+                if best is not None
+                and best[0] > 0
+                and scores[candidate.action.name] == best
             )
         return self.ranker.choose(snapshot, candidates, preferred).action
 
@@ -321,14 +336,22 @@ class ExactTerminalPolicy:
 class NativeTerminalPolicy:
     """The parity-checked native planner for high-throughput stateful sweeps."""
 
-    def __init__(self, horizon: int, kernel=None) -> None:
+    def __init__(
+        self,
+        horizon: int,
+        kernel=None,
+        metric: str = "count",
+    ) -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
+        if metric not in TERMINAL_METRICS:
+            raise ValueError(f"unknown terminal metric {metric!r}")
         if kernel is None:
             from ..kernels.safety import NativeSafetyKernel
             kernel = NativeSafetyKernel()
         self.horizon = horizon
         self.kernel = kernel
+        self.metric = metric
         self.ranker = ProposalRanker()
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
@@ -343,20 +366,48 @@ class NativeTerminalPolicy:
         if self.horizon == 4:
             preferred = frozenset()
         else:
-            counts = self.kernel.terminal_counts(
-                snapshot,
-                hard,
-                4,
-                self.horizon,
-                collision_margin=0.35,
+            guidance = (
+                self.kernel.terminal_counts(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    collision_margin=0.35,
+                )
+                if self.metric == "count"
+                else self.kernel.terminal_guidance(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    collision_margin=0.35,
+                )
             )
-            best = max(counts.values(), default=0)
+            scores = {
+                action: _terminal_metric(value, self.metric)
+                for action, value in guidance.items()
+            }
+            best = max(scores.values(), default=None)
             preferred = frozenset(
                 candidate.action
                 for candidate in hard
-                if best > 0 and counts[candidate.action] == best
+                if best is not None
+                and best[0] > 0
+                and scores[candidate.action] == best
             )
         return self.ranker.choose(snapshot, hard, preferred).action
+
+
+def _terminal_metric(value, metric: str) -> tuple[float, ...]:
+    count = value if isinstance(value, int) else value.terminal_count
+    if metric == "count":
+        return (float(count),)
+    clearance = value.free_clearance
+    if metric == "count-clearance":
+        return (float(count), clearance)
+    if metric == "clearance-count":
+        return (float(count > 0), clearance, float(count))
+    raise ValueError(f"unknown terminal metric {metric!r}")
 
 
 @dataclass(frozen=True)

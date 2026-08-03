@@ -14,6 +14,7 @@ from th06.barrage_lab.generator import runtime_barrage_template
 from th06.barrage_lab.stateful import (
     ExactTerminalPolicy,
     NativeTerminalPolicy,
+    TERMINAL_METRICS,
     physical_step_parity,
     run_stateful_sweep,
     shrink_horizon_advantage,
@@ -42,6 +43,10 @@ def parse_args() -> argparse.Namespace:
         help="use the parity-checked native planner for the stateful sweep",
     )
     parser.add_argument(
+        "--metric", choices=TERMINAL_METRICS, default="count",
+        help="soft terminal ranking to evaluate in the closed loop",
+    )
+    parser.add_argument(
         "--shrink", action="store_true",
         help="minimize the first closed-loop deeper-horizon advantage",
     )
@@ -64,9 +69,16 @@ def main() -> int:
         "first_advantage": None,
     }
     if args.archive is not None:
-        policy_factory = (
-            NativeTerminalPolicy if args.native else ExactTerminalPolicy
-        )
+        if args.native:
+            from th06.kernels.safety import NativeSafetyKernel
+            kernel = NativeSafetyKernel()
+            policy_factory = lambda horizon: NativeTerminalPolicy(
+                horizon, kernel, args.metric
+            )
+        else:
+            policy_factory = lambda horizon: ExactTerminalPolicy(
+                horizon, args.metric
+            )
         raw = json.loads(args.artifact.read_text(encoding="utf-8"))
         raw_history = raw.get("snapshot_history") or (raw["snapshot"],)
         templates = tuple(
@@ -83,6 +95,7 @@ def main() -> int:
             policy_factory=policy_factory,
         )
         output["stateful_sweep"] = asdict(summary)
+        output["terminal_metric"] = args.metric
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
                 advantage,

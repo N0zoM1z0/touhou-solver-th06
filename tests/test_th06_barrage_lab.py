@@ -13,7 +13,7 @@ from th06.barrage_lab.generator import (
     stress_player_position,
 )
 from th06.barrage_lab.oracle import certify_linear_source
-from th06.barrage_lab.planner import source_terminal_counts
+from th06.barrage_lab.planner import PlannerGuidanceValue, source_terminal_counts
 from th06.barrage_lab.runner import (
     PlannerMismatch,
     SweepMismatch,
@@ -32,6 +32,7 @@ from th06.barrage_lab.stateful import (
     step_bullet,
     step_closed_world,
     step_fired_bullet,
+    _terminal_metric,
 )
 from th06.hazards.bullets import hazard_box
 from th06.model import CONTROL_ACTIONS, Bullet
@@ -341,6 +342,19 @@ class BarrageLabTests(unittest.TestCase):
                 replace(case.snapshot, bullets=(despawning,)),
                 CONTROL_ACTIONS[0],
             )
+
+    def test_stateful_terminal_metrics_keep_survival_positive(self):
+        narrow_many = PlannerGuidanceValue(12, 1.0, 100.0, 100.0)
+        clear_few = PlannerGuidanceValue(4, 9.0, 120.0, 100.0)
+
+        self.assertGreater(
+            _terminal_metric(narrow_many, "count-clearance"),
+            _terminal_metric(clear_few, "count-clearance"),
+        )
+        self.assertGreater(
+            _terminal_metric(clear_few, "clearance-count"),
+            _terminal_metric(narrow_many, "clearance-count"),
+        )
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
