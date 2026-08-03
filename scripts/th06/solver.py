@@ -1425,9 +1425,18 @@ class Solver:
                     policy_scores = replanning
                     terminal_completed = True
 
+        elapsed_ms = (self.clock() - started) * 1000.0
         if (
-            limit > max(HARD_SAFETY_HORIZON, policy_horizon)
+            (
+                limit > max(HARD_SAFETY_HORIZON, policy_horizon)
+                # A completed p8 result is safe to retain while one ordinary
+                # h12 probe measures a previously unseen cost.  Otherwise an
+                # extrapolated p8 estimate can suppress that rung forever.
+                or policy_horizon >= BASE_POLICY_HORIZON
+            )
             and len(planning_candidates) > 1
+            and self.effort.budget_ms() - elapsed_ms
+                > TERMINAL_DEADLINE_GUARD_MS
         ):
             nominal_minimum_horizon = next(
                 (

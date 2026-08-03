@@ -737,6 +737,46 @@ class AnytimePolicyTests(unittest.TestCase):
             [(8, 8), (12, 16)],
         )
 
+    def test_completed_base_rung_can_probe_next_rung_from_residual(self):
+        clock = ManualClock()
+        shallow = self.hard[0]
+        deep = self.hard[1]
+        kernel = DeliveryReplanningKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                shallow.action: 9,
+                deep.action: 5,
+                self.hard[2].action: 1,
+            },
+            delivery_ms=2.0,
+            terminal_scores_by_horizon={
+                12: {
+                    shallow.action: 4,
+                    deep.action: 12,
+                    self.hard[2].action: 2,
+                },
+            },
+            scores_by_horizon={},
+            flexible_completed_horizon=12,
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: HARD_SAFETY_HORIZON
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, deep.action)
+        self.assertEqual(decision.effort_horizon, 12)
+        self.assertIn(("prepare", 12), kernel.calls)
+        self.assertIn(
+            (12, 12),
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+        )
+        self.assertLessEqual(clock.seconds * 1000.0, 12.5)
+
     def test_base_terminal_rung_survives_coarse_limit_six(self):
         clock = ManualClock()
         local_action = self.hard[1].action
@@ -1493,11 +1533,11 @@ class AnytimePolicyTests(unittest.TestCase):
                     "delivery_replanning",
                     [call[0] for call in kernel.calls],
                 )
-                self.assertNotIn(
+                self.assertIn(
                     "terminal_progressive",
                     [call[0] for call in kernel.calls],
                 )
-                self.assertNotIn(
+                self.assertIn(
                     "prepare",
                     [call[0] for call in kernel.calls],
                 )

@@ -196,11 +196,20 @@ def replanning_scores(
     scores: dict[Action, int] = {}
     for candidate in candidates:
         branch_counts = []
+        evaluated_split_states = set()
         for first_delay in DELIVERY_DELAYS:
             for first_path in candidate_paths(
                 snapshot, candidate.action, first_delay, split
             ):
                 split_x, split_y = first_path[-1]
+                split_state = (split_x, split_y)
+                # Pickup delays and transition prefixes may clamp to the same
+                # physical state.  The held candidate and all later physics
+                # are identical there, so path multiplicity is not another
+                # robustness branch.
+                if split_state in evaluated_split_states:
+                    continue
+                evaluated_split_states.add(split_state)
                 continuation_states = set()
                 for continuation in continuation_actions:
                     survived = True
