@@ -36,6 +36,8 @@ from th06.barrage_lab.stateful import (
     step_fired_bullet,
     _terminal_metric,
     _terminal_action_metric,
+    _authority_filtered_preferred,
+    _deep_preferred_within,
     _terminal_preferred,
     _terminal_rungs,
 )
@@ -541,7 +543,7 @@ class BarrageLabTests(unittest.TestCase):
         with mock.patch(
             "th06.barrage_lab.stateful.source_replanning_scores",
             side_effect=replanning,
-        ), mock.patch(
+        ) as replanning_mock, mock.patch(
             "th06.barrage_lab.stateful.source_terminal_counts",
             side_effect=terminal,
         ):
@@ -554,6 +556,31 @@ class BarrageLabTests(unittest.TestCase):
 
         self.assertEqual(most_next_actions, left)
         self.assertEqual(filtered_deep, right)
+        self.assertTrue(all(
+            call.kwargs["continuation_actions"] == CONTROL_ACTIONS
+            for call in replanning_mock.call_args_list
+        ))
+        self.assertEqual(
+            _authority_filtered_preferred(
+                {right: 1, left: 2, down: 0},
+                {right: 0, left: 0, down: 10},
+            ),
+            frozenset((right, left)),
+        )
+        self.assertEqual(
+            _deep_preferred_within(
+                frozenset((right, left)),
+                {right: 3, left: 1, down: 10},
+            ),
+            frozenset((right,)),
+        )
+        self.assertEqual(
+            _deep_preferred_within(
+                frozenset((right, left)),
+                {right: 0, left: 0, down: 10},
+            ),
+            frozenset((right, left)),
+        )
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

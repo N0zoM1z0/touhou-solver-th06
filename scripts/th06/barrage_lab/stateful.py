@@ -54,6 +54,7 @@ TERMINAL_METRICS = (
     "local-count-vector",
     "replanning-count",
     "authority-filtered-count",
+    "constant-reserve-count",
     "count-clearance",
     "count-clearance-confirmed",
     "count-focus-clearance",
@@ -418,6 +419,7 @@ class ExactTerminalPolicy:
                 candidates,
                 split=4,
                 horizon=min(8, self.horizon),
+                continuation_actions=CONTROL_ACTIONS,
             )
             if self.metric == "authority-filtered-count":
                 deep = dict(source_terminal_counts(
@@ -426,23 +428,45 @@ class ExactTerminalPolicy:
                     4,
                     self.horizon,
                 ).counts)
-                scores = {
-                    candidate.action: (
-                        int(replanning[candidate.action] > 0),
-                        deep[candidate.action.name],
-                        replanning[candidate.action],
-                    )
-                    for candidate in candidates
-                }
+                preferred = _authority_filtered_preferred(
+                    replanning,
+                    {
+                        candidate.action: deep[candidate.action.name]
+                        for candidate in candidates
+                    },
+                )
             else:
                 scores = {
                     candidate.action: (replanning[candidate.action],)
                     for candidate in candidates
                 }
-            best = max(scores.values(), default=None)
-            preferred = frozenset(
-                action for action, score in scores.items()
-                if best is not None and score == best
+                best = max(scores.values(), default=None)
+                preferred = frozenset(
+                    action for action, score in scores.items()
+                    if best is not None and score == best
+                )
+        elif self.metric == "constant-reserve-count":
+            reserve = certify_linear_source(
+                snapshot,
+                min(6, self.horizon),
+                actions=tuple(candidate.action for candidate in candidates),
+            ).actions
+            deep = dict(source_terminal_counts(
+                snapshot,
+                hard.actions,
+                4,
+                self.horizon,
+            ).counts)
+            preferred = _deep_preferred_within(
+                frozenset(
+                    candidate.action
+                    for candidate in candidates
+                    if candidate.action.name in reserve
+                ),
+                {
+                    candidate.action: deep[candidate.action.name]
+                    for candidate in candidates
+                },
             )
         elif self.continuation == "frame":
             guidance_by_action = terminal_reachability_counts(
@@ -583,13 +607,18 @@ class NativeTerminalPolicy:
             "replanning-count",
             "authority-filtered-count",
         ):
-            replanning = self.kernel.replanning_scores(
+            replanning = self.kernel.macro_tail_scores_budgeted(
                 snapshot,
                 hard,
                 4,
                 min(8, self.horizon),
                 collision_margin=0.35,
+                budget_ms=1000.0,
             )
+            if replanning is None:
+                raise RuntimeError(
+                    "stateful full-control replanning did not complete"
+                )
             if self.metric == "authority-filtered-count":
                 deep = self.kernel.terminal_counts(
                     snapshot,
@@ -598,23 +627,37 @@ class NativeTerminalPolicy:
                     self.horizon,
                     collision_margin=0.35,
                 )
-                scores = {
-                    candidate.action: (
-                        int(replanning[candidate.action] > 0),
-                        deep[candidate.action],
-                        replanning[candidate.action],
-                    )
-                    for candidate in hard
-                }
+                preferred = _authority_filtered_preferred(
+                    replanning,
+                    deep,
+                )
             else:
                 scores = {
                     candidate.action: (replanning[candidate.action],)
                     for candidate in hard
                 }
-            best = max(scores.values(), default=None)
-            preferred = frozenset(
-                action for action, score in scores.items()
-                if best is not None and score == best
+                best = max(scores.values(), default=None)
+                preferred = frozenset(
+                    action for action, score in scores.items()
+                    if best is not None and score == best
+                )
+        elif self.metric == "constant-reserve-count":
+            reserve = self.kernel.certify_selected(
+                snapshot,
+                min(6, self.horizon),
+                tuple(candidate.action for candidate in hard),
+                collision_margin=0.35,
+            )
+            deep = self.kernel.terminal_counts(
+                snapshot,
+                hard,
+                4,
+                self.horizon,
+                collision_margin=0.35,
+            )
+            preferred = _deep_preferred_within(
+                frozenset(candidate.action for candidate in reserve),
+                deep,
             )
         elif self.continuation == "frame":
             result = self.kernel.flexible_terminal_counts_progressive(
@@ -707,6 +750,32 @@ def _terminal_metric(value, metric: str) -> tuple[float, ...]:
     if metric == "clearance-count":
         return (float(count > 0), clearance, float(count))
     raise ValueError(f"unknown terminal metric {metric!r}")
+
+
+def _authority_filtered_preferred(
+    replanning: dict[Action, int],
+    deep: dict[Action, int],
+) -> frozenset[Action]:
+    """Keep next-command authority; rank it only with positive deep evidence."""
+    viable = frozenset(
+        action for action, score in replanning.items() if score > 0
+    )
+    return _deep_preferred_within(viable, deep)
+
+
+def _deep_preferred_within(
+    allowed: frozenset[Action],
+    deep: dict[Action, int],
+) -> frozenset[Action]:
+    """Use positive deep evidence inside a complete local reserve."""
+    if not allowed:
+        return frozenset()
+    best_deep = max((deep[action] for action in allowed), default=0)
+    if best_deep <= 0:
+        return allowed
+    return frozenset(
+        action for action in allowed if deep[action] == best_deep
+    )
 
 
 def _terminal_action_metric(

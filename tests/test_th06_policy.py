@@ -316,7 +316,11 @@ class CoarseMacroKernel(TerminalRefinementKernel):
             return None
         allowed = frozenset(actions)
         return tuple(
-            candidate for candidate in self.coarse_frontier
+            candidate for candidate in (
+                self.hard
+                if horizon == EFFORT_HORIZONS[0]
+                else self.coarse_frontier
+            )
             if candidate.action in allowed
         )
 
@@ -847,7 +851,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 12)
         calls = [call for call in kernel.calls if call[0] == "budgeted_frontier"]
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], 16)
+        self.assertEqual(calls[0][1], EFFORT_HORIZONS[0])
         self.assertGreater(calls[0][2], 0.0)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
@@ -1110,6 +1114,37 @@ class AnytimePolicyTests(unittest.TestCase):
             },
         )
         self.assertEqual(decision.action, current.action)
+
+    def test_local_constant_reserve_constrains_deep_nominal_winner(self):
+        clock = ManualClock()
+        fragile = self.hard[0]
+        reserve_winner = self.hard[1]
+        reserve_other = self.hard[2]
+        kernel = BudgetedProgressiveKernel(
+            clock,
+            self.hard,
+            frontiers={6: (reserve_winner, reserve_other)},
+            scores_by_horizon={
+                16: {
+                    fragile.action: 20,
+                    reserve_winner.action: 12,
+                    reserve_other.action: 8,
+                },
+            },
+            budgeted_ms_by_horizon={16: 2.0},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.rollout_ms_per_work = 0.0
+        solver.effort.last_limit = 16
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, reserve_winner.action)
+        self.assertEqual(decision.effort_horizon, 16)
+        self.assertIn(
+            ("frontier", 6, tuple(candidate.action for candidate in self.hard)),
+            kernel.calls,
+        )
 
     def test_empty_constant_frontier_cannot_shorten_flexible_candidates(self):
         clock = ManualClock()

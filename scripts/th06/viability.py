@@ -185,6 +185,7 @@ def replanning_scores(
     candidates: tuple[SafeAction, ...],
     split: int = 4,
     horizon: int = 8,
+    continuation_actions: tuple[Action, ...] = ACTIONS,
 ) -> dict[Action, int]:
     """Count second actions that survive both physical pickup delays."""
     if not 0 < split < horizon:
@@ -201,7 +202,7 @@ def replanning_scores(
             ):
                 split_x, split_y = first_path[-1]
                 continuation_states = set()
-                for continuation in ACTIONS:
+                for continuation in continuation_actions:
                     survived = True
                     nominal_final = (split_x, split_y)
                     prefixes = transition_actions(candidate.action, continuation)

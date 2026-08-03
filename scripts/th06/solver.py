@@ -1222,6 +1222,8 @@ class Solver:
         )
         frontier = hard
         frontier_horizon = HARD_SAFETY_HORIZON
+        local_reserve_ready = False
+        local_reserve: frozenset[Action] = frozenset()
         contracted = False
         constant_exhausted = False
         policy_exhausted = False
@@ -1521,11 +1523,17 @@ class Solver:
                     or constant_exhausted
                 ):
                     break
-                if policy_preferred and horizon <= policy_horizon:
-                    # A same-or-shallower unchanged-input witness cannot add
-                    # information to a completed turn-capable terminal rung.
-                    # Rebuilding it only spends publication time after the
-                    # stronger fresh continuation has already completed.
+                if (
+                    policy_preferred
+                    and horizon <= policy_horizon
+                    and horizon != EFFORT_HORIZONS[0]
+                ):
+                    # The first complete constant rung is a local publication
+                    # reserve: retained physical evidence showed that a deep
+                    # nominal turn can demand a correction one frame later,
+                    # after an age-one snapshot requires delay-4 authority.
+                    # Deeper unchanged-input witnesses remain redundant once
+                    # a turn-capable rung is complete.
                     continue
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (
@@ -1547,6 +1555,11 @@ class Solver:
                 ) * 1000.0
                 if next_frontier is None:
                     break
+                if horizon == EFFORT_HORIZONS[0]:
+                    local_reserve_ready = True
+                    local_reserve = frozenset(
+                        candidate.action for candidate in next_frontier
+                    )
                 rollout_horizon = horizon
                 if len(next_frontier) < len(frontier):
                     contracted = True
@@ -2138,11 +2151,11 @@ class Solver:
             if frontier_horizon > HARD_SAFETY_HORIZON
             else frozenset()
         )
-        # A constant-action scan says only that one unchanged input survives
-        # to its horizon.  It cannot reject a first action whose turn-capable
-        # policy survives by changing input later.  Use the deeper constant
-        # evidence to break an exact policy tie, never to promote a lower
-        # policy score merely because holding that action is easier.
+        # Deeper constant witnesses remain tie-breakers.  The first complete
+        # h6 witness is different: it is the measured local reserve needed to
+        # leave one fresh correction publishable when the next snapshot ages
+        # by a frame.  It constrains proposal ranking only; Hard-4 eligibility
+        # and fail-close authority remain unchanged.
         restricted_preferred: frozenset[Action] = frozenset()
         if (
             policy_preferred
@@ -2168,6 +2181,35 @@ class Solver:
                 or frontier_preferred
                 or policy_preferred
             )
+        if (
+            local_reserve_ready
+            and local_reserve
+            and policy_preferred
+        ):
+            retained = preferred & local_reserve
+            if retained:
+                preferred = retained
+            else:
+                reserve_preferred: frozenset[Action] = frozenset()
+                if policy_scores is not None:
+                    reserve_best = max(
+                        (
+                            policy_scores.get(action, 0)
+                            for action in local_reserve
+                        ),
+                        default=0,
+                    )
+                    if reserve_best > 0:
+                        reserve_preferred = frozenset(
+                            action for action in local_reserve
+                            if policy_scores.get(action, 0) == reserve_best
+                        )
+                elif policy_guidance is not None:
+                    reserve_preferred = preferred_target_actions(
+                        policy_guidance,
+                        local_reserve,
+                    )
+                preferred = reserve_preferred or local_reserve
 
         if pending_candidate is not None:
             # A free-space target is soft state derived from a previously
