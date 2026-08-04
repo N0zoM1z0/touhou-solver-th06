@@ -736,7 +736,7 @@ class AnytimePolicyTests(unittest.TestCase):
             [(8, 8), (12, 16)],
         )
 
-    def test_completed_base_rung_can_probe_next_rung_from_residual(self):
+    def test_incomplete_base_viability_gets_rank_before_extension(self):
         clock = ManualClock()
         shallow = self.hard[0]
         deep = self.hard[1]
@@ -775,6 +775,11 @@ class AnytimePolicyTests(unittest.TestCase):
             },
             delivery_ms=100.0,
             terminal_scores_by_horizon={
+                8: {
+                    shallow.action: 9,
+                    deep.action: 5,
+                    self.hard[2].action: 1,
+                },
                 12: {
                     shallow.action: 4,
                     deep.action: 12,
@@ -789,8 +794,8 @@ class AnytimePolicyTests(unittest.TestCase):
 
         decision = solver.decide(snapshot())
 
-        self.assertEqual(decision.action, deep.action)
-        self.assertEqual(decision.effort_horizon, 12)
+        self.assertEqual(decision.action, shallow.action)
+        self.assertEqual(decision.effort_horizon, 8)
         self.assertIn(
             "delivery_viability",
             [call[0] for call in kernel.calls],
@@ -799,17 +804,87 @@ class AnytimePolicyTests(unittest.TestCase):
             "delivery_replanning",
             [call[0] for call in kernel.calls],
         )
-        self.assertIn(("prepare", 12), kernel.calls)
+        self.assertIn(("prepare", 8), kernel.calls)
         self.assertIn(
-            (12, 12),
+            (8, 8),
             [
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
             ],
         )
+        self.assertNotIn(("prepare", 12), kernel.calls)
+        self.assertNotIn(("prepare", 16), kernel.calls)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
-    def test_next_terminal_projection_completes_before_deeper_promotion(self):
+    def test_cached_base_rank_does_not_poison_soft_projection_cost(self):
+        clock = ManualClock()
+        shallow = self.hard[0]
+        deep = self.hard[1]
+
+        class CachedBaseKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def prepare(self, _state, horizon):
+                self.calls.append(("prepare", horizon))
+                self.clock.advance_ms(0.0 if horizon == 8 else 10.0)
+
+        kernel = CachedBaseKernel(
+            clock,
+            self.hard,
+            delivery_scores={candidate.action: 1 for candidate in self.hard},
+            delivery_ms=100.0,
+            terminal_scores_by_horizon={
+                8: {
+                    shallow.action: 9,
+                    deep.action: 5,
+                    self.hard[2].action: 1,
+                },
+                12: {
+                    shallow.action: 4,
+                    deep.action: 12,
+                    self.hard[2].action: 2,
+                },
+            },
+            flexible_completed_horizon=12,
+        )
+        state = snapshot()
+        solver = self.solver(kernel, clock)
+        solver.effort.choose_limit = lambda *_args: 16
+        original_rate = 10.0 / solver.effort.projection_work(state, 12)
+        solver.effort.projection_ms_per_work = original_rate
+        solver.effort.projection_frame = state.frame
+        solver.effort.policy_rate_by_horizon[12] = 0.0
+        solver.effort.policy_frame_by_horizon[12] = state.frame
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, shallow.action)
+        self.assertEqual(solver.effort.projection_ms_per_work, original_rate)
+        self.assertEqual(
+            [call for call in kernel.calls if call[0] == "prepare"],
+            [("prepare", 8)],
+        )
+        self.assertEqual(
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+            [(8, 8)],
+        )
+
+    def test_cached_base_rank_completes_before_deeper_promotion(self):
         clock = ManualClock()
         shallow = self.hard[0]
         deep = self.hard[1]
@@ -840,7 +915,7 @@ class AnytimePolicyTests(unittest.TestCase):
 
             def prepare(self, _state, horizon):
                 self.calls.append(("prepare", horizon))
-                self.clock.advance_ms(4.0 if horizon == 12 else 9.5)
+                self.clock.advance_ms({8: 0.0, 12: 4.0, 16: 4.0}[horizon])
 
         kernel = NextRungKernel(
             clock,
@@ -850,6 +925,11 @@ class AnytimePolicyTests(unittest.TestCase):
             },
             delivery_ms=100.0,
             terminal_scores_by_horizon={
+                8: {
+                    shallow.action: 3,
+                    deep.action: 2,
+                    self.hard[2].action: 1,
+                },
                 12: {
                     shallow.action: 3,
                     deep.action: 9,
@@ -868,10 +948,17 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertGreaterEqual(decision.effort_horizon, 12)
         self.assertEqual(
             [call for call in kernel.calls if call[0] == "prepare"],
-            [("prepare", 12)],
+            [("prepare", 8), ("prepare", 16)],
         )
         self.assertIn(
-            (12, 12),
+            (8, 8),
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "terminal_progressive"
+            ],
+        )
+        self.assertIn(
+            (12, 16),
             [
                 call[1:3] for call in kernel.calls
                 if call[0] == "terminal_progressive"
@@ -1585,6 +1672,11 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
+                8: {
+                    stay.action: 8,
+                    left.action: 10,
+                    right.action: 20,
+                },
                 12: {
                     stay.action: 8,
                     left.action: 10,
@@ -1602,7 +1694,7 @@ class AnytimePolicyTests(unittest.TestCase):
         repeated = next(
             call for call in kernel.calls if call[0] == "repeated_pickup"
         )
-        self.assertEqual(repeated[1:3], (12, 12))
+        self.assertEqual(repeated[1:3], (8, 8))
         terminal = next(
             call for call in kernel.calls
             if call[0] == "terminal_progressive"
@@ -1841,6 +1933,11 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
+                8: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
                 12: {
                     shallow: 20,
                     deep_robust: 10,
@@ -1870,7 +1967,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "repeated_pickup"
             ],
-            [(12, 12), (16, 16), (20, 20)],
+            [(8, 8), (12, 12), (16, 16), (20, 20)],
         )
         self.assertNotIn(
             ("terminal_progressive", 16, 20),
@@ -1882,6 +1979,11 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
+                8: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
                 12: {
                     shallow: 20,
                     deep_robust: 10,
@@ -1907,6 +2009,7 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         measured_solver.effort.choose_limit = lambda *_args: 20
         measured_solver.effort.projection_ms_per_work = 0.0
+        measured_solver.effort.projection_frame = state.frame
 
         measured = measured_solver.decide(state)
 
@@ -1916,7 +2019,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in measured_kernel.calls
                 if call[0] == "repeated_pickup"
             ],
-            [(12, 12), (16, 16), (20, 20)],
+            [(8, 8), (12, 12), (16, 16), (20, 20)],
         )
         measured_calls = [
             call[:3] for call in measured_kernel.calls
@@ -1927,12 +2030,8 @@ class AnytimePolicyTests(unittest.TestCase):
             }
         ]
         self.assertLess(
-            measured_calls.index(("prepare", 12)),
-            measured_calls.index(("terminal_progressive", 12, 12)),
-        )
-        self.assertLess(
-            measured_calls.index(("terminal_progressive", 12, 12)),
             measured_calls.index(("prepare", 20)),
+            measured_calls.index(("terminal_progressive", 12, 12)),
         )
         self.assertLess(
             measured_calls.index(("terminal_progressive", 12, 12)),
@@ -1970,6 +2069,11 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
+                8: {
+                    shallow: 1,
+                    deep_robust: 20,
+                    hard[2].action: 2,
+                },
                 12: {
                     shallow: 1,
                     deep_robust: 20,
@@ -1984,12 +2088,13 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         reserved_solver.effort.choose_limit = lambda *_args: 20
         reserved_solver.effort.projection_ms_per_work = 0.0
+        reserved_solver.effort.projection_frame = state.frame
 
         reserved = reserved_solver.decide(state)
 
         self.assertEqual(reserved.action, deep_robust)
         self.assertIn(
-            ("terminal_progressive", 12, 12),
+            ("terminal_progressive", 8, 8),
             [call[:3] for call in reserved_kernel.calls],
         )
         repeated_call = next(

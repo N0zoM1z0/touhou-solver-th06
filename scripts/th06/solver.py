@@ -1466,6 +1466,7 @@ class Solver:
         acquisition_horizon = HARD_SAFETY_HORIZON
         progressive_pending_guidance = None
         planning_candidates = hard
+        local_terminal_rank_pending = False
         full_publication_budget = (
             self.effort.full_publication_budget_available()
         )
@@ -1553,6 +1554,7 @@ class Solver:
                         replanning if robustness_complete else None
                     )
                     terminal_completed = True
+                    local_terminal_rank_pending = not robustness_complete
 
         elapsed_ms = (self.clock() - started) * 1000.0
         constrained_next_rung_affordable = False
@@ -1594,12 +1596,22 @@ class Solver:
             and self.effort.budget_ms() - elapsed_ms
                 > TERMINAL_DEADLINE_GUARD_MS
         ):
-            nominal_minimum_horizon = next(
-                (
-                    horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
-                    if horizon > policy_horizon
-                ),
-                BASE_POLICY_HORIZON,
+            # The cheap p8 delivery predicate publishes membership, not a
+            # terminal rank.  Complete that missing half on the already
+            # prepared p8 world before paying for a fresh nominal h12 ECL
+            # projection.  The Stage 4 f2757 physical counterexample showed
+            # that skipping directly to h12 can retain the observed input even
+            # when the exact p8 pair has a unique, sub-millisecond correction.
+            nominal_minimum_horizon = (
+                BASE_POLICY_HORIZON
+                if local_terminal_rank_pending
+                else next(
+                    (
+                        horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
+                        if horizon > policy_horizon
+                    ),
+                    BASE_POLICY_HORIZON,
+                )
             )
             terminal_progressive_native = (
                 getattr(
@@ -1652,11 +1664,16 @@ class Solver:
             )
             soft_prepare_step_growth = 1.0
             rollout_ms += soft_prepare_ms
-            self.effort.observe_projection(
-                snapshot,
-                soft_prepare_horizon,
-                soft_prepare_ms,
-            )
+            # Hard authority already prepared this fail-closed p8 window.  A
+            # cache hit completes the missing local rank but says nothing about
+            # the cost of starting a nominal ECL projection beyond p8; keep the
+            # last real soft-projection measurement authoritative.
+            if not local_terminal_rank_pending:
+                self.effort.observe_projection(
+                    snapshot,
+                    soft_prepare_horizon,
+                    soft_prepare_ms,
+                )
             observed_held = action_from_input(snapshot.input_mask)
             pending_candidate = next(
                 (
@@ -1916,9 +1933,41 @@ class Solver:
                 if repeated_pickup_native is not None:
                     if next_exact_horizon is not None:
                         promotion_horizons += (next_exact_horizon,)
+                next_promotion_horizon = next(
+                    (
+                        horizon for horizon in promotion_horizons
+                        if horizon > soft_prepare_horizon
+                    ),
+                    None,
+                )
+                local_extension_affordable = (
+                    not local_terminal_rank_pending
+                    or self.effort.projection_ms_per_work is None
+                    or (
+                        next_promotion_horizon is not None
+                        and self.effort.continuation_extension_affordable(
+                            snapshot,
+                            len(planning_candidates),
+                            soft_prepare_horizon,
+                            next_promotion_horizon,
+                            (self.clock() - started) * 1000.0,
+                        )
+                    )
+                )
                 if (
                     initial_completed
                     and full_publication_budget
+                    # A completed cached p8 rank is already publishable.  Do
+                    # not start an unadmitted nominal extension merely to
+                    # measure it: synchronous ECL preparation can consume the
+                    # physical publication window after the useful result has
+                    # completed.  A limit above p8 is the ordinary generic
+                    # budget admission for that next rung.
+                    and (
+                        not local_terminal_rank_pending
+                        or limit > soft_prepare_horizon
+                    )
+                    and local_extension_affordable
                     and soft_prepare_horizon
                         < promotion_horizons[-1]
                 ):
