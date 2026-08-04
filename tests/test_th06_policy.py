@@ -1777,6 +1777,133 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertEqual(decision.effort_horizon, 16)
         self.assertLessEqual(clock.seconds * 1000.0, 12.5)
 
+    def test_each_promoted_local_rung_rechecks_delivery_viability(self):
+        clock = ManualClock()
+        state = snapshot()
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS[:3]
+        )
+        shallow = hard[0].action
+        deep_robust = hard[1].action
+
+        class DeepViabilityKernel(DeliveryReplanningKernel):
+            def replanning_viability_budgeted(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                _horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return {
+                    candidate.action: 1 for candidate in candidates
+                }
+
+            def delivery_segment_viability_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "repeated_pickup",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                self.clock.advance_ms(min(1.0, budget_ms))
+                allowed = frozenset(
+                    candidate.action for candidate in candidates
+                )
+                viable = (
+                    frozenset((deep_robust,))
+                    if maximum_horizon >= 20
+                    else allowed
+                )
+                return (
+                    maximum_horizon,
+                    {
+                        action: int(action in viable)
+                        for action in allowed
+                    },
+                    True,
+                )
+
+        kernel = DeepViabilityKernel(
+            clock,
+            hard,
+            delivery_scores={candidate.action: 1 for candidate in hard},
+            terminal_scores_by_horizon={
+                12: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
+                20: {
+                    shallow: 100,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
+            },
+            flexible_completed_horizon=20,
+        )
+        solver = self.solver(kernel, clock, budget=100.0)
+        solver.effort.choose_limit = lambda *_args: 20
+
+        decision = solver.decide(state)
+
+        self.assertEqual(decision.action, deep_robust)
+        self.assertEqual(
+            [
+                call[1:3] for call in kernel.calls
+                if call[0] == "repeated_pickup"
+            ],
+            [(12, 12), (16, 20)],
+        )
+        self.assertNotIn(
+            ("terminal_progressive", 16, 20),
+            [call[:3] for call in kernel.calls],
+        )
+
+        coalesced_kernel = DeepViabilityKernel(
+            clock,
+            hard,
+            delivery_scores={candidate.action: 1 for candidate in hard},
+            terminal_scores_by_horizon={
+                20: {
+                    shallow: 100,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
+            },
+            flexible_completed_horizon=20,
+        )
+        coalesced_solver = self.solver(
+            coalesced_kernel,
+            clock,
+            budget=100.0,
+        )
+        coalesced_solver.effort.choose_limit = lambda *_args: 20
+        coalesced_solver.effort.projection_ms_per_work = 0.0
+
+        coalesced = coalesced_solver.decide(state)
+
+        self.assertEqual(coalesced.action, deep_robust)
+        self.assertEqual(
+            [
+                call[1:3] for call in coalesced_kernel.calls
+                if call[0] == "repeated_pickup"
+            ],
+            [(12, 20)],
+        )
+
     def test_constrained_publication_budget_keeps_exact_local_ranking(self):
         clock = ManualClock()
         local_winner = self.hard[1]

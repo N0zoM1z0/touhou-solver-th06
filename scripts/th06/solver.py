@@ -1214,7 +1214,8 @@ class Solver:
         self,
         snapshot: Snapshot,
         candidates,
-        horizon: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
         budget_ms: float,
     ):
         native = (
@@ -1233,8 +1234,8 @@ class Solver:
             snapshot,
             candidates,
             HARD_SAFETY_HORIZON,
-            horizon,
-            horizon,
+            minimum_horizon,
+            maximum_horizon,
             collision_margin=0.35,
             budget_ms=budget_ms,
         )
@@ -1448,6 +1449,7 @@ class Solver:
         delivery_viable: frozenset[Action] = frozenset()
         delivery_preferred: frozenset[Action] = frozenset()
         segment_delivery_viable: frozenset[Action] = frozenset()
+        segment_delivery_horizon = 0
         segment_delivery_exhausted = False
         terminal_completed = False
         target_guided = False
@@ -1586,17 +1588,58 @@ class Solver:
                 terminal_progressive_native is not None
                 and len(planning_candidates) > 1
             )
+            repeated_pickup_native = (
+                getattr(
+                    type(self.kernel),
+                    "delivery_segment_viability_progressive",
+                    None,
+                )
+                if self.kernel is not None
+                else None
+            )
+            next_exact_horizon = next(
+                (
+                    horizon for horizon in EFFORT_HORIZONS
+                    if horizon > TURN_CAPABLE_POLICY_HORIZONS[-1]
+                ),
+                None,
+            )
+            prepare_remaining_ms = (
+                self.effort.budget_ms()
+                - (self.clock() - started) * 1000.0
+                - TERMINAL_DEADLINE_GUARD_MS
+            )
+            coalesced_exact_horizon = (
+                next_exact_horizon
+                if (
+                    full_publication_budget
+                    and repeated_pickup_native is not None
+                    and next_exact_horizon is not None
+                    and self.effort.projection_ms_per_work is not None
+                    and self.effort.projection_ms_per_work
+                        * self.effort.projection_work(
+                            snapshot,
+                            next_exact_horizon,
+                        )
+                        <= prepare_remaining_ms
+                            * PROMOTION_BUDGET_FRACTION
+                )
+                else None
+            )
             # Prepare only the next ordinary turn-capable rung.  Building the
-            # whole predicted h16 projection up front can consume a shortened
-            # publication deadline before h12 gets any terminal-search time.
-            # Once h12 completes, the measured residual promotion below may
-            # extend the same cached projection to h16.  Every rung therefore
-            # remains complete-or-discard instead of hiding an intermediate
-            # result behind a deeper candidate-independent build.
+            # whole predicted projection up front can consume a shortened
+            # publication deadline before h12 gets any search time.  The one
+            # exception is a measured-affordable shared h20 preparation for
+            # the progressive repeated-pickup gate: building it once avoids
+            # re-flattening h12 and h16, while the native search still
+            # publishes only its deepest completed exact rung.
             soft_prepare_horizon = (
-                nominal_minimum_horizon
-                if progressive_terminal_ready
-                else limit
+                coalesced_exact_horizon
+                or (
+                    nominal_minimum_horizon
+                    if progressive_terminal_ready
+                    else limit
+                )
             )
             operation_started = self.clock()
             self._prepare_soft(snapshot, soft_prepare_horizon)
@@ -1661,6 +1704,7 @@ class Solver:
                     nonlocal progressive_pending_guidance
                     nonlocal planning_candidates
                     nonlocal segment_delivery_viable
+                    nonlocal segment_delivery_horizon
                     nonlocal segment_delivery_exhausted
                     nonlocal policy_exhausted
                     elapsed_ms = (self.clock() - started) * 1000.0
@@ -1671,28 +1715,21 @@ class Solver:
                     )
                     if remaining_ms <= 0.0:
                         return False
-                    robust_native = (
-                        getattr(
-                            type(self.kernel),
-                            "delivery_segment_viability_progressive",
-                            None,
-                        )
-                        if self.kernel is not None
-                        else None
-                    )
-                    # Make the next local rung exact under repeated physical
-                    # pickup.  Deeper terminal rungs are the coarser global
-                    # rank and may refine only inside this robust gate; they
-                    # do not repay the same exponential universal branch tax
-                    # at every extension.
+                    # Make every admitted local rung exact under repeated
+                    # physical pickup before its nominal terminal rank may
+                    # refine the survivors.  A shallower robust gate is not
+                    # transferable to a deeper horizon: boundary-clamped
+                    # aliases can remain locally indistinguishable until the
+                    # correction window has already closed.
                     if (
-                        robust_native is not None
-                        and not segment_delivery_viable
+                        repeated_pickup_native is not None
+                        and maximum_horizon > segment_delivery_horizon
                     ):
                         robust_result = (
                             self._budgeted_delivery_segment_viability(
                                 snapshot,
                                 planning_candidates,
+                                minimum_horizon,
                                 maximum_horizon,
                                 remaining_ms,
                             )
@@ -1706,7 +1743,7 @@ class Solver:
                             in robust_scores.items()
                             if score > 0
                         )
-                        if robust_horizon < maximum_horizon:
+                        if robust_horizon < minimum_horizon:
                             return False
                         if not robust_viable:
                             # Repeated-pickup viability is monotone: once a
@@ -1731,6 +1768,7 @@ class Solver:
                             if candidate.action in robust_viable
                         )
                         segment_delivery_viable = robust_viable
+                        segment_delivery_horizon = robust_horizon
                         retained_prior = (
                             policy_preferred & robust_viable
                         )
@@ -1744,6 +1782,7 @@ class Solver:
                         terminal_completed = True
                         if len(planning_candidates) <= 1:
                             return True
+                        maximum_horizon = robust_horizon
                         elapsed_ms = (
                             self.clock() - started
                         ) * 1000.0
@@ -1835,11 +1874,15 @@ class Solver:
                         else None
                     ),
                 )
+                promotion_horizons = TURN_CAPABLE_POLICY_HORIZONS
+                if repeated_pickup_native is not None:
+                    if next_exact_horizon is not None:
+                        promotion_horizons += (next_exact_horizon,)
                 if (
                     initial_completed
                     and full_publication_budget
                     and soft_prepare_horizon
-                        < TURN_CAPABLE_POLICY_HORIZONS[-1]
+                        < promotion_horizons[-1]
                 ):
                     # A deliberately shallow predicted limit may still leave
                     # measured residual time.  Preserve that falsifiable
@@ -1855,7 +1898,7 @@ class Solver:
                     deepest_affordable = max(
                         (
                             horizon for horizon
-                            in TURN_CAPABLE_POLICY_HORIZONS
+                            in promotion_horizons
                             if (
                                 horizon > soft_prepare_horizon
                                 and soft_prepare_ms
@@ -1907,7 +1950,7 @@ class Solver:
                         soft_prepare_horizon = deepest_affordable
                         next_horizon = min(
                             horizon for horizon
-                            in TURN_CAPABLE_POLICY_HORIZONS
+                            in promotion_horizons
                             if horizon > previous_horizon
                         )
                         accept_progressive(
