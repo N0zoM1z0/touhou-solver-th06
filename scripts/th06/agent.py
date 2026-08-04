@@ -106,6 +106,8 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("--continue-on-failure requires --patch-lives")
     if args.rng_seed is not None and not args.armed:
         raise RuntimeError("--rng-seed requires --armed")
+    if args.capture_history and not args.stop_game:
+        raise RuntimeError("--capture-history requires --stop-game")
     if (
         args.rng_seed is not None
         and not args.start_hard
@@ -137,6 +139,9 @@ def run(args: argparse.Namespace) -> int:
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     diagnostic_path = trace_path.with_name(
         f"{trace_path.stem}_diagnostic_events.json"
+    )
+    history_path = trace_path.with_name(
+        f"{trace_path.stem}_history.json"
     )
     diagnostic_events: list[dict] = []
     diagnostic_failure_active = False
@@ -662,9 +667,32 @@ def run(args: argparse.Namespace) -> int:
                 previous_snapshot = snapshot
     finally:
         try:
-            cleanup()
+            # History serialization can take longer than a publication
+            # deadline. Release input and stop the exact trial first.
+            stop_immediately()
+            if args.capture_history:
+                history_path.write_text(
+                    json.dumps(
+                        {
+                            "snapshot_history": [
+                                asdict(item) for item in snapshot_history
+                            ],
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+                print(
+                    f"captured {len(snapshot_history)} diagnostic snapshots: "
+                    f"{history_path}",
+                    flush=True,
+                )
         finally:
-            gc.set_threshold(*control_gc_thresholds)
+            try:
+                cleanup()
+            finally:
+                gc.set_threshold(*control_gc_thresholds)
     return exit_code
 
 
@@ -695,6 +723,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "diagnostic only: fix the source RNG initial seed while keeping "
             "the original generator and consumer order"
+        ),
+    )
+    parser.add_argument(
+        "--capture-history",
+        action="store_true",
+        help=(
+            "diagnostic: after stopping the exact trial, save the retained "
+            "256-snapshot history for adjacent-frame parity"
         ),
     )
     parser.add_argument("--seconds", type=float, default=0.0, help="zero runs until Ctrl+C")

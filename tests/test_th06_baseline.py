@@ -628,6 +628,11 @@ class BaselineTests(unittest.TestCase):
         ))
         self.assertTrue(args.continue_on_failure)
 
+    def test_history_capture_is_an_explicit_diagnostic_option(self):
+        args = parse_args(("--stop-game", "--capture-history"))
+
+        self.assertTrue(args.capture_history)
+
     def test_diagnostic_rng_seed_accepts_source_u16_notation(self):
         args = parse_args((
             "--armed",

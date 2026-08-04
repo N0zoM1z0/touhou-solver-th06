@@ -937,3 +937,29 @@ Windows native kernel changes Hard-4 from 0/18 to 18/18 while f3444 remains
 safety consumers; the complete suite passes 349 tests with 28 skipped. A new
 physical run and adjacent-frame comparison are still required before claiming
 runtime parity for the opcode-88 transition.
+
+The post-checkpoint ordinary-RNG physical rerun supplies the integrated
+effect. It ran to f5315 under explicit continue diagnostics. The only 12
+recorded authority losses were the already separate early f1217--f1387
+cluster. Across 563 sampled live-laser rows from f3373 through f4528 there was
+no authority loss and no HIT; the process also crossed the prior f3445 false
+empty region and the later repeated-HIT region without either event. This is a
+strong trajectory-level improvement, but because earlier authority was lost
+the run is not a clear.
+
+A diagnostic-only `--capture-history` option now serializes the retained 256
+snapshots only after releasing input and stopping the exact trial. A 62-second
+ordinary-RNG capture stopped PID 56428 and retained physical frames
+3277--3579, including both beam births and the whole opcode-88 rotation onset.
+The existing source BulletManager report has 208 adjacent pairs, 60/60
+unmutated laser steps at zero error, and classifies 104 rotated steps as
+external ECL mutations. A new direct world-transition comparison covers all
+52 adjacent mutation pairs (both slots, 104 oriented transitions): predicted
+origin, angle, center offset, length, and half-width match the following
+physical snapshot with maximum error zero and no mismatch. This closes
+adjacent-frame parity for the fixed-angle opcode-88 path represented here;
+aimed/uncertain AABB paths still retain only conservative source/unit evidence.
+
+The capture flag requires `--stop-game`; focused and complete checks now pass
+350 tests with 28 skipped. All physical input was released, both exact trial
+PIDs were stopped, and no game or high-CPU trial process remained.
