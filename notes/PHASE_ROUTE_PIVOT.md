@@ -268,3 +268,47 @@ screen did not prove h8 policy-volume globally best. It eliminated the known
 alternatives and retained h8 as the only lower-cost candidate that agrees
 with the f2138 candidate-conditioned upward direction. Physical play remains
 the required falsifier.
+
+## t2712 sub5 target-loop counterexample
+
+The next ordinary-RNG default fail-close run physically crossed the corrected
+t2108 sub2 stream and, for the first time, the target-free t2388 horizontal
+band. It entered `timeline:t2712:subs5-4-3` and stopped alive without a HIT or
+Bomb at f2746. Repeated h6 decisions had only one strongest continuation, but
+stale publications held the downward command until fresh Hard authority was
+empty. The terminal state was not used as the explanation: the consequential
+route transition began at f2713 and the first target-conditioned policy
+divergence was f2723.
+
+Installed `ecldata4.ecl` makes the phase subdivision authoritative. t2712
+through t2842 spawns sub5, whose Hard instruction is an immediate 2x3 aimed
+fan with speeds 1.5/0.7 and 10-degree spacing. t2942 changes to sub4's base
+3x2 fan; t3172 changes to sub3's rank-adjusted base 5x2 fan. The route now
+names these as three independent states. Evidence from the f2746 failure is
+applied only to sub5.
+
+Physical adjacent-frame replay matched 178/178 player steps, all 33,360 fired
+bullet steps and 9,720 spawning-bullet steps, and all 178 enemy, player-shot,
+and RNG combat-world transitions. There was no unsupported combat transition.
+The offline `--target x,y` experiment option reproduces route soft-target
+ranking only inside the metric-preferred Hard set; it cannot change Hard
+eligibility.
+
+On eleven exact physical roots, target-free h6 policy-volume survived 11/11
+64-frame delivery cases versus 10/11 with `(192,380)`. Mean commands fell from
+22.09 to 6.36 and mean minimum clearance rose from 1.98 to 4.84. On the f2713
+root both policies initially selected `down_right`; at f2723 they diverged.
+The bottom-target path stopped after 53 frames with 16 commands at y391.6,
+while target-free survived all 64 with five commands and ended at y328.8.
+Target-free constant-frontier also survived but held `down_right` to y414.1,
+so its lower command count did not justify the weaker exit state.
+
+A higher-pressure screen derived 25 complete battle worlds through 940 varied
+Hard-safe warmup updates, 4,017 source births, 21 enemy-combat states, 25
+player-attack states, and 24 RNG states. Across 30 viable 96-frame paired
+delivery cases, target-free survived 28 and bottom-target survived 26. The
+target-free policy won four seeds, lost two, tied 24, gained 129 aggregate
+survival frames, used 684 fewer commands, and raised mean minimum clearance
+from 2.08 to 4.23. This is not universal dominance; together with the exact
+physical CE, it selects the smallest next falsifier: keep sub5 h6
+policy-volume and remove only its soft target.

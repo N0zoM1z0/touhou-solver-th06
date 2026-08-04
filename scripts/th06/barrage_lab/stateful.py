@@ -42,7 +42,7 @@ from ..model import (
     Snapshot,
     action_from_input,
 )
-from ..ranking import ProposalRanker
+from ..ranking import ProposalRanker, preferred_target_actions
 from ..safety import transition_actions
 from ..safety import certify_actions
 from ..safety import DELIVERY_DELAYS
@@ -1967,6 +1967,7 @@ class ExactTerminalPolicy:
         horizon: int,
         metric: str = "count",
         continuation: str = "segment",
+        target: tuple[float, float] | None = None,
     ) -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
@@ -1981,6 +1982,7 @@ class ExactTerminalPolicy:
         self.horizon = horizon
         self.metric = metric
         self.continuation = continuation
+        self.target = target
         self.ranker = ProposalRanker()
         self.metric_confirmation: Action | None = None
 
@@ -2025,6 +2027,10 @@ class ExactTerminalPolicy:
                 action for action, score in scores.items()
                 if best > 0 and score == best
             )
+            if self.target is not None and preferred:
+                preferred = preferred_target_actions(
+                    candidates, preferred, self.target
+                )
             return self.ranker.choose(
                 snapshot, candidates, preferred
             ).action
@@ -2275,6 +2281,10 @@ class ExactTerminalPolicy:
                 self.metric,
                 self.metric_confirmation,
             )
+        if self.target is not None and preferred:
+            preferred = preferred_target_actions(
+                candidates, preferred, self.target
+            )
         return self.ranker.choose(snapshot, candidates, preferred).action
 
 
@@ -2287,6 +2297,7 @@ class NativeTerminalPolicy:
         kernel=None,
         metric: str = "count",
         continuation: str = "segment",
+        target: tuple[float, float] | None = None,
     ) -> None:
         if horizon < 4:
             raise ValueError("stateful terminal horizon must be at least four")
@@ -2305,6 +2316,7 @@ class NativeTerminalPolicy:
         self.kernel = kernel
         self.metric = metric
         self.continuation = continuation
+        self.target = target
         self.ranker = ProposalRanker()
         self.metric_confirmation: Action | None = None
 
@@ -2610,6 +2622,8 @@ class NativeTerminalPolicy:
                 self.metric,
                 self.metric_confirmation,
             )
+        if self.target is not None and preferred:
+            preferred = preferred_target_actions(hard, preferred, self.target)
         return self.ranker.choose(snapshot, hard, preferred).action
 
 

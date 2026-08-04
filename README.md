@@ -82,7 +82,9 @@ For a captured physical battle world, `--metric policy-volume` replays the
 current bounded recursive primitive and `--metric constant-frontier` replays
 the unchanged-action frontier recovered from the historical clear. These are
 phase-policy experiments only; neither can change Hard eligibility or count as
-a physical result.
+a physical result. `--target x,y` optionally reproduces the route's soft
+target tie-break inside the metric-preferred Hard set; omitting it runs the
+same primitive target-free.
 
 Generic source-shaped barrage stress remains useful for shared primitives:
 

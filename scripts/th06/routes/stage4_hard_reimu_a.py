@@ -129,14 +129,30 @@ TIMELINE_PHASES = (
     ),
     phase(
         "timeline:t2712:subs5-4-3",
-        # Historical f2760/f2912 are in this immediate aimed-fan group and
-        # likewise needed the bounded dense h6 rung without paying for it in
-        # unrelated phases.
+        # Source sub5 is the immediate Hard 2x3 aimed fan.  The ordinary-RNG
+        # f2746 run showed that a bottom target repeatedly re-steered this
+        # otherwise viable h6 policy downward.  Target-free replay survived
+        # all eleven physical roots and 28/30 warmup-derived battle cases,
+        # while using materially fewer commands.  Keep the change inside
+        # sub5; sub4 and sub3 have different source fan shapes.
         state(
             2712,
-            "dense-aimed-stream",
+            "sub5-aimed-stream",
             6,
-            "historical Stage 4 f2760/f2912 bounded dense rung",
+            "physical f2746 target-loop CE; target-free h6 falsifier",
+            target=None,
+        ),
+        state(
+            2942,
+            "sub4-aimed-stream",
+            6,
+            "historical Stage 4 f2912 bounded dense rung; source base 3x2 fan",
+        ),
+        state(
+            3172,
+            "sub3-aimed-stream",
+            6,
+            "historical bounded dense rung; rank-adjusted source base 5x2 fan",
         ),
         state(3263, "tail", 8, "last immediate fan spawned at t3262"),
     ),

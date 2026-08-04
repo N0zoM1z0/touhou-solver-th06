@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "stage4-f2746-sub5-target-loop",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 4,
+    "decision_frame": 2723,
+    "failure_frame": 2746,
+    "rng": "ordinary"
+  },
+  "runner": "stage4_phase_policy",
+  "contract": "Only the source-defined t2712 sub5 stream removes its soft bottom target; it keeps policy-volume h6 and common Hard-4 eligibility unchanged. The later sub4/sub3 states remain independent.",
+  "summary": "The default fail-close run crossed both the earlier t2108 sub2 boundary and the t2388 horizontal band, then stopped alive without HIT or Bomb at f2746. Installed ECL identifies t2712--2842 as an immediate Hard 2x3 aimed fan, distinct from sub4's base 3x2 and sub3's rank-adjusted base 5x2 source instructions. Adjacent physical replay matched all 178 player/combat transitions. On eleven exact roots, target-free h6 survived 11/11 versus bottom-target h6 10/11, using 6.36 versus 22.09 mean commands. At the f2713 root, the first policy divergence was f2723; target-free survived 64 frames with five commands while bottom-target stopped after 53 with sixteen. A 32-case warmup generated 25 complete worlds through 940 updates and 4017 births. On 30 viable 96-frame delivery cases, target-free survived 28 versus 26, won four paired seeds and lost two, gained 129 aggregate survival frames, used 684 fewer commands, and had higher mean minimum clearance. This selects a target-free physical falsifier, not a claim of universal dominance.",
+  "input": {
+    "timeline_time": 2723
+  },
+  "expect": {
+    "phase_id": "timeline:t2712:subs5-4-3",
+    "policy_state": "sub5-aimed-stream",
+    "algorithm": "policy-volume",
+    "horizon": 6,
+    "target": null
+  }
+}

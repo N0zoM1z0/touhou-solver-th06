@@ -138,6 +138,13 @@ def parse_args() -> argparse.Namespace:
         help="comma-separated terminal metrics to run on identical cases",
     )
     parser.add_argument(
+        "--target",
+        help=(
+            "optional route soft target as x,y; ranks only inside the "
+            "metric-preferred Hard set"
+        ),
+    )
+    parser.add_argument(
         "--shrink", action="store_true",
         help="minimize the first closed-loop deeper-horizon advantage",
     )
@@ -155,6 +162,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     horizons = tuple(int(value) for value in args.horizons.split(","))
+    target = None
+    if args.target is not None:
+        try:
+            target_values = tuple(float(value) for value in args.target.split(","))
+        except ValueError as exc:
+            raise ValueError("target must be x,y") from exc
+        if len(target_values) != 2:
+            raise ValueError("target must be x,y")
+        target = target_values
     if (
         args.seeds <= 0
         or args.frames <= 0
@@ -339,12 +355,14 @@ def main() -> int:
                     kernel=kernel,
                     metric=metric,
                     continuation=args.continuation,
+                    target=target,
                 )
                 if args.native
                 else partial(
                     ExactTerminalPolicy,
                     metric=metric,
                     continuation=args.continuation,
+                    target=target,
                 )
             )
             factories[metric] = policy_factory
@@ -572,6 +590,7 @@ def main() -> int:
         output["stateful_sweep"] = asdict(summary)
         output["terminal_metric"] = metric
         output["continuation"] = args.continuation
+        output["target"] = target
         output["barrage_family"] = args.barrage_family
         output["initial_world"] = (
             "physical-battle-nominal"

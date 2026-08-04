@@ -1084,6 +1084,34 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(chosen, right)
         scores.assert_called_once()
 
+    def test_stateful_policy_target_breaks_only_a_preferred_tie(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.nominal_policy_scores",
+            return_value={
+                action: int(action in (left, right))
+                for action in CONTROL_ACTIONS
+            },
+        ):
+            chosen = ExactTerminalPolicy(
+                8,
+                metric="policy-volume",
+                target=(snapshot.x + 100.0, snapshot.y),
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+
     def test_stateful_constant_frontier_replays_the_legacy_dense_primitive(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         snapshot = replace(

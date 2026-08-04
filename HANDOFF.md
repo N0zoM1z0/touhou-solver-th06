@@ -46,13 +46,15 @@ isolated state machine (`parent-entry`, `child-circle`, `horizontal-band`,
 target, commitment, and provenance; only the selected phase machine executes.
 Most current machines use the retained local policy-volume primitive. The
 t2388 `horizontal-band` state deliberately uses a target-free h6 constant
-frontier, recovered and measured as a separate local primitive. Boss ECL
-phases are intentionally uncovered.
+frontier, recovered and measured as a separate local primitive. The t2712
+source group is split into sub5/sub4/sub3 fan states; only sub5 removes the
+bottom target after a physical and high-pressure stateful CE. Boss ECL phases
+are intentionally uncovered.
 
 The historical Stage 4 clear solver was inspected in a detached worktree. Its
 useful dense-wave evidence has been extracted without restoring its global
 scene classifier: the old f2625--f2709 h6 publication/escape behavior belongs
-only to the t2388 horizontal-band and t2712 dense-aimed states. The physically
+only to the t2388 horizontal-band and the t2712 source states. The physically
 measured t1004 and t1514 states remain h8. Every decision now logs
 `policy_state` separately from the stable source `phase_id`.
 
@@ -85,6 +87,10 @@ model any candidate-conditioned aim, damage/kill/retirement, callback, item,
 or Power transition that changes its policy. Offline results remain soft until
 physically tested.
 
+`replay_th06_stateful.py --target x,y` reproduces route soft-target
+tie-breaking only inside an already preferred Hard-safe set. Omitting it runs
+the same primitive target-free; it cannot add an action to Hard.
+
 ## Cleanup and verification
 
 Retired from the main line:
@@ -100,10 +106,10 @@ Retained algorithm tests cover source physics, Hard and delivery semantics,
 future world behavior, native/reference parity, and local primitives that a
 phase may deliberately select.
 
-Current checks after the sub2 phase-policy corpus addition:
+Current checks after the sub5 target-loop corpus addition:
 
-- Linux: 276 tests passed, 25 skipped;
-- Windows/native: 276 tests passed, no skips/failures;
+- Linux: 277 tests passed, 25 skipped;
+- Windows/native: 277 tests passed, no skips/failures;
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
@@ -172,8 +178,8 @@ Sub2 is an immediate Hard 8x2 aimed fan, distinct from sub3's 9x2 fan. On ten
 retained physical sub2 roots, exact 64-frame battle replay kept h8 and h12
 alive on 10/10 roots; h8 used 7.8 mean commands versus h12's 15.3. h6 lost one
 root, so the preceding sub3 h6 result is not copied across the source
-transition. Only `sub2-aimed-stream` now uses h8; the target-free t2388
-constant-frontier falsifier remains pending.
+transition. Only `sub2-aimed-stream` now uses h8. The subsequent physical run
+crossed both this state and the target-free t2388 constant frontier.
 
 A higher-pressure screen derived 56 new complete battle worlds from eight
 physical roots through 697 Hard-safe warmup updates, including 450 source
@@ -188,6 +194,24 @@ the h8 policy offline. Constant-reserve won one paired seed and lost two. h8
 policy-volume is therefore the smallest publishable, causal-aligned physical
 falsifier, not the offline survival champion.
 
+That subsequent ordinary-RNG default fail-close run entered
+`t2712/sub5-aimed-stream` and stopped alive without a HIT or Bomb at f2746.
+Installed ECL splits the group into sub5's immediate Hard 2x3 aimed fan,
+sub4's base 3x2 fan at t2942, and sub3's rank-adjusted base 5x2 fan at t3172.
+Physical parity was exact for all 178 adjacent player/combat transitions,
+33,360 fired-bullet steps, and 9,720 spawning-bullet steps.
+
+On eleven exact roots, target-free h6 policy-volume survived 11/11 versus
+10/11 with the old bottom target and used 6.36 versus 22.09 mean commands. At
+the f2713 root, the first divergence was f2723; target-free survived 64 frames
+with five commands, while bottom-target stopped after 53 with sixteen. A
+higher-pressure screen derived 25 complete worlds through 940 warmup updates
+and 4,017 source births. Across 30 viable 96-frame cases, target-free survived
+28 versus 26, won four seeds and lost two, gained 129 aggregate survival
+frames, used 684 fewer commands, and raised mean minimum clearance from 2.08
+to 4.23. Only sub5 now removes the target; sub4/sub3 retain the previous
+behavior pending their own physical evidence.
+
 ## Immediate experiment
 
 Run exactly:
@@ -197,7 +221,8 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t2108 h8 and t2388 constant-frontier corrections:
+Expected outcomes after the t2108 h8, t2388 constant-frontier, and t2712 sub5
+target-loop corrections:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id`, `phase_id`, and `policy_state`; or

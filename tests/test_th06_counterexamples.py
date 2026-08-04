@@ -51,6 +51,12 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 self.assertEqual(state.state_id, expected["policy_state"])
                 self.assertEqual(state.algorithm, expected["algorithm"])
                 self.assertEqual(state.horizon, expected["horizon"])
+                if "target" in expected:
+                    target = expected["target"]
+                    self.assertEqual(
+                        state.target,
+                        tuple(target) if target is not None else None,
+                    )
 
     def test_timeline_schedule_counterexamples(self):
         cases = tuple(
