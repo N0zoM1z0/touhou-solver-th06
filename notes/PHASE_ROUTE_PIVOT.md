@@ -1,5 +1,10 @@
 # Phase/Route Pivot Audit — 2026-08-04
 
+The follow-up historical/source audit is in
+`notes/LEGACY_POLICY_AND_STAGE5_AUDIT.md`. It explains why the old Stage 1--4
+`if` line contained useful phase knowledge, why its global composition failed
+in Stage 5, and the non-interference contract for recovering that knowledge.
+
 ## Preserved checkpoint
 
 The complete pre-pivot repository is retained by annotated tag
