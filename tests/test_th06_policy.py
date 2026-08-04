@@ -1846,6 +1846,11 @@ class AnytimePolicyTests(unittest.TestCase):
                     deep_robust: 10,
                     hard[2].action: 1,
                 },
+                16: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
                 20: {
                     shallow: 100,
                     deep_robust: 10,
@@ -1865,7 +1870,7 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in kernel.calls
                 if call[0] == "repeated_pickup"
             ],
-            [(12, 12), (16, 20)],
+            [(12, 12), (16, 16), (20, 20)],
         )
         self.assertNotIn(
             ("terminal_progressive", 16, 20),
@@ -1877,6 +1882,16 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
+                12: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
+                16: {
+                    shallow: 20,
+                    deep_robust: 10,
+                    hard[2].action: 1,
+                },
                 20: {
                     shallow: 100,
                     deep_robust: 10,
@@ -1901,7 +1916,18 @@ class AnytimePolicyTests(unittest.TestCase):
                 call[1:3] for call in coalesced_kernel.calls
                 if call[0] == "repeated_pickup"
             ],
-            [(12, 20)],
+            [(12, 12), (16, 16), (20, 20)],
+        )
+        coalesced_calls = [
+            call[:3] for call in coalesced_kernel.calls
+            if call[0] in {
+                "repeated_pickup",
+                "terminal_progressive",
+            }
+        ]
+        self.assertLess(
+            coalesced_calls.index(("terminal_progressive", 12, 12)),
+            coalesced_calls.index(("repeated_pickup", 16, 16)),
         )
 
         class BudgetConsumingGateKernel(DeepViabilityKernel):
@@ -1924,9 +1950,9 @@ class AnytimePolicyTests(unittest.TestCase):
                 ))
                 self.clock.advance_ms(budget_ms)
                 return (
-                    16,
+                    maximum_horizon,
                     {candidate.action: 1 for candidate in candidates},
-                    False,
+                    True,
                 )
 
         reserved_clock = ManualClock()
@@ -1935,13 +1961,13 @@ class AnytimePolicyTests(unittest.TestCase):
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
             terminal_scores_by_horizon={
-                16: {
+                12: {
                     shallow: 1,
                     deep_robust: 20,
                     hard[2].action: 2,
                 },
             },
-            flexible_completed_horizon=16,
+            flexible_completed_horizon=12,
         )
         reserved_solver = self.solver(
             reserved_kernel,
@@ -1954,14 +1980,14 @@ class AnytimePolicyTests(unittest.TestCase):
 
         self.assertEqual(reserved.action, deep_robust)
         self.assertIn(
-            ("terminal_progressive", 12, 16),
+            ("terminal_progressive", 12, 12),
             [call[:3] for call in reserved_kernel.calls],
         )
         repeated_call = next(
             call for call in reserved_kernel.calls
             if call[0] == "repeated_pickup"
         )
-        self.assertLess(repeated_call[4], 8.0)
+        self.assertLess(repeated_call[4], 5.0)
 
     def test_constrained_publication_budget_keeps_exact_local_ranking(self):
         clock = ManualClock()

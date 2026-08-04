@@ -37,6 +37,9 @@ SAME_FRAME_DECISION_BUDGET_MS = DECISION_FRAME_MS * 0.5
 FIXED_WORK_EQUIVALENT = 32
 MEASUREMENT_WEIGHT = 0.2
 PROMOTION_BUDGET_FRACTION = 0.8
+# Exact membership and terminal ranking are both required to publish one
+# continuation rung.  Neither half may consume the other's entire residual.
+MEMBERSHIP_BUDGET_FRACTION = 0.5
 INITIAL_POLICY_RATE_GROWTH_PER_SEGMENT = 2.5
 COST_RATE_HALF_LIFE_FRAMES = 60.0
 # Measured room for the native return, Python ranking, and publication handoff.
@@ -1725,34 +1728,33 @@ class Solver:
                         repeated_pickup_native is not None
                         and maximum_horizon > segment_delivery_horizon
                     ):
-                        # A coalesced deeper membership scan is a gate, not a
-                        # ranking.  Do not let an expensive non-unique prefix
-                        # consume the entire residual and hand its broad set
-                        # to a soft tie-breaker.  Reserve the ordinary
-                        # promotion remainder for at least one complete
-                        # terminal-ranking rung.  A cheap or unique exact
-                        # result returns before its allowance is exhausted.
-                        if maximum_horizon > minimum_horizon:
-                            terminal_reserve_ms = (
-                                self.effort.policy_estimate_ms(
-                                    snapshot,
-                                    len(planning_candidates),
-                                    minimum_horizon,
-                                )
+                        # Membership is only the first half of a publishable
+                        # rung.  Bound it even when minimum == maximum: a
+                        # broad exact result without the matching terminal
+                        # rank merely hands its survivors to a soft tie-break.
+                        # The equal residual split is deliberately independent
+                        # of scene identity and remains complete-or-discard;
+                        # cheap or unique membership returns early and leaves
+                        # the unused allowance to ranking.
+                        terminal_reserve_ms = (
+                            self.effort.policy_estimate_ms(
+                                snapshot,
+                                len(planning_candidates),
+                                minimum_horizon,
                             )
-                            if terminal_reserve_ms is None:
-                                terminal_reserve_ms = remaining_ms * (
-                                    1.0 - PROMOTION_BUDGET_FRACTION
-                                )
-                            robust_budget_ms = min(
-                                remaining_ms * PROMOTION_BUDGET_FRACTION,
-                                max(
-                                    0.0,
-                                    remaining_ms - terminal_reserve_ms,
-                                ),
-                            )
-                        else:
-                            robust_budget_ms = remaining_ms
+                        )
+                        terminal_reserve_ms = max(
+                            remaining_ms
+                                * (1.0 - MEMBERSHIP_BUDGET_FRACTION),
+                            terminal_reserve_ms or 0.0,
+                        )
+                        robust_budget_ms = min(
+                            remaining_ms * MEMBERSHIP_BUDGET_FRACTION,
+                            max(
+                                0.0,
+                                remaining_ms - terminal_reserve_ms,
+                            ),
+                        )
                         if robust_budget_ms <= 0.0:
                             return False
                         robust_result = (
@@ -1895,9 +1897,19 @@ class Solver:
                         terminal_completed = True
                     return True
 
+                # A repeated-pickup membership gate and its terminal rank are
+                # one indivisible progressive rung.  Shared projection may be
+                # prepared farther ahead, but never scan membership through
+                # h16/h20 before the h12 pair has completed and become
+                # publishable.
+                initial_maximum_horizon = (
+                    nominal_minimum_horizon
+                    if repeated_pickup_native is not None
+                    else soft_prepare_horizon
+                )
                 initial_completed = accept_progressive(
                     nominal_minimum_horizon,
-                    soft_prepare_horizon,
+                    initial_maximum_horizon,
                     (
                         pending_candidate.action
                         if pending_candidate is not None
@@ -1978,20 +1990,49 @@ class Solver:
                             deep_prepare_ms,
                         )
                         soft_prepare_horizon = deepest_affordable
-                        next_horizon = min(
-                            horizon for horizon
-                            in promotion_horizons
-                            if horizon > previous_horizon
-                        )
-                        accept_progressive(
+                if (
+                    initial_completed
+                    and full_publication_budget
+                    and repeated_pickup_native is not None
+                ):
+                    # Complete exact membership and terminal ranking together
+                    # at each prepared horizon.  A failed pair preserves the
+                    # last complete shallower result and stops this ladder.
+                    for next_horizon in promotion_horizons:
+                        if (
+                            next_horizon <= policy_horizon
+                            or next_horizon > soft_prepare_horizon
+                        ):
+                            continue
+                        if not accept_progressive(
                             next_horizon,
-                            deepest_affordable,
+                            next_horizon,
                             (
                                 pending_candidate.action
                                 if pending_candidate is not None
                                 else None
                             ),
-                        )
+                        ):
+                            break
+                elif (
+                    initial_completed
+                    and full_publication_budget
+                    and repeated_pickup_native is None
+                    and soft_prepare_horizon
+                        > initial_maximum_horizon
+                ):
+                    accept_progressive(
+                        min(
+                            horizon for horizon in promotion_horizons
+                            if horizon > initial_maximum_horizon
+                        ),
+                        soft_prepare_horizon,
+                        (
+                            pending_candidate.action
+                            if pending_candidate is not None
+                            else None
+                        ),
+                    )
             elif (
                 terminal_native is not None
                 and len(planning_candidates) > 1
