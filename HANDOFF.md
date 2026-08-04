@@ -626,6 +626,22 @@ fail-close next. Promotion requires sub9 rather than the sub7 timeout, no HIT,
 Bomb, stale authority stop, or publication regression. If it succeeds, then
 return to the retained f4237/sub6 local-t0 SpellEnd boundary.
 
+The ordinary-RNG run physically promoted the source-destination attack lead.
+Sub8 ran from f2167 through its last fresh decision at f3011, retained a safe
+in-flight action at f3012, and published complete sub9 spell state at f3013—
+about 845 updates, matching offline evidence and leaving about 435 updates of
+timer margin. It later stopped only at exact f3499/sub6 local t0. There was no
+HIT, Bomb, stale authority stop, timeout, or earlier fail-close. The 687 fresh
+sub8 decisions measured 3.523/5.060/7.916 ms median/p90/maximum.
+
+Retained adjacent parity is exact for all 255 combat/RNG/item/Power pairs,
+21,637 fired-bullet steps, 3,780 spawning steps, 3,244 player-shot steps, both
+laser births, all 180 laser transitions, and both removals. Use the newer
+f3499 sub6 root next: boss life 0, interactable false, spell still published,
+opcode 47 pending, 88 bullets and two active lasers. Audit the post-RunEcl
+death-callback publication and following SpellEnd conversion as its own
+source transition before authoring the rest of sub6.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

@@ -708,3 +708,22 @@ commitments, source physics, and every spell policy are unchanged. The next
 ordinary-RNG physical run must show a sub9 life callback rather than sub7
 timeout, with no HIT or publication regression, before this attack-tempo
 repair is promoted.
+
+The ordinary-RNG default fail-close run physically promoted the destination
+tie-break. The first damaging state began at f2167 and the final sub8 policy
+decision was f3011; a certified in-flight command remained safe at f3012, and
+the next fresh root was complete sub9 spell state at f3013. Thus the life
+callback won after about 845 physical updates, matching the fast edge of the
+offline 845--959 window and leaving roughly 435 updates of timer margin. It
+later stopped only at the expected uncovered f3499/sub6 death callback. There
+was no HIT, Bomb, stale authority stop, timeout, or earlier fail-close.
+
+The 687 fresh sub8 h8 decisions measured 3.523 ms median, 5.060 ms p90, and
+7.916 ms maximum. The retained spell window matches all 255 adjacent player,
+combat-enemy, player-shot, RNG, graze, rank, pending-effect, item, and Power
+transitions; all 21,637 fired-bullet steps, 3,780 spawning steps, 3,244
+player-shot steps, both laser births, all 180 laser transitions, and both
+laser removals are exact. The f3499 boundary is alive at
+`(178.402,374.108)`, Power 8, with 88 bullets and two lasers; sub6 is local t0
+with boss life 0/interactable false and opcode 47 still pending. The attack-
+tempo repair is now physically promoted.
