@@ -9,7 +9,7 @@
     "rng_seed": "0x6382"
   },
   "runner": "ecl_forecast",
-  "contract": "A source ENEMYCREATE inside (not only at the end of) the Hard window may advance authority only after both possible EnemyManager slot-order states are hazard-audited through the remaining window; nominal slot/RNG insertion and nested child world mutation remain fail-closed.",
+  "contract": "A source ENEMYCREATE inside the Hard window advances authority only after both possible local slot-order states are hazard-audited; nominal forecasting uses exact live slot occupancy and shared RNG to insert and carry each persistent child, while unresolved nested inline creation still fails closed.",
   "summary": "The fixed-RNG Stage 5 diagnostic had no bullets or HIT at f8456. Hard-4 stopped after one covered frame because the boss reached source ENEMYCREATE on the second projected frame. The retained source graph proves that each child disables interaction at time zero and emits no bullet or body hazard for the rest of this Hard window.",
   "input": {
     "horizon": 4,
@@ -820,7 +820,7 @@
   "expect": {
     "covered_frames": {
       "fail-closed": 4,
-      "nominal": 1
+      "nominal": 4
     },
     "birth_counts": {
       "fail-closed": [
@@ -835,6 +835,9 @@
         0,
         0
       ]
-    }
+    },
+    "nominal_continuation_slots": [0, 1, 2, 3, 4, 5, 6],
+    "nominal_continuation_ecl_times": [3, 4, 4, 4, 4, 4, 4],
+    "nominal_rng_generation": 35485
   }
 }

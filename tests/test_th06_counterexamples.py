@@ -314,6 +314,32 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         [len(frame) for frame in forecast.births],
                         case["expect"]["birth_counts"][mode],
                     )
+                    if mode == "nominal" and (
+                        expected_slots := case["expect"].get(
+                            "nominal_continuation_slots"
+                        )
+                    ) is not None:
+                        self.assertIsNotNone(forecast.continuation)
+                        self.assertEqual(
+                            [
+                                emitter.slot for emitter
+                                in forecast.continuation.emitters
+                            ],
+                            expected_slots,
+                        )
+                        self.assertEqual(
+                            [
+                                emitter.ecl_time for emitter
+                                in forecast.continuation.emitters
+                            ],
+                            case["expect"][
+                                "nominal_continuation_ecl_times"
+                            ],
+                        )
+                        self.assertEqual(
+                            forecast.continuation.rng_generation,
+                            case["expect"]["nominal_rng_generation"],
+                        )
 
     def test_future_frontier_counterexamples(self):
         cases = tuple(

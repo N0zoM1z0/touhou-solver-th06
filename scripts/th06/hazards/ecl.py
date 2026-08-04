@@ -220,6 +220,7 @@ class EclForecast:
     body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
     finished: bool = False
     unresolved_int_extent: int = 0
+    created_emitters: tuple[EnemySpawner, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -737,6 +738,7 @@ def _forecast_ecl_births_single(
     shoot_offset_x: float | FloatInterval = spawner.shoot_offset_x
     shoot_offset_y: float | FloatInterval = spawner.shoot_offset_y
     abstract_int_cursor = 0
+    created_emitters: list[EnemySpawner] = []
 
     def emit(
         resolved: BulletPattern,
@@ -1869,10 +1871,13 @@ def _forecast_ecl_births_single(
                 # and the next live snapshot captures whichever persistent
                 # child source actually inserted.  Nominal forecasting still
                 # needs exact slot/RNG insertion and therefore fails closed.
-                if (
+                hard_audit = radial_births and allow_enemy_create_audit
+                nominal_insertion = (
                     not radial_births
-                    or not allow_enemy_create_audit
-                ):
+                    and not abstract_rng
+                    and rng is not None
+                )
+                if not hard_audit and not nominal_insertion:
                     return EclForecast(
                         tuple(map(tuple, births)),
                         frame_index,
@@ -1922,7 +1927,7 @@ def _forecast_ecl_births_single(
                     rank,
                     bullet_sizes,
                     frame_multiplier,
-                    None,
+                    rng if nominal_insertion else None,
                     allow_player_variables,
                     radial_births,
                     abstract_rng,
@@ -1937,6 +1942,18 @@ def _forecast_ecl_births_single(
                         f"spawned emitter {sub_id}: {newborn.reason}",
                     )
                 births[frame_index].extend(newborn.births[0])
+                if nominal_insertion:
+                    if newborn.created_emitters:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "nested inline ECL enemy creation needs exact "
+                            "slot insertion",
+                        )
+                    if newborn.next_spawner is not None:
+                        created_emitters.append(newborn.next_spawner)
+                    instruction_address = next_address
+                    continue
                 child_states = []
                 if newborn.next_spawner is not None:
                     # If SpawnEnemy chose an already-passed slot, this inline
@@ -2263,6 +2280,7 @@ def _forecast_ecl_births_single(
             bullet_effect_ints=effect_ints,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
+        created_emitters=tuple(created_emitters),
     )
 
 

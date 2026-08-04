@@ -19,6 +19,13 @@ from .timeline import (
 )
 
 
+SOURCE_ENEMY_SLOT_COUNT = 255
+
+
+def _program_can_create_enemy(emitter: EnemySpawner) -> bool:
+    return any(instruction.opcode == 95 for instruction in emitter.ecl_program)
+
+
 @dataclass(frozen=True)
 class WorldBirthForecast:
     births: tuple[tuple[Bullet, ...], ...]
@@ -386,6 +393,10 @@ def _forecast_nominal_without_shared_rng(
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    if any(_program_can_create_enemy(emitter) for emitter in emitters):
+        # A child must join the manager's slot-ordered loop immediately; a
+        # whole-emitter batch cannot preserve that interleaving.
+        return None
     next_emitters = []
     for emitter in emitters:
         try:
@@ -519,10 +530,25 @@ def _forecast_nominal_from_state(
     if batched is not None:
         return batched
 
+    if (
+        any(
+            not 0 <= emitter.slot < SOURCE_ENEMY_SLOT_COUNT
+            for emitter in emitters
+        )
+        or len({emitter.slot for emitter in emitters}) != len(emitters)
+    ):
+        return WorldBirthForecast(
+            tuple(tuple(frame) for frame in births),
+            _project_hazards(births, False),
+            0,
+            "nominal enemy slot occupancy is incomplete",
+        )
+    slots = {emitter.slot: emitter for emitter in emitters}
     for frame_index, player in enumerate(player_positions):
-        next_emitters: list[EnemySpawner] = []
-        stop_reason = ""
-        for emitter in emitters:
+        for slot in range(SOURCE_ENEMY_SLOT_COUNT):
+            emitter = slots.get(slot)
+            if emitter is None:
+                continue
             try:
                 forecast = forecast_ecl_births(
                     emitter,
@@ -552,20 +578,39 @@ def _forecast_nominal_from_state(
             births[frame_index].extend(forecast.births[0])
             if forecast.body_hazards:
                 bodies[frame_index].extend(forecast.body_hazards[0])
-            if forecast.next_spawner is None and not forecast.finished:
-                stop_reason = stop_reason or (
-                    f"emitter {emitter.slot}: {forecast.reason}"
+            free_slots = [
+                index for index in range(SOURCE_ENEMY_SLOT_COUNT)
+                if index not in slots
+            ]
+            if len(forecast.created_emitters) > len(free_slots):
+                births[frame_index].clear()
+                bodies[frame_index].clear()
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    "future ECL enemy creation exceeds the free slot pool",
                 )
-            elif forecast.next_spawner is not None:
-                next_emitters.append(forecast.next_spawner)
-        if stop_reason:
-            return WorldBirthForecast(
-                tuple(tuple(frame) for frame in births),
-                _project_hazards(births, False),
-                frame_index + 1,
-                stop_reason,
-            )
-        emitters = tuple(next_emitters)
+            # SpawnEnemy allocates and runs each child inline while the parent
+            # remains occupied. Assign in creation order before retiring the
+            # parent. A lower slot has already missed this manager pass; a
+            # higher slot is reached later by this same loop.
+            for child, child_slot in zip(
+                forecast.created_emitters, free_slots
+            ):
+                slots[child_slot] = replace(child, slot=child_slot)
+            if forecast.next_spawner is None:
+                if not forecast.finished:
+                    return WorldBirthForecast(
+                        tuple(tuple(frame) for frame in births),
+                        _project_hazards(births, False),
+                        frame_index + 1,
+                        f"emitter {emitter.slot}: {forecast.reason}",
+                    )
+                slots.pop(slot, None)
+            else:
+                slots[slot] = replace(forecast.next_spawner, slot=slot)
+        emitters = tuple(slots[index] for index in sorted(slots))
 
     return WorldBirthForecast(
         tuple(tuple(frame) for frame in births),
@@ -701,6 +746,12 @@ def forecast_world_births(
             player_positions,
             emitters,
             RngState(snapshot.rng_seed, snapshot.rng_generation),
-            framewise=len(emitters) != 1,
+            framewise=(
+                len(emitters) != 1
+                or any(
+                    _program_can_create_enemy(emitter)
+                    for emitter in emitters
+                )
+            ),
         ),
     )

@@ -10,7 +10,8 @@ from th06.hazards.ecl import (
     MODELLED_ECL_OPCODES,
     forecast_ecl_births,
 )
-from th06.model import EnemySpawner, EclInstruction
+from th06.hazards.world import forecast_world_births
+from th06.model import EnemySpawner, EclInstruction, Snapshot
 
 
 def instruction(address: int, opcode: int, args: bytes, size: int) -> EclInstruction:
@@ -70,6 +71,84 @@ def emitter(first: EclInstruction, sentinel: EclInstruction) -> EnemySpawner:
 
 
 class EclOpcodeCoverageTests(unittest.TestCase):
+    def test_nominal_enemy_creation_joins_source_slot_order(self):
+        create = instruction(
+            0x1000,
+            95,
+            struct.pack("<ifffhhi", 0, 30.0, 40.0, 0.0, 100, 0, 0),
+            0x24,
+        )
+        parent_wait = replace(
+            instruction(0x1024, 0, bytes(4), 0x10), time=50
+        )
+        child_bullet = replace(
+            instruction(
+                0x2000,
+                67,
+                struct.pack(
+                    "<hhIIffffI", 0, 0, 1, 1, 2.0, 2.0, 0.0, 0.0, 0
+                ),
+                0x2C,
+            ),
+            time=1,
+        )
+        child_wait = replace(
+            instruction(0x202C, 0, bytes(4), 0x10), time=50
+        )
+        program = (create, parent_wait, child_bullet, child_wait)
+        parent = replace(
+            emitter(create, parent_wait),
+            ecl_subroutines=(child_bullet.address,),
+            ecl_program=program,
+        )
+
+        def world(slot, horizon):
+            state = Snapshot(
+                frame=10,
+                stage=1,
+                player_state=0,
+                x=100.0,
+                y=400.0,
+                half_width=1.25,
+                half_height=1.25,
+                normal_speed=4.0,
+                focus_speed=2.0,
+                normal_diagonal_speed=2.8284270763397217,
+                focus_diagonal_speed=1.4142135381698608,
+                frame_multiplier=1.0,
+                input_mask=5,
+                bullets=(),
+                laser_count=0,
+                in_menu=False,
+                time_stopped=False,
+                replay_or_demo=False,
+                spawners=(replace(parent, slot=slot),),
+                difficulty=2,
+                rank=0,
+                bullet_sizes=((2.0, 2.0),),
+                rng_seed=7,
+                rng_generation=0,
+            )
+            return forecast_world_births(
+                state, ((100.0, 400.0),) * horizon, "nominal"
+            )
+
+        later_slot = world(0, 1)
+        passed_slot = world(2, 2)
+
+        self.assertEqual(later_slot.covered_frames, 1, later_slot.reason)
+        self.assertEqual(len(later_slot.births[0]), 1)
+        self.assertEqual(
+            tuple(item.slot for item in later_slot.continuation.emitters),
+            (0, 1),
+        )
+        self.assertEqual(passed_slot.covered_frames, 2, passed_slot.reason)
+        self.assertEqual(tuple(map(len, passed_slot.births)), (0, 1))
+        self.assertEqual(
+            tuple(item.slot for item in passed_slot.continuation.emitters),
+            (0, 2),
+        )
+
     def test_every_source_opcode_has_one_authority_classification(self):
         groups = (
             MODELLED_ECL_OPCODES,

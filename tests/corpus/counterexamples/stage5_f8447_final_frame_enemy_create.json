@@ -8,8 +8,8 @@
     "failure_frame": 8447
   },
   "runner": "ecl_forecast",
-  "contract": "A source ENEMYCREATE reached only on the final Hard frame may advance authority after every newborn time-zero ECL and conservative same-pass update is fully captured and hazard-audited; persistent children still stop longer or nominal forecasts until a live world snapshot inserts them.",
-  "summary": "The default fail-close Stage 5 run had no bullets or HIT at f8447. Hard-4 stopped three frames into the future because the boss called sub 23, which source-spawns six Hard children. Source SpawnEnemy runs each child ECL immediately; the later-slot update can also run in that manager pass. The retained parent call, six spawn instructions, and child time-zero prefixes are sufficient to prove no immediate bullet or body hazard without pretending to carry the children across the window.",
+  "contract": "A source ENEMYCREATE reached on the final Hard frame advances only after every newborn time-zero ECL and conservative same-pass update is hazard-audited; nominal forecasting additionally allocates the exact first free slots, preserves shared RNG order, and carries every persistent child.",
+  "summary": "The default fail-close Stage 5 run had no bullets or HIT at f8447. The boss calls sub 23, which source-spawns six children. Hard unions the two possible local slot-order timings; nominal world insertion assigns slots 1..6, performs their later-slot same-pass update, and publishes all seven emitter continuations without inventing a route action.",
   "input": {
     "horizon": 4,
     "snapshot": {
@@ -817,7 +817,7 @@
   "expect": {
     "covered_frames": {
       "fail-closed": 4,
-      "nominal": 3
+      "nominal": 4
     },
     "birth_counts": {
       "fail-closed": [
@@ -832,6 +832,9 @@
         0,
         0
       ]
-    }
+    },
+    "nominal_continuation_slots": [0, 1, 2, 3, 4, 5, 6],
+    "nominal_continuation_ecl_times": [1, 2, 2, 2, 2, 2, 2],
+    "nominal_rng_generation": 30308
   }
 }
