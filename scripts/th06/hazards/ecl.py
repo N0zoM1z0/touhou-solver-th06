@@ -2148,7 +2148,19 @@ def _forecast_ecl_births_single(
                 effect_spawns[frame_index].extend((effect_id,) * count)
             elif instruction.opcode == OPCODE_SPELL_START:
                 # SpellcardStart source defaults. Bullet cancellation is a
-                # hazard removal, so retaining existing bullets is conservative.
+                # hazard removal, so Hard worlds retain existing bullets
+                # conservatively. The exact nominal combat world additionally
+                # models RemoveAllBullets(true), point-item allocation, and
+                # source laser retirement at this exact ECL instruction.
+                spell_start = getattr(laser_world, "spell_start", None)
+                if spell_start is not None:
+                    if rng is None:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "nominal spell start needs exact RNG/allocation state",
+                        )
+                    spell_start(rng)
                 rank_speed_low = -0.5
                 rank_speed_high = 0.5
                 rank_amount1_low = rank_amount1_high = 0

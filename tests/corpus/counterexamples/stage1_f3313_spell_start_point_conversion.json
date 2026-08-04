@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "id": "stage1-f3313-spell-start-point-conversion",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "failure_frame": 3313
+  },
+  "runner": "nominal_spell_start_transition",
+  "contract": "ECL opcode 93 converts every non-despawning hostile bullet into a state-1 point item in source slot order before ItemManager's same-frame pass; overlapping newborn items are collected immediately and player damage becomes spell-reduced in that update.",
+  "summary": "The physical sub8-to-sub9 callback converted 89 live bullets into item slots 19..107. Two overlapping births were collected during the same ItemManager pass, leaving 87 live items. This minimized world preserves the allocator and same-frame collection transition without retaining the 35 MB runtime artifact.",
+  "input": {
+    "player": [192.0, 400.0],
+    "enemy": [192.0, 80.0],
+    "item_next_index": 19,
+    "bullets": [
+      {
+        "x": 100.0,
+        "y": 100.0,
+        "vx": 0.0,
+        "vy": 0.0,
+        "half_width": 3.0,
+        "half_height": 3.0,
+        "state": 1,
+        "slot": 373
+      },
+      {
+        "x": 192.0,
+        "y": 400.0,
+        "vx": 0.0,
+        "vy": 0.0,
+        "half_width": 3.0,
+        "half_height": 3.0,
+        "state": 1,
+        "slot": 454
+      }
+    ],
+    "ecl_program": [
+      {
+        "address": 4096,
+        "time": 0,
+        "opcode": 93,
+        "offset_to_next": 50,
+        "skip_for_difficulty": 255,
+        "raw_hex": "000000005d00320000ffff00020000008c8e958481758380815b8393838983438367838c8343817600000000000000000000"
+      },
+      {
+        "address": 4146,
+        "time": 999,
+        "opcode": 0,
+        "offset_to_next": 12,
+        "skip_for_difficulty": 255,
+        "raw_hex": "e703000000000c0000ffff00"
+      }
+    ]
+  },
+  "expect": {
+    "bullet_count": 0,
+    "item_slots": [19],
+    "item_types": [6],
+    "item_timers": [1],
+    "item_next_index": 21,
+    "item_active_upper_bound": 1,
+    "spell_active": true
+  }
+}

@@ -671,6 +671,19 @@ class _NominalCombatStep:
         if not 0 <= self.item_next_index < 512:
             raise UnsupportedStatefulModel("source item next index is invalid")
         self.current_power = snapshot.current_power
+        self.source_bullets = tuple(sorted(
+            snapshot.bullets, key=lambda bullet: bullet.slot
+        ))
+        if (
+            any(bullet.slot < 0 for bullet in self.source_bullets)
+            or len({bullet.slot for bullet in self.source_bullets})
+            != len(self.source_bullets)
+        ):
+            raise UnsupportedStatefulModel(
+                "nominal combat needs unique exact source bullet slots"
+            )
+        self.cancelled_bullet_slots: frozenset[int] = frozenset()
+        self.spell_started = False
         self.lasers = {laser.slot: laser for laser in snapshot.lasers}
         if (
             len(self.lasers) != len(snapshot.lasers)
@@ -706,6 +719,47 @@ class _NominalCombatStep:
         if slot not in self.lasers:
             return
         self.lasers[slot] = replace(laser, slot=slot)
+
+    def spell_start(self, rng: RngState) -> None:
+        """Apply ECL opcode 93's source bullet/laser point conversion."""
+        if self.spell_started:
+            raise UnsupportedStatefulModel(
+                "multiple spell starts in one nominal source update"
+            )
+        self.spell_started = True
+        self.attack = replace(self.attack, spell_active=True)
+        for bullet in self.source_bullets:
+            # The captured fired/spawning set excludes state-5 despawning
+            # bullets, exactly the class RemoveAllBullets(true) skips.
+            self.spawn_item((bullet.x, bullet.y), 6, 1, rng)
+        self.cancelled_bullet_slots = frozenset(
+            bullet.slot for bullet in self.source_bullets
+        )
+
+        for slot in sorted(self.lasers):
+            laser = self.lasers[slot]
+            if laser.state < 2:
+                sine = _f32(math.sin(laser.angle))
+                cosine = _f32(math.cos(laser.angle))
+                offset = _f32(laser.start_offset)
+                while laser.end_offset > offset:
+                    self.spawn_item(
+                        (
+                            _f32(cosine * offset + laser.x),
+                            _f32(sine * offset + laser.y),
+                        ),
+                        6,
+                        1,
+                        rng,
+                    )
+                    offset = _f32(offset + 32.0)
+                laser = replace(
+                    laser,
+                    state=2,
+                    timer=0,
+                    timer_float=0.0,
+                )
+            self.lasers[slot] = replace(laser, hitbox_end_delay=0)
 
     def observe_effect_spawns(self, effect_ids) -> None:
         effect_ids = tuple(effect_ids)
@@ -1605,7 +1659,19 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             forecast.reason or "nominal battle world has no continuation"
         )
 
-    bullets = list(snapshot.bullets)
+    if combat is not None and combat.spell_started and forecast.births[0]:
+        # Bullet allocation and opcode-93 cancellation share the live source
+        # pool. The compact birth forecast does not yet retain whether each
+        # same-frame birth executed before or after SPELLCARDSTART, so refuse
+        # that ordering instead of silently cancelling or retaining it.
+        raise UnsupportedStatefulModel(
+            "spell start with same-frame bullet births needs ECL ordering"
+        )
+
+    bullets = [
+        bullet for bullet in snapshot.bullets
+        if combat is None or bullet.slot not in combat.cancelled_bullet_slots
+    ]
     used_slots = {bullet.slot for bullet in bullets if bullet.slot >= 0}
     if len(used_slots) != len(bullets):
         raise UnsupportedStatefulModel("bullet slots must be unique and known")
