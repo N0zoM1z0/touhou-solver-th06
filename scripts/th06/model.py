@@ -74,6 +74,10 @@ class Bullet:
     curve_speed_acceleration: float = 0.0
     curve_angular_velocity: float = 0.0
     slot: int = -1
+    # BulletManager permits exactly one graze score/effect per bullet.  This
+    # byte is physical future state: omitting it lets candidate continuations
+    # manufacture repeated graze RNG and rank changes.
+    is_grazed: bool = False
 
 
 @dataclass(frozen=True)
@@ -367,6 +371,16 @@ class Snapshot:
     random_item_spawn_index: int = 0
     random_item_table_index: int = 0
     message_active: bool = False
+    # GameManager::IncreaseSubrank carries this remainder across updates.
+    # Graze happens after EnemyManager, so the updated rank first affects ECL
+    # on the following frame.
+    subrank: int = 0
+    max_rank: int = 32
+    min_rank: int = 0
+    # Effects born after priority-10 EffectManager retain timer (-999, 0) at
+    # the frame boundary.  Their callbacks consume RNG on the next update.
+    # Only the source effect IDs are needed; visual state is hazard-neutral.
+    pending_effect_rng_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

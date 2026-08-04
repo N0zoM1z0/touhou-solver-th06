@@ -72,6 +72,9 @@ GAME_FLAGS_OFFSET = 0x181F
 GAME_FRAMES_OFFSET = 0x1A30
 GAME_STAGE_OFFSET = 0x1A34
 GAME_RANK_OFFSET = 0x1A70
+GAME_MAX_RANK_OFFSET = 0x1A74
+GAME_MIN_RANK_OFFSET = 0x1A78
+GAME_SUBRANK_OFFSET = 0x1A7C
 GAME_CURRENT_POWER_OFFSET = 0x1810
 GAME_CHARACTER_OFFSET = 0x181D
 GAME_SHOT_TYPE_OFFSET = 0x181E
@@ -132,6 +135,7 @@ BULLET_DIRECTION_NUM_TIMES_OFFSET = 0x5B0
 BULLET_DIRECTION_MAX_TIMES_OFFSET = 0x5B4
 BULLET_EX_FLAGS_OFFSET = 0x5B8
 BULLET_STATE_OFFSET = 0x5BE
+BULLET_IS_GRAZED_OFFSET = 0x5C3
 LASER_COUNT = 64
 LASER_STRIDE = 0x270
 LASER_POSITION_OFFSET = 0x220
@@ -203,6 +207,13 @@ ENEMY_RANDOM_ITEM_SPAWN_INDEX_OFFSET = 0xEE5B8
 ENEMY_RANDOM_ITEM_TABLE_INDEX_OFFSET = 0xEE5BA
 ENEMY_SPELL_ACTIVE_OFFSET = 0xEE5C8
 EFFECT_ACTIVE_COUNT_OFFSET = 0x4
+EFFECT_ARRAY_OFFSET = 0x8
+EFFECT_COUNT = 512
+EFFECT_STRIDE = 0x17C
+EFFECT_TIMER_PREVIOUS_OFFSET = 0x164
+EFFECT_TIMER_CURRENT_OFFSET = 0x16C
+EFFECT_IN_USE_OFFSET = 0x178
+EFFECT_ID_OFFSET = 0x179
 ITEM_ACTIVE_COUNT_OFFSET = 0x28948
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 256
@@ -477,6 +488,7 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         "<iii", tail, relative(BULLET_DIRECTION_INTERVAL_OFFSET)
     )
     ex_flags = struct.unpack_from("<H", tail, relative(BULLET_EX_FLAGS_OFFSET))[0]
+    is_grazed = bool(tail[relative(BULLET_IS_GRAZED_OFFSET)])
     numbers = (
         size_x,
         size_y,
@@ -566,6 +578,7 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         curve_speed_acceleration=accel_speed,
         curve_angular_velocity=curve_angular_velocity,
         slot=slot,
+        is_grazed=is_grazed,
     )
 
 
@@ -1374,9 +1387,10 @@ def _read_snapshot_once(
     difficulty = struct.unpack(
         "<i", process.read(ADDR_GAME_MANAGER + GAME_DIFFICULTY_OFFSET, 4)
     )[0]
-    rank = struct.unpack(
-        "<i", process.read(ADDR_GAME_MANAGER + GAME_RANK_OFFSET, 4)
-    )[0]
+    rank, max_rank, min_rank, subrank = struct.unpack(
+        "<iiii",
+        process.read(ADDR_GAME_MANAGER + GAME_RANK_OFFSET, 16),
+    )
     rng_seed, rng_generation = struct.unpack(
         "<HxxI", process.read(ADDR_RNG, 8)
     )
@@ -1387,14 +1401,41 @@ def _read_snapshot_once(
     current_power = struct.unpack(
         "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
     )[0]
-    effect_active_upper_bound = struct.unpack(
+    reported_effect_count = struct.unpack(
         "<i", process.read(ADDR_EFFECT_MANAGER + EFFECT_ACTIVE_COUNT_OFFSET, 4)
     )[0]
+    effect_pool = process.read(
+        ADDR_EFFECT_MANAGER + EFFECT_ARRAY_OFFSET,
+        EFFECT_COUNT * EFFECT_STRIDE,
+    )
+    effect_active_upper_bound = 0
+    pending_effect_rng_ids = []
+    for slot in range(EFFECT_COUNT):
+        base = slot * EFFECT_STRIDE
+        if not effect_pool[base + EFFECT_IN_USE_OFFSET]:
+            continue
+        effect_id = effect_pool[base + EFFECT_ID_OFFSET]
+        if not 0 <= effect_id < 20:
+            raise RuntimeError(f"invalid source effect id {effect_id}")
+        effect_active_upper_bound += 1
+        previous = struct.unpack_from(
+            "<i", effect_pool, base + EFFECT_TIMER_PREVIOUS_OFFSET
+        )[0]
+        current = struct.unpack_from(
+            "<i", effect_pool, base + EFFECT_TIMER_CURRENT_OFFSET
+        )[0]
+        if previous == -999 and current == 0:
+            pending_effect_rng_ids.append(effect_id)
     item_active_upper_bound = struct.unpack(
         "<I", process.read(ADDR_ITEM_MANAGER + ITEM_ACTIVE_COUNT_OFFSET, 4)
     )[0]
-    if not 0 <= effect_active_upper_bound <= 512:
+    if not 0 <= reported_effect_count <= 512:
         raise RuntimeError("invalid source effect active count")
+    if not (
+        min_rank <= rank <= max_rank
+        and 0 <= subrank < 100
+    ):
+        raise RuntimeError("invalid source rank state")
     if not 0 <= item_active_upper_bound <= 512:
         raise RuntimeError("invalid source item active count")
     character, shot_type = process.read(
@@ -2137,6 +2178,10 @@ def _read_snapshot_once(
         random_item_spawn_index,
         random_item_table_index,
         current_message_index >= 0,
+        subrank,
+        max_rank,
+        min_rank,
+        tuple(pending_effect_rng_ids),
     )
 
 

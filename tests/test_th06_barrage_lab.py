@@ -415,6 +415,87 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(diversity.unique_enemy_combat_states, 2)
         self.assertEqual(diversity.unique_rng_states, 2)
 
+    def test_graze_is_one_shot_and_defers_effect_callback_rng(self):
+        attack = PlayerAttackState(
+            shots=(),
+            last_enemy_hit_x=-999.0,
+            last_enemy_hit_y=-999.0,
+            orb_state=1,
+            is_focus=True,
+            focus_timer_previous=0,
+            focus_timer=1,
+            focus_timer_float=1.0,
+            fire_timer_previous=0,
+            fire_timer=1,
+            fire_timer_float=1.0,
+            orb_positions=((76.0, 400.0), (124.0, 400.0)),
+            shot_type=0,
+            bomb_active=False,
+            spell_active=False,
+        )
+        root = Snapshot(
+            frame=10,
+            stage=5,
+            player_state=0,
+            x=100.0,
+            y=200.0,
+            half_width=1.25,
+            half_height=1.25,
+            normal_speed=4.0,
+            focus_speed=2.0,
+            normal_diagonal_speed=2.828427,
+            focus_diagonal_speed=1.414214,
+            frame_multiplier=1.0,
+            input_mask=0x05,
+            bullets=(Bullet(
+                x=120.0,
+                y=200.0,
+                vx=0.0,
+                vy=0.0,
+                half_width=2.0,
+                half_height=2.0,
+                state=1,
+                slot=0,
+            ),),
+            laser_count=0,
+            in_menu=False,
+            time_stopped=False,
+            replay_or_demo=False,
+            timeline_complete=True,
+            rng_seed=0x1234,
+            rng_generation=10,
+            rank=31,
+            subrank=96,
+            max_rank=32,
+            current_power=128,
+            player_attack=attack,
+            effect_active_upper_bound=1,
+            item_active_upper_bound=0,
+            # This effect was born after EffectManager on the root frame.
+            pending_effect_rng_ids=(8,),
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        first = step_nominal_battle_world(root, stay)
+
+        # The retained effect callback costs two u32/f32 draws (four u16),
+        # then the new graze effect's time-zero SetRandomSprite costs one.
+        self.assertEqual(first.rng_generation, 15)
+        self.assertTrue(first.bullets[0].is_grazed)
+        self.assertEqual((first.rank, first.subrank), (32, 2))
+        self.assertEqual(first.pending_effect_rng_ids, (8,))
+        self.assertEqual(first.effect_active_upper_bound, 2)
+
+        second = step_nominal_battle_world(first, stay)
+
+        # The same bullet cannot score or spawn another effect.  Only the
+        # prior frame's deferred random-splash callback consumes RNG.
+        self.assertEqual(second.rng_generation, 19)
+        self.assertTrue(second.bullets[0].is_grazed)
+        self.assertEqual((second.rank, second.subrank), (32, 2))
+        self.assertEqual(second.pending_effect_rng_ids, ())
+        self.assertEqual(second.effect_active_upper_bound, 2)
+
     def test_nominal_battle_corpus_is_derived_through_stateful_play(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         base = generate_barrage_case(

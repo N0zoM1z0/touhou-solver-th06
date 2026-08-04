@@ -31,6 +31,8 @@ from ..model import (
     EnemyBody,
     EnemySpawner,
     PLAYER_ALIVE,
+    PLAYER_DEAD,
+    PLAYER_SPAWNING,
     PlayerAttackState,
     PlayerShot,
     SafeAction,
@@ -106,6 +108,16 @@ _RANDOM_ITEMS = (
     0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0,
     1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 2,
 )
+
+
+def _consume_effect_callback_rng(rng: RngState, effect_ids) -> None:
+    """Run the source RNG part of one priority-10 effect callback pass."""
+    for effect_id in effect_ids:
+        if 3 <= effect_id <= 11:
+            rng.f32_zero_to_one()
+            rng.f32_zero_to_one()
+        elif effect_id in (17, 18):
+            rng.f32_zero_to_one()
 
 
 class UnsupportedStatefulModel(ValueError):
@@ -628,6 +640,12 @@ class _NominalCombatStep:
         self.random_spawn_index = snapshot.random_item_spawn_index
         self.random_table_index = snapshot.random_item_table_index
         self.allocated_effects: list[int] = []
+        self.pending_effects = list(snapshot.pending_effect_rng_ids)
+        self.post_effect_ids: list[int] = []
+        if attack.bomb_active:
+            raise UnsupportedStatefulModel(
+                "nominal combat does not model active player bombs"
+            )
 
     def observe_effect_spawns(self, effect_ids) -> None:
         effect_ids = tuple(effect_ids)
@@ -651,6 +669,13 @@ class _NominalCombatStep:
         effect_ids = tuple(effect_ids)
         consume_effect_spawn_rng(rng, effect_ids)
         self.observe_effect_spawns(effect_ids)
+
+    def spawn_post_effects(self, effect_ids, rng: RngState) -> None:
+        """Spawn effects after EffectManager's pass (BulletManager priority 11)."""
+        effect_ids = tuple(effect_ids)
+        consume_effect_spawn_rng(rng, effect_ids)
+        self.observe_effect_spawns(effect_ids)
+        self.post_effect_ids.extend(effect_ids)
 
     @staticmethod
     def _reset_callback_state(emitter: EnemySpawner) -> EnemySpawner:
@@ -852,14 +877,14 @@ class _NominalCombatStep:
         return emitter
 
     def finish_frame(self, rng: RngState) -> None:
-        # EffectManager runs after every Enemy slot. Random splash effects
-        # consume two source f32 values; attract effects consume one.
-        for effect_id in self.allocated_effects:
-            if 3 <= effect_id <= 11:
-                rng.f32_zero_to_one()
-                rng.f32_zero_to_one()
-            elif effect_id in (17, 18):
-                rng.f32_zero_to_one()
+        # Effects retained from a post-priority-10 birth on the preceding
+        # update and effects born during EnemyManager both run now.  Visual
+        # callback results are hazard-neutral; their exact RNG draws are not.
+        _consume_effect_callback_rng(
+            rng, (*self.pending_effects, *self.allocated_effects)
+        )
+        self.pending_effects.clear()
+        self.allocated_effects.clear()
 
 
 def step_closed_world(
@@ -946,6 +971,106 @@ def _body_from_emitter(emitter) -> EnemyBody | None:
     )
 
 
+def _player_overlaps_bullet(
+    bullet: Bullet,
+    player: tuple[float, float],
+    player_half_width: float,
+    player_half_height: float,
+    margin: float,
+) -> bool:
+    """Source inclusive AABB collision used by CheckGraze/CalcKillBox."""
+    return not (
+        player[0] - player_half_width
+        > bullet.x + bullet.half_width + margin
+        or player[0] + player_half_width
+        < bullet.x - bullet.half_width - margin
+        or player[1] - player_half_height
+        > bullet.y + bullet.half_height + margin
+        or player[1] + player_half_height
+        < bullet.y - bullet.half_height - margin
+    )
+
+
+def _increase_subrank(
+    rank: int,
+    subrank: int,
+    max_rank: int,
+    amount: int,
+) -> tuple[int, int]:
+    """Authoritative GameManager::IncreaseSubrank transition."""
+    subrank += amount
+    while subrank >= 100:
+        rank += 1
+        subrank -= 100
+    return min(rank, max_rank), subrank
+
+
+def _step_hostile_bullets_after_effects(
+    bullets: list[Bullet],
+    player: tuple[float, float],
+    snapshot: Snapshot,
+    combat: _NominalCombatStep,
+    rng: RngState,
+) -> tuple[
+    tuple[Bullet, ...],
+    tuple[Bullet, ...],
+    int,
+    int,
+    int,
+]:
+    """Advance BulletManager through movement, graze, and lethal collision."""
+    active: list[Bullet] = []
+    despawning: list[Bullet] = []
+    player_state = snapshot.player_state
+    rank = snapshot.rank
+    subrank = snapshot.subrank
+    for bullet in bullets:
+        advanced = step_bullet(bullet, player)
+        if advanced.state != 1:
+            active.append(advanced)
+            continue
+
+        grazed = advanced.is_grazed
+        if (
+            not grazed
+            and player_state not in (PLAYER_DEAD, PLAYER_SPAWNING)
+            and _player_overlaps_bullet(
+                advanced,
+                player,
+                snapshot.half_width,
+                snapshot.half_height,
+                20.0,
+            )
+        ):
+            # ScoreGraze occurs before the following kill-box check.  Effect
+            # 8 executes its time-zero ANM immediately, but its random splash
+            # callback cannot run until the next EffectManager update.
+            combat.spawn_post_effects((8,), rng)
+            rank, subrank = _increase_subrank(
+                rank, subrank, snapshot.max_rank, 6
+            )
+            grazed = True
+            advanced = _copy_bullet(advanced, is_grazed=True)
+
+        if grazed and _player_overlaps_bullet(
+            advanced,
+            player,
+            snapshot.half_width,
+            snapshot.half_height,
+            0.0,
+        ):
+            advanced = _copy_bullet(advanced, state=5)
+            despawning.append(advanced)
+            if player_state == PLAYER_ALIVE:
+                # Player::Die is also later than EffectManager: ID 12 plus
+                # sixteen ID-6 particles execute ANM now and callbacks later.
+                player_state = PLAYER_DEAD
+                combat.spawn_post_effects((12, *((6,) * 16)), rng)
+            continue
+        active.append(advanced)
+    return tuple(active), tuple(despawning), player_state, rank, subrank
+
+
 def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
     """Advance bullets, live ECL emitters, and simple stage timeline state.
 
@@ -1014,7 +1139,26 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         if slot is None:
             break
         bullets.append(_copy_bullet(bullet, slot=slot))
-    bullets = [step_bullet(bullet, (x, y)) for bullet in bullets]
+    next_rng = RngState(
+        forecast.continuation.rng_seed,
+        forecast.continuation.rng_generation,
+    )
+    if combat is not None:
+        (
+            bullets,
+            despawning_bullets,
+            player_state,
+            rank,
+            subrank,
+        ) = _step_hostile_bullets_after_effects(
+            bullets, (x, y), snapshot, combat, next_rng
+        )
+    else:
+        bullets = tuple(step_bullet(bullet, (x, y)) for bullet in bullets)
+        despawning_bullets = ()
+        player_state = snapshot.player_state
+        rank = snapshot.rank
+        subrank = snapshot.subrank
 
     emitters = forecast.continuation.emitters
     bodies = tuple(
@@ -1040,10 +1184,14 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         y=y,
         input_mask=action_mask(held),
         bullets=tuple(bullets),
+        despawning_bullets=despawning_bullets,
         spawners=emitters,
         enemies=bodies,
-        rng_seed=forecast.continuation.rng_seed,
-        rng_generation=forecast.continuation.rng_generation,
+        rng_seed=next_rng.seed,
+        rng_generation=next_rng.generation_count,
+        player_state=player_state,
+        rank=rank,
+        subrank=subrank,
         player_attack=(combat.attack if combat is not None else attack),
         effect_active_upper_bound=(
             combat.effect_upper
@@ -1064,6 +1212,9 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             combat.random_table_index
             if combat is not None
             else snapshot.random_item_table_index
+        ),
+        pending_effect_rng_ids=(
+            tuple(combat.post_effect_ids) if combat is not None else ()
         ),
     )
 

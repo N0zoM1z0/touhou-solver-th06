@@ -95,6 +95,7 @@ def decode_snapshot(raw: dict) -> Snapshot:
         "ecl_subroutines",
         "timeline_emitter_subs",
         "timeline_boss_subs",
+        "pending_effect_rng_ids",
     ):
         values[field] = tuple(values.get(field, ()))
     attack = values.get("player_attack")
