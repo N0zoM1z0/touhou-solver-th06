@@ -896,16 +896,14 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 4, forecast.reason)
         self.assertEqual(forecast.laser_births, 1)
         self.assertTrue(all(forecast.body_hazards))
-        laser_box = max(
-            forecast.body_hazards[0], key=lambda box: box[3]
-        )
+        self.assertTrue(all(forecast.laser_hazards))
+        laser = forecast.laser_hazards[0][0]
         # Offset uses the emitter position and LASERROTATE precedes the same
         # frame BulletManager collision phase: a vertical segment starts at
         # (30, 60), not at the create origin (10, 20).
-        self.assertLess(laser_box[0], 30.0)
-        self.assertGreater(laser_box[2], 30.0)
-        self.assertLess(laser_box[1], 61.0)
-        self.assertGreater(laser_box[3], 79.0)
+        self.assertEqual((laser.origin_x, laser.origin_y), (30.0, 60.0))
+        self.assertTrue(math.isclose(laser.angle, math.pi / 2.0, abs_tol=1e-6))
+        self.assertEqual((laser.center_offset, laser.size_x), (10.0, 20.0))
 
         aimed_create = replace(
             instruction(
@@ -929,6 +927,7 @@ class EclOpcodeCoverageTests(unittest.TestCase):
             replace(state, spawners=(aimed_source,)),
             ((100.0, 400.0),) * 4,
         )
+        self.assertFalse(any(aimed.laser_hazards))
         aimed_box = max(aimed.body_hazards[0], key=lambda box: box[3])
         # Candidate-independent Hard keeps the all-angle union even after a
         # later fixed rotation; it never borrows the repeated root position.

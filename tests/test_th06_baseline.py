@@ -36,7 +36,12 @@ from th06.hazards.bullets import (
     reachable_hazards_by_frame,
 )
 from th06.hazards.enemies import future_boxes as future_enemy_boxes
-from th06.hazards.lasers import future_hazards, signed_laser_clearance, track_motion
+from th06.hazards.lasers import (
+    LaserHazard,
+    future_hazards,
+    signed_laser_clearance,
+    track_motion,
+)
 from th06.hazards.world import (
     WorldBirthForecast,
     WorldForecastContinuation,
@@ -1677,6 +1682,81 @@ class BaselineTests(unittest.TestCase):
             state,
             ((state.x, state.y),) * horizon,
         )
+
+    def test_future_oriented_laser_reaches_python_and_native_safety(self):
+        state = snapshot()
+        empty_frames = ((),)
+        laser = LaserHazard(
+            state.x - 10.0,
+            state.y,
+            0.0,
+            10.0,
+            20.0,
+            5.0,
+        )
+        forecast = WorldBirthForecast(
+            births=empty_frames,
+            hazards=empty_frames,
+            covered_frames=1,
+            body_hazards=empty_frames,
+            laser_hazards=((laser,),),
+        )
+        with (
+            mock.patch(
+                "th06.safety.bullet_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.safety.enemy_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.safety.laser_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.safety.forecast_world_births",
+                return_value=forecast,
+            ),
+        ):
+            self.assertFalse(certify_actions(
+                state,
+                1,
+                delivery_delays=(0,),
+                actions=(CONTROL_ACTIONS[0],),
+            ))
+
+        kernel = object.__new__(NativeSafetyKernel)
+        kernel._hard_birth_snapshot = None
+        kernel._hard_birth_horizon = 0
+        kernel._hard_birth_forecast = None
+        with (
+            mock.patch(
+                "th06.kernels.safety.bullet_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.enemy_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.laser_hazards_by_frame",
+                return_value=empty_frames,
+            ),
+            mock.patch(
+                "th06.kernels.safety.forecast_world_births",
+                return_value=forecast,
+            ),
+        ):
+            _, _, laser_offsets, lasers = kernel._prepare_window(
+                state,
+                0,
+                1,
+                fail_closed_horizon=1,
+            )
+
+        self.assertEqual(tuple(laser_offsets), (0, 1))
+        self.assertEqual(len(lasers), 1)
 
     def test_soft_native_window_reuses_fresh_hard_ecl_prefix(self):
         state = snapshot()

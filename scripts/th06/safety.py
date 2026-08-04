@@ -212,6 +212,19 @@ def certify_actions(
                             if clearance <= COLLISION_MARGIN:
                                 valid = False
                                 break
+                    if valid and birth_forecast.laser_hazards:
+                        for laser in birth_forecast.laser_hazards[frame_index]:
+                            clearance = signed_laser_clearance(
+                                x,
+                                y,
+                                snapshot.half_width,
+                                snapshot.half_height,
+                                laser,
+                            )
+                            action_clearance = min(action_clearance, clearance)
+                            if clearance <= COLLISION_MARGIN:
+                                valid = False
+                                break
                     if not valid:
                         break
                 if not valid:

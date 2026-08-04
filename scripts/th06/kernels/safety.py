@@ -451,6 +451,23 @@ class NativeSafetyKernel:
             )
             for index in range(start_frame, total_horizon)
         )
+        forecast_laser_frames = tuple(
+            (
+                hard_births.laser_hazards[index]
+                if index < hard_births.covered_frames
+                and hard_births.laser_hazards
+                else ()
+            )
+            if index < fail_closed_horizon
+            else (
+                nominal_births.laser_hazards[index]
+                if nominal_births is not None
+                and index < nominal_births.covered_frames
+                and nominal_births.laser_hazards
+                else ()
+            )
+            for index in range(start_frame, total_horizon)
+        )
         aabb_frames = tuple(
             bullet_frame + enemy_frame + birth_frame + body_frame
             for bullet_frame, enemy_frame, birth_frame, body_frame in zip(
@@ -471,8 +488,17 @@ class NativeSafetyKernel:
             _Aabb,
             lambda value: value,
         )
+        live_laser_frames = laser_hazards_by_frame(
+            snapshot.lasers, total_horizon
+        )[start_frame:]
         laser_offsets, lasers = self._flatten(
-            laser_hazards_by_frame(snapshot.lasers, total_horizon)[start_frame:],
+            tuple(
+                live_frame + future_frame
+                for live_frame, future_frame in zip(
+                    live_laser_frames,
+                    forecast_laser_frames,
+                )
+            ),
             _LaserHazard,
             lambda value: (
                 value.origin_x,

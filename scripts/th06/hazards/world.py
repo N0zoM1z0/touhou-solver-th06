@@ -9,6 +9,7 @@ from ..model import Bullet, EnemySpawner, Snapshot, StageTimelineInstruction
 from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import HardLaserWorld, forecast_ecl_births, source_enemy_template
+from .lasers import LaserHazard
 from .rng import RngState
 from .timeline import (
     TimelineBossInterrupt,
@@ -38,6 +39,7 @@ class WorldBirthForecast:
     mutated_initial_lasers: tuple[int, ...] = ()
     missing_laser_dereferences: tuple[int, ...] = ()
     retired_future_laser: bool = False
+    laser_hazards: tuple[tuple[LaserHazard, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -248,6 +250,7 @@ def _forecast_hard_emitter_with_lasers(
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    lasers: list[list[LaserHazard]] = [[] for _ in player_positions]
     events_by_lead = {
         lead: event
         for lead, event in _scheduled_boss_interrupts(snapshot, horizon)
@@ -272,6 +275,7 @@ def _forecast_hard_emitter_with_lasers(
                 laser_world.missing_dereferences
             )),
             retired_future_laser=laser_world.retired_created,
+            laser_hazards=tuple(map(tuple, lasers)),
         )
 
     for frame_index in range(start_lead, horizon):
@@ -312,7 +316,9 @@ def _forecast_hard_emitter_with_lasers(
                     forecast.reason or "emitter continuation is unresolved",
                 )
         # EnemyManager/ECL priority 9 precedes BulletManager priority 11.
-        bodies[frame_index].extend(laser_world.advance_hazards())
+        laser_boxes, oriented_lasers = laser_world.advance_hazards()
+        bodies[frame_index].extend(laser_boxes)
+        lasers[frame_index].extend(oriented_lasers)
     return result(horizon)
 
 
@@ -359,6 +365,7 @@ def _forecast_hard_timeline_births(
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    lasers: list[list[LaserHazard]] = [[] for _ in player_positions]
     horizon = len(player_positions)
     laser_births = 0
     mutated_initial_lasers: list[int] = []
@@ -470,9 +477,11 @@ def _forecast_hard_timeline_births(
         if inline.next_spawner is None:
             if inline.finished:
                 for frame_index in range(lead, horizon):
-                    bodies[frame_index].extend(
+                    laser_boxes, oriented_lasers = (
                         laser_world.advance_hazards()
                     )
+                    bodies[frame_index].extend(laser_boxes)
+                    lasers[frame_index].extend(oriented_lasers)
                 laser_births += laser_world.created_count
                 mutated_initial_lasers.extend(
                     laser_world.mutated_initial_slots
@@ -514,6 +523,8 @@ def _forecast_hard_timeline_births(
             births[offset].extend(frame_births)
         for offset, frame_bodies in enumerate(ordinary.body_hazards):
             bodies[offset].extend(frame_bodies)
+        for offset, frame_lasers in enumerate(ordinary.laser_hazards):
+            lasers[offset].extend(frame_lasers)
         laser_births += ordinary.laser_births
         mutated_initial_lasers.extend(ordinary.mutated_initial_lasers)
         missing_laser_dereferences.extend(
@@ -539,6 +550,7 @@ def _forecast_hard_timeline_births(
             missing_laser_dereferences
         )),
         retired_future_laser=retired_future_laser,
+        laser_hazards=tuple(map(tuple, lasers)),
     )
 
 
@@ -1110,6 +1122,7 @@ def forecast_world_births(
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    lasers: list[list[LaserHazard]] = [[] for _ in player_positions]
     emitters = tuple(sorted(snapshot.spawners, key=lambda item: item.slot))
     if rng_mode == "fail-closed":
         enemy_kill_all_is_noop = not any(
@@ -1136,6 +1149,10 @@ def forecast_world_births(
                 births[frame_index].extend(frame_births)
             for frame_index, frame_bodies in enumerate(forecast.body_hazards):
                 bodies[frame_index].extend(frame_bodies)
+            for frame_index, frame_lasers in enumerate(
+                forecast.laser_hazards
+            ):
+                lasers[frame_index].extend(frame_lasers)
             laser_births += forecast.laser_births
             laser_creating_worlds += int(forecast.laser_births > 0)
             mutated_initial_lasers.extend(forecast.mutated_initial_lasers)
@@ -1154,6 +1171,8 @@ def forecast_world_births(
             births[frame_index].extend(frame_births)
         for frame_index, frame_bodies in enumerate(timeline.body_hazards):
             bodies[frame_index].extend(frame_bodies)
+        for frame_index, frame_lasers in enumerate(timeline.laser_hazards):
+            lasers[frame_index].extend(frame_lasers)
         laser_births += timeline.laser_births
         laser_creating_worlds += int(timeline.laser_births > 0)
         mutated_initial_lasers.extend(timeline.mutated_initial_lasers)
@@ -1202,6 +1221,7 @@ def forecast_world_births(
                 missing_laser_dereferences
             )),
             retired_future_laser=retired_future_laser,
+            laser_hazards=tuple(map(tuple, lasers)),
         )
     return _forecast_nominal_from_state(
         snapshot,

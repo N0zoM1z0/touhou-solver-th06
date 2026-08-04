@@ -907,3 +907,33 @@ A focused partial-tail regression raises the complete suite to 348 tests with
 process remained. This run confirms the stale-pointer capture correction on
 that trajectory and exercises live-laser integration, but still does not
 provide adjacent-frame future-laser parity or a clear.
+
+The following 90-second continue diagnostic reached f5319 without either
+capture or forecast-contract failure. Its 4,321-row trace contains 366 sampled
+rows with two live lasers from f3418 through f4571. It also contains 16
+recorded Hard authority losses and four physical HITs, so it is strictly
+diagnostic. The first laser-window authority loss was f3445. An offline
+ablation on that exact captured snapshot was decisive: the full world had
+0/18 Hard-4 actions, while removing only the emitter, removing only the two
+lasers, or retaining bullets alone each had 18/18. This isolated the
+interaction to the forecast ECL mutation of existing beams rather than the
+terminal bullet set.
+
+The source program at that root reaches two opcode-88 writes at ECL time 151,
+rotating slots 0 and 1 by fixed signed constants. The beams are 500-pixel
+diagonals forming a V with real free space between them. Mutable Hard preserved
+their source time and angle, but then converted each rotated rectangle to an
+axis-aligned AABB; those two large boxes falsely filled the V. This was a
+geometry representation error, not evidence that collision was inevitable.
+
+Fixed-angle, position-exact future laser segments now remain oriented
+`LaserHazard` records through the world forecast and both Python/native safety
+consumers. Angle-unconstrained aimed/re-aimed beams and position-uncertain
+beams still use the conservative AABB union. The distinction is based only on
+represented source certainty, not a stage, frame, beam count, or
+counterexample identity. Replaying the exact f3445 snapshot through the
+Windows native kernel changes Hard-4 from 0/18 to 18/18 while f3444 remains
+18/18. Focused tests cover same-frame create/rotate/offset geometry and both
+safety consumers; the complete suite passes 349 tests with 28 skipped. A new
+physical run and adjacent-frame comparison are still required before claiming
+runtime parity for the opcode-88 transition.

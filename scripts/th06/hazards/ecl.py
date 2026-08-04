@@ -323,27 +323,38 @@ class HardLaserWorld:
 
     def advance_hazards(
         self,
-    ) -> tuple[tuple[float, float, float, float], ...]:
+    ) -> tuple[
+        tuple[tuple[float, float, float, float], ...],
+        tuple[LaserHazard, ...],
+    ]:
         boxes = []
+        oriented = []
         for slot, state in tuple(sorted(self._states.items())):
             following, hazards = advance_laser(state.laser)
             if state.contributes_hazards:
-                boxes.extend(
-                    _future_laser_aabb(
-                        hazard,
-                        state.angle_unconstrained,
-                        state.uncertainty_x,
-                        state.uncertainty_y,
+                if (
+                    state.angle_unconstrained
+                    or state.uncertainty_x > 0.0
+                    or state.uncertainty_y > 0.0
+                ):
+                    boxes.extend(
+                        _future_laser_aabb(
+                            hazard,
+                            state.angle_unconstrained,
+                            state.uncertainty_x,
+                            state.uncertainty_y,
+                        )
+                        for hazard in hazards
                     )
-                    for hazard in hazards
-                )
+                else:
+                    oriented.extend(hazards)
             if following is None:
                 if slot in self._created_slots:
                     self.retired_created = True
                 del self._states[slot]
             else:
                 state.laser = following
-        return tuple(boxes)
+        return tuple(boxes), tuple(oriented)
 
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
