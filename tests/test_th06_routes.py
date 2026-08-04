@@ -25,6 +25,7 @@ from th06.routes.stage4_hard_reimu_a import (
     timeline_phase,
 )
 from th06.routes.state_machine import PolicyState, TimelineStateMachine
+from th06.ranking import ProposalRanker
 from th06.solver import Solver
 
 
@@ -327,12 +328,15 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(hard_fan_circle.algorithm, "constant-frontier")
+        self.assertEqual(
+            hard_fan_circle.algorithm,
+            "constant-frontier-count",
+        )
         self.assertEqual(
             hard_fan_circle.policy_state,
             "first-nonspell-hard-fan-circle",
         )
-        self.assertEqual(hard_fan_circle.horizon, 10)
+        self.assertEqual(hard_fan_circle.horizon, 12)
         self.assertIsNone(hard_fan_circle.target)
 
         boss.ecl_time = 200
@@ -800,6 +804,86 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(decision.policy_state, "count-clearance")
         self.assertEqual(decision.effort_horizon, 8)
         self.assertEqual(decision.proposal_source, "count-clearance")
+
+    def test_common_solver_ranks_only_inside_constant_frontier(self):
+        class ConstantFrontierCountPack:
+            key = RouteKey(2, 0, 0, 4)
+            route_id = "constant-frontier-count-test"
+
+            @staticmethod
+            def intent(_snapshot):
+                return RouteIntent(
+                    "test:phase",
+                    "constant-frontier-count",
+                    "constant-frontier-count",
+                    8,
+                    None,
+                    4,
+                )
+
+        decision = Solver(
+            decision_budget_ms=100.0,
+            routes=RouteRegistry((ConstantFrontierCountPack(),)),
+        ).decide(snapshot())
+        hard_actions = {candidate.action for candidate in decision.safe_actions}
+
+        self.assertEqual(decision.reason, "ok")
+        self.assertIn(decision.action, hard_actions)
+        self.assertEqual(decision.route_id, "constant-frontier-count-test")
+        self.assertEqual(decision.policy_state, "constant-frontier-count")
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(
+            decision.proposal_source,
+            "constant-frontier-count",
+        )
+
+    def test_common_solver_discards_commitment_across_policy_states(self):
+        class TrackingRanker(ProposalRanker):
+            def __init__(self):
+                super().__init__()
+                self.reset_count = 0
+
+            def reset_plan(self):
+                super().reset_plan()
+                self.reset_count += 1
+
+        class StatefulPack:
+            key = RouteKey(2, 0, 0, 4)
+            route_id = "state-isolation-test"
+
+            @staticmethod
+            def intent(state):
+                policy_state = "opening" if state.timeline_time < 2 else "attack"
+                return RouteIntent(
+                    "test:phase",
+                    policy_state,
+                    "target-only",
+                    4,
+                    (192.0, 380.0),
+                    4,
+                )
+
+        ranker = TrackingRanker()
+        solver = Solver(
+            ranker=ranker,
+            routes=RouteRegistry((StatefulPack(),)),
+        )
+
+        solver.decide(snapshot(timeline_time=0))
+        self.assertEqual(ranker.reset_count, 1)
+        old_action = next(
+            candidate.action
+            for candidate in solver.decide(snapshot(frame=101, timeline_time=1)).safe_actions
+            if candidate.action.name == "left"
+        )
+        ranker.committed_action = old_action
+        ranker.commit_until_frame = 200
+
+        solver.decide(snapshot(frame=102, timeline_time=2))
+
+        self.assertEqual(ranker.reset_count, 2)
+        self.assertNotEqual(ranker.committed_action, old_action)
+        self.assertLess(ranker.commit_until_frame, 200)
 
     def test_missing_route_is_fail_visible_even_when_hard_exists(self):
         decision = Solver().decide(snapshot(stage=3))

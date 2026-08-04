@@ -78,6 +78,7 @@ TERMINAL_METRICS = (
     "authority-filtered-count",
     "delivery-filtered-count",
     "constant-reserve-count",
+    "constant-frontier-count",
     "count-clearance",
     "count-clearance-confirmed",
     "count-focus-clearance",
@@ -2424,6 +2425,29 @@ class ExactTerminalPolicy:
                     for candidate in candidates
                 },
             )
+        elif self.metric == "constant-frontier-count":
+            reserve = certify_linear_source(
+                snapshot,
+                self.horizon,
+                actions=tuple(candidate.action for candidate in candidates),
+            ).actions
+            deep = dict(source_terminal_counts(
+                snapshot,
+                hard.actions,
+                4,
+                self.horizon,
+            ).counts)
+            preferred = _deep_preferred_within(
+                frozenset(
+                    candidate.action
+                    for candidate in candidates
+                    if candidate.action.name in reserve
+                ),
+                {
+                    candidate.action: deep[candidate.action.name]
+                    for candidate in candidates
+                },
+            )
         elif self.continuation == "frame":
             guidance_by_action = terminal_reachability_counts(
                 snapshot,
@@ -2738,6 +2762,24 @@ class NativeTerminalPolicy:
             reserve = self.kernel.certify_selected(
                 snapshot,
                 min(6, self.horizon),
+                tuple(candidate.action for candidate in hard),
+                collision_margin=0.35,
+            )
+            deep = self.kernel.terminal_counts(
+                snapshot,
+                hard,
+                4,
+                self.horizon,
+                collision_margin=0.35,
+            )
+            preferred = _deep_preferred_within(
+                frozenset(candidate.action for candidate in reserve),
+                deep,
+            )
+        elif self.metric == "constant-frontier-count":
+            reserve = self.kernel.certify_selected(
+                snapshot,
+                self.horizon,
                 tuple(candidate.action for candidate in hard),
                 collision_margin=0.35,
             )

@@ -53,9 +53,24 @@ class Solver:
         self.decision_budget_ms = decision_budget_ms
         self.clock = clock
         self.routes = routes or default_routes()
+        self._proposal_context: tuple[str, str, str] | None = None
 
     def reset_plan(self) -> None:
         self.ranker.reset_plan()
+        self._proposal_context = None
+
+    def _enter_proposal_context(
+        self,
+        route_id: str,
+        phase_id: str,
+        policy_state: str,
+    ) -> None:
+        """Keep a soft commitment inside the state that authored it."""
+        context = (route_id, phase_id, policy_state)
+        if context == self._proposal_context:
+            return
+        self.ranker.reset_plan()
+        self._proposal_context = context
 
     def observe(self, survived: bool) -> None:
         self.ranker.observe(survived)
@@ -264,6 +279,62 @@ class Solver:
             action for action, score in scores.items() if score == best
         )
 
+    def _constant_frontier_count_preferred(
+        self,
+        snapshot: Snapshot,
+        hard,
+        horizon: int,
+        budget_ms: float,
+    ) -> frozenset[Action] | None:
+        if horizon <= HARD_SAFETY_HORIZON:
+            return frozenset(candidate.action for candidate in hard)
+        started = self.clock()
+        reserve = self._certify_selected(
+            snapshot,
+            horizon,
+            tuple(candidate.action for candidate in hard),
+        )
+        if not reserve:
+            return frozenset()
+        remaining_ms = budget_ms - (self.clock() - started) * 1000.0
+        native = (
+            getattr(type(self.kernel), "terminal_guidance_budgeted", None)
+            if self.kernel is not None
+            else None
+        )
+        if native is not None:
+            if remaining_ms <= 0.0:
+                return None
+            guidance = native(
+                self.kernel,
+                snapshot,
+                reserve,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=remaining_ms,
+            )
+            if guidance is None:
+                return None
+        else:
+            guidance = terminal_guidance_scores(
+                snapshot,
+                reserve,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                continuation_actions=CONTROL_ACTIONS,
+            )
+        counts = {
+            action: value.terminal_count
+            for action, value in guidance.items()
+        }
+        best = max(counts.values(), default=0)
+        if best <= 0:
+            return frozenset()
+        return frozenset(
+            action for action, count in counts.items() if count == best
+        )
+
     def decide(
         self,
         snapshot: Snapshot,
@@ -337,6 +408,11 @@ class Solver:
                 ),
                 route_id=pack.route_id,
             )
+        self._enter_proposal_context(
+            pack.route_id,
+            intent.phase_id,
+            intent.policy_state,
+        )
         if intent.algorithm == "uncovered":
             return Decision(
                 None,
@@ -394,6 +470,17 @@ class Solver:
             preferred = frozenset(
                 candidate.action for candidate in constant
             )
+        elif intent.algorithm == "constant-frontier-count":
+            elapsed_ms = (self.clock() - started) * 1000.0
+            budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS
+            policy = self._constant_frontier_count_preferred(
+                snapshot, hard, intent.horizon, budget_ms
+            )
+            if policy is not None:
+                completed_horizon = intent.horizon
+                preferred = policy
+            else:
+                proposal_source = "constant-frontier-count-timeout-hold"
 
         if preferred and intent.target is not None:
             targeted = preferred_target_actions(hard, preferred, intent.target)

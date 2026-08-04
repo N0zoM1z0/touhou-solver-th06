@@ -988,3 +988,59 @@ physical promotion of one phase must not alter another phase's policy.
 
 After the run, release every input, stop the exact trial PID, and verify no
 `th06`, agent, or high-CPU process remains. Do not use a PTY.
+
+The rerun crossed the new sub12 t180 dispatch, selected sub14, and crossed both
+sub14 attacks. It then stopped default fail-close at f5765 with an empty Hard
+set, no HIT, and no Bomb. The terminal was an effect. At f5746--f5747 there
+were still twelve/ten constant-h10 actions, but `constant-frontier` treated
+them as an undifferentiated tie and selected slow down-left motion. The same
+fresh snapshots' terminal-count evidence uniquely selected
+`down_right_fast`; the selected route through the gap became consequential at
+f5747. By f5759 no constant-h10 action remained, and the later downward hold
+could no longer be repaired.
+
+This is a policy counterexample rather than missing source physics. Under the
+already source-proved shaping that removes only the active boss-removal
+timeline wait, all 255 retained adjacent pairs match player attack, combat,
+enemy damage, RNG, Rank, item, Power, and graze state. They include 128 hostile
+births, 19,093 mature-bullet steps, 4,010 spawning steps, 106 player-shot
+births, 4,058 shot steps, and 37 boss-life changes, with no unsupported shaped
+transition. The shaping remains invalid after boss retirement.
+
+The corrected phase primitive is `constant-frontier-count`: first retain the
+full unchanged-action reserve at the route-selected horizon, then rank only
+inside that reserve by deduplicated terminal reachable-state count. It does
+not add an action to Hard and has no frame, coordinate, bullet-count, or
+counterexample branch. The phase uses h12. From exact sub14 entry f5630, h8
+survived 57/64 complete delivery sequences; h10 and h12 survived 64/64. H12
+raised mean/worst minimum clearance to 10.033/1.329 versus h10's 8.390/0.569.
+The heavier full-control replanning h8 also survived 64/64 but had lower
+8.505/0.938 clearance and substantially greater sweep cost.
+
+The high-pressure diagnostic derived 59 complete worlds through 4,410 varied
+Hard-safe warmup updates and 2,784 source births, spanning 50 enemy-combat, 59
+player-attack, and 35 RNG states. Both h10 count-clearance and the new primitive
+survived 61/64 fifty-frame recovery trials. The three shared stops were traced:
+two delivery seeds restart from the same f5748 state where every tested metric
+and h6/h8/h10/h12 horizon has only the same `down_fast` first proposal, while
+the third is horizon-sensitive and is recoverable at h8/h12. These arbitrary
+late roots are retained as stress evidence; they do not replace the correct
+entry-to-boundary test because their warmup policy may already have entered an
+unrecoverable state.
+
+Production `Solver` now resets soft ranker commitment whenever `(route_id,
+phase_id, policy_state)` changes, so a previous source state cannot leak into
+the next one. An actual-Solver f5630-to-t200 closed loop survived 16/16 delivery
+sequences. Across 2,041 fresh decisions it measured 8.334 ms median, 10.685 ms
+p90, 12.902 ms p99, and 13.229 ms maximum. Seventy-four soft h12 queries missed
+their internal budget and correctly became `constant-frontier-count-timeout-
+hold`; fresh Hard eligibility was unchanged and every sequence survived.
+
+Linux validation is 273 tests plus 217 subtests passed with 25 native skips.
+Windows/native validation is 298 tests passed. The next experiment is a new
+ordinary-RNG, default fail-close Practice Stage 1 run. Success means crossing
+sub14 to its t200 dispatch and stopping alive at the stable sub13/sub12/sub15
+destination (unless the life callback fires first), with no HIT, Bomb, stale
+authority loss, or earlier stop. Recheck shaped adjacent parity and diagnose
+the earliest consequential state if it fails. Release input and stop the exact
+PID afterward.

@@ -1141,6 +1141,47 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(chosen, right)
         self.assertEqual(certify.call_args_list[1].args[1], 6)
 
+    def test_constant_frontier_count_excludes_deep_winner_outside_reserve(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        down = next(
+            action for action in CONTROL_ACTIONS if action.name == "down"
+        )
+        hard = mock.Mock(
+            actions=tuple(action.name for action in CONTROL_ACTIONS),
+            terminal_positions=tuple(
+                (action.name, snapshot.x, snapshot.y)
+                for action in CONTROL_ACTIONS
+            ),
+        )
+        reserve = mock.Mock(actions=(right.name, left.name))
+        counts = {action.name: 1 for action in CONTROL_ACTIONS}
+        counts[right.name] = 3
+        counts[left.name] = 2
+        counts[down.name] = 10
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.certify_linear_source",
+            side_effect=(hard, reserve),
+        ), mock.patch(
+            "th06.barrage_lab.stateful.source_terminal_counts",
+            return_value=mock.Mock(counts=tuple(counts.items())),
+        ):
+            chosen = ExactTerminalPolicy(
+                10, metric="constant-frontier-count"
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+
     def test_local_count_vector_keeps_the_earliest_complete_rung_primary(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         snapshot = replace(

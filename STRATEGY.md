@@ -83,6 +83,12 @@ their primitive/horizon/target. A callback-, RNG-, or resource-conditioned
 boss phase may use a private richer machine behind the same intent contract.
 It must not add another common-solver branch.
 
+A soft commitment is owned by its `(route, phase, policy-state)` tuple and is
+discarded when that tuple changes. Carrying the preceding state's proposal
+into a new state violates phase isolation and makes an offline fresh-state
+comparison differ from online execution. The newly selected state may commit
+again only from its own fresh proposal inside current Hard authority.
+
 The policy may use phase-specific corridors, safespots, streaming rules,
 damage alignment, item/Power value, future event timing, RNG-conditioned
 branches, beam search, dynamic programming, or a tiny native evaluator. It
