@@ -1,12 +1,13 @@
 import struct
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from unittest import mock
 
 from th06.barrage_lab.assets import (
     Pbg3Archive,
     parse_ecl_bullet_opcodes,
 )
+from th06.barrage_lab.corpus import decode_snapshot
 from th06.barrage_lab.generator import (
     generate_barrage_births,
     generate_barrage_case,
@@ -42,7 +43,7 @@ from th06.barrage_lab.stateful import (
     _terminal_rungs,
 )
 from th06.hazards.bullets import hazard_box
-from th06.model import CONTROL_ACTIONS, Bullet
+from th06.model import CONTROL_ACTIONS, Bullet, EclInstruction
 
 
 class BitWriter:
@@ -132,6 +133,23 @@ def pbg3_bytes(name, payload):
 
 
 class BarrageLabTests(unittest.TestCase):
+    def test_runtime_decoder_restores_hashable_future_ecl_program(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        state = generate_barrage_case((opcode,), 7, target_bullets=1).snapshot
+        sentinel = EclInstruction(
+            0x1000, -1, -1, 12, 0xFF, bytes(12).hex()
+        )
+        decoded = decode_snapshot(asdict(replace(
+            state,
+            ecl_subroutines=(sentinel.address,),
+            timeline_ecl_program=(sentinel,),
+            timeline_message_delays=((2, 240),),
+        )))
+
+        self.assertIsInstance(decoded.timeline_ecl_program, tuple)
+        self.assertIsInstance(decoded.timeline_message_delays[0], tuple)
+        self.assertEqual(hash(decoded.timeline_ecl_program), hash((sentinel,)))
+
     def test_source_archive_and_ecl_catalogue(self):
         archive = Pbg3Archive(pbg3_bytes("test.ecl", ecl_bytes()))
         self.assertEqual([entry.name for entry in archive.entries], ["test.ecl"])

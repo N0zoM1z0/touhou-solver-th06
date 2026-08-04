@@ -34,12 +34,22 @@ def decode_snapshot(raw: dict) -> Snapshot:
             **{
                 **item,
                 "ecl_compare": item.get("ecl_compare", 0),
+                "ecl_ints": tuple(item.get("ecl_ints", ())),
+                "ecl_floats": tuple(item.get("ecl_floats", ())),
                 "ecl_stack": tuple(
-                    EnemyEclContext(**context)
+                    EnemyEclContext(**{
+                        **context,
+                        "ints": tuple(context["ints"]),
+                        "floats": tuple(context["floats"]),
+                    })
                     for context in item.get("ecl_stack", ())
                 ),
                 "pattern": (
-                    BulletPattern(**item["pattern"])
+                    BulletPattern(**{
+                        **item["pattern"],
+                        "ex_floats": tuple(item["pattern"]["ex_floats"]),
+                        "ex_ints": tuple(item["pattern"]["ex_ints"]),
+                    })
                     if item.get("pattern") is not None
                     else None
                 ),
@@ -52,6 +62,14 @@ def decode_snapshot(raw: dict) -> Snapshot:
                     EclInstruction(**instruction)
                     for instruction in item.get("ecl_program", ())
                 ),
+                "ecl_subroutines": tuple(item.get("ecl_subroutines", ())),
+                "bullet_effect_floats": tuple(
+                    item.get("bullet_effect_floats", (0.0,) * 4)
+                ),
+                "bullet_effect_ints": tuple(
+                    item.get("bullet_effect_ints", (0,) * 4)
+                ),
+                "interrupts": tuple(item.get("interrupts", (-1,) * 8)),
             }
         )
         for item in values.get("spawners", ())
@@ -60,6 +78,23 @@ def decode_snapshot(raw: dict) -> Snapshot:
         StageTimelineInstruction(**item)
         for item in values.get("timeline_instructions", ())
     )
+    values["timeline_ecl_program"] = tuple(
+        EclInstruction(**item)
+        for item in values.get("timeline_ecl_program", ())
+    )
+    for field in (
+        "bullet_sizes",
+        "timeline_message_delays",
+    ):
+        values[field] = tuple(
+            tuple(item) for item in values.get(field, ())
+        )
+    for field in (
+        "ecl_subroutines",
+        "timeline_emitter_subs",
+        "timeline_boss_subs",
+    ):
+        values[field] = tuple(values.get(field, ()))
     return Snapshot(**values)
 
 
