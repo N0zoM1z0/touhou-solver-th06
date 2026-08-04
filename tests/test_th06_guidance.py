@@ -1809,6 +1809,28 @@ class TerminalGuidanceTests(unittest.TestCase):
         self.assertIsNone(solver.pending_target_action)
         self.assertEqual(solver.guidance_target, (80.0, 120.0))
 
+    def test_arrived_target_completes_during_input_lease(self):
+        state = snapshot(x=80.0, y=120.0, input_mask=0x84)
+        hard = tuple(
+            SafeAction(action, 10.0, state.x, state.y)
+            for action in ACTIONS
+        )
+        clock = ManualClock()
+        solver = Solver(decision_budget_ms=100.0, clock=clock)
+        solver.kernel = GuidanceKernel(clock, hard)
+        solver.backend = "test"
+        solver.guidance_target = (80.0, 120.0)
+        solver.guidance_deadline = state.frame + 16
+
+        leased = solver.decide(
+            state,
+            required_action=ACTION_BY_NAME["right"],
+        )
+
+        self.assertEqual(leased.reason, "ok")
+        self.assertIsNone(solver.guidance_target)
+        self.assertIsNone(solver.guidance_deadline)
+
     def test_progressive_survival_can_publish_optional_pending_target(self):
         state = snapshot(x=192.0, y=380.0)
         hard = tuple(

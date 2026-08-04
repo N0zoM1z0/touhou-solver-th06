@@ -1329,6 +1329,17 @@ class Solver:
             and snapshot.frame >= self.guidance_deadline
         ):
             self._clear_target()
+        if self.guidance_target is not None:
+            target_x, target_y = self.guidance_target
+            if (
+                abs(snapshot.x - target_x) <= snapshot.half_width
+                and abs(snapshot.y - target_y) <= snapshot.half_height
+            ):
+                # A guidance point is a soft terminal waypoint, not a place
+                # to orbit until its deadline.  Native pickup can reach it on
+                # an input-lease snapshot, so complete it before the lease
+                # fast path and let the next fresh survival decision rerank.
+                self._clear_target()
         if snapshot.in_menu:
             self._clear_target()
             self.pending_target_action = None
