@@ -642,6 +642,35 @@ opcode 47 pending, 88 bullets and two active lasers. Audit the post-RunEcl
 death-callback publication and following SpellEnd conversion as its own
 source transition before authoring the rest of sub6.
 
+That source audit is now implemented as a physical candidate, not yet
+promoted. `ECL_OPCODE_SPELLCARDEND` is no longer treated as nominally neutral:
+when the captured spell is active, the exact combat world applies
+`DespawnBullets(12800, 1)` in ECL order. Every occupied bullet produces a
+state-1 Point item and becomes state 5; every active laser produces the
+source's separate origin item plus its 32-pixel offset walk, resets to
+state 2/timer 0, and clears its hitbox-end delay. ItemManager then advances
+the allocated items before BulletManager moves the converted bullets at half
+velocity and advances the retiring lasers. Hard forecasting remains
+conservative and does not remove a current hazard because of this soft exact
+transition.
+
+On exact f3499, the nominal prediction for the following root is f3500/sub6
+local t1 with no active bullets, 88 despawning bullets, both lasers at
+state 2/timer 1, and 127 live item slots 113--239: 122 Point items, one Big
+Power, and four Small Power. DROPITEMS consumes the expected 20 RNG
+generations, from 3764 to 3784, and Power remains 8. All 18 actions are still
+Hard-4 certified under the conservative hazard world. Only exact
+sub6/t0/spell-active is authored as one-frame `spell-end-conversion`; sub6 t1
+remains uncovered.
+
+Run ordinary RNG/default fail-close next. The expected stop is complete sub6
+t1 immediately after this conversion. Promotion requires exact adjacent
+parity for the ECL instruction pointer/time, 88 state-5 positions/timers, both
+laser transitions, item slot order/type/motion, RNG, Power, player attack,
+and player state. Do not infer the state-5 tail from this first update: the
+donut ANM VM is not captured, so subsequent despawning-bullet lifetime remains
+unsupported.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

@@ -1072,3 +1072,27 @@ position and kill tempo, that is positive evidence for stage-conditioned
 soft policy.  If their apparent progress crosses states that current Hard
 cannot yet model, the next work remains source coverage.  In either case the
 result does not justify a counterexample branch in the main solver.
+
+## Exact active SpellEnd transition (2026-08-04)
+
+Opcode 94 was previously classified as hazard-neutral because hazard removal
+is conservative for Hard safety. That classification was insufficient for the
+stateful nominal world: an active SpellEnd has observable item allocation,
+RNG/resource consequences, bullet state-5 motion, laser retirement, and
+attack-state effects in the same update.
+
+The shared nominal combat step now implements the authoritative active
+`DespawnBullets(12800, 1)` boundary. It preserves Hard's conservative behavior,
+but the exact world converts every captured active/spawning bullet to state 5,
+allocates its Point item in bullet-slot order, reproduces the laser origin plus
+32-pixel item walk, resets active lasers, and advances ItemManager and
+BulletManager in source order. A converted bullet's first state-5 update is
+exact because its donut animation starts on that update; an already
+despawning input is still rejected because its uncaptured ANM VM can decide
+retirement. Same-frame hostile bullet births at a spell boundary also remain
+rejected until their before/after instruction order is represented explicitly.
+
+The retained Stage 1 f3499 world closes for one update and predicts 88
+despawning bullets, two state-2/timer-1 lasers, 127 item slots, and the exact
+DROPITEMS RNG/type split. This is source plus offline evidence only. Physical
+f3499-to-f3500 parity is the required falsifier before route promotion.

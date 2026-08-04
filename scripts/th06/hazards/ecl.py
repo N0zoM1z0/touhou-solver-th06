@@ -364,7 +364,6 @@ class HardLaserWorld:
 HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_BULLET_CANCEL,
     OPCODE_BULLET_SOUND,
-    OPCODE_SPELL_END,
     OPCODE_ANIMATION_MAIN,
     OPCODE_ANIMATION_POSES,
     OPCODE_ANIMATION_SLOT,
@@ -396,7 +395,8 @@ MODELLED_ECL_OPCODES = frozenset(
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
      OPCODE_LASER_CREATE, OPCODE_LASER_CREATE_AIMED, OPCODE_LASER_INDEX,
      OPCODE_LASER_CANCEL,
-     OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
+     OPCODE_SPELL_START, OPCODE_SPELL_END,
+     OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
      OPCODE_DAMAGEABLE_FLAG,
      OPCODE_DEATH_FLAG,
      OPCODE_ANIMATION_DEATH, OPCODE_SPELL_EFFECT, OPCODE_EFFECT_PARTICLE,
@@ -2165,6 +2165,19 @@ def _forecast_ecl_births_single(
                 rank_speed_high = 0.5
                 rank_amount1_low = rank_amount1_high = 0
                 rank_amount2_low = rank_amount2_high = 0
+            elif instruction.opcode == OPCODE_SPELL_END:
+                # Hard worlds retain current hazards conservatively.  The
+                # exact nominal combat world applies DespawnBullets, including
+                # point-item allocation and the same-frame bullet/laser pass.
+                spell_end = getattr(laser_world, "spell_end", None)
+                if spell_end is not None:
+                    if rng is None:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "nominal spell end needs exact RNG/allocation state",
+                        )
+                    spell_end(rng)
             elif instruction.opcode == OPCODE_LIFE_SET:
                 life = struct.unpack_from("<i", raw, 0x0C)[0]
                 life_lower_bound = life

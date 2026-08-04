@@ -397,6 +397,36 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(impossible_tail.algorithm, "uncovered")
         self.assertEqual(impossible_tail.policy_state, "uncovered")
 
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[6] + 0x10
+        )
+        boss.ecl_time = 0
+        spell_end = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3499,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(spell_end.algorithm, "target-only")
+        self.assertEqual(spell_end.policy_state, "spell-end-conversion")
+        self.assertEqual(spell_end.horizon, 4)
+        self.assertEqual(spell_end.commitment_frames, 1)
+        self.assertEqual(spell_end.target, (192.0, 380.0))
+        self.assertEqual(
+            spell_end.phase_id,
+            "boss:0:sub6:life_cb9:timer_cb6:spell",
+        )
+
+        boss.ecl_time = 1
+        spell_end_tail = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3500,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=False),
+        ))
+        self.assertEqual(spell_end_tail.algorithm, "uncovered")
+        self.assertEqual(spell_end_tail.policy_state, "uncovered")
+
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")
         self.assertEqual(

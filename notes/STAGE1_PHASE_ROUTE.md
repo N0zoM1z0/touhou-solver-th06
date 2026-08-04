@@ -727,3 +727,38 @@ laser removals are exact. The f3499 boundary is alive at
 `(178.402,374.108)`, Power 8, with 88 bullets and two lasers; sub6 is local t0
 with boss life 0/interactable false and opcode 47 still pending. The attack-
 tempo repair is now physically promoted.
+
+## sub6 SpellEnd conversion candidate
+
+The f3499 state is a complete source boundary, not a torn callback snapshot.
+The preceding EnemyManager pass installed death-callback sub6 after RunEcl,
+so local t0/opcode 47 remains pending while the globally published spell is
+still active. On the following update sub6 executes opcode 47, opcode 94
+`SPELLCARDEND`, sound/interval/drop/flag instructions, and leaves the next
+instruction at local t40.
+
+Authoritative `DespawnBullets(12800, 1)` differs materially from spell-start
+`RemoveAllBullets(true)`. It iterates all 640 bullet slots and skips only
+unused slots, awards a Point item for every occupied slot, and changes the
+bullet to state 5 without clearing it or resetting its timer. For each live
+laser below state 2 it allocates a separate item at the laser origin, then one
+item at every 32-pixel offset starting at `startOffset`; with zero start offset
+the origin is therefore allocated twice. It resets the laser to state 2/timer
+0 and clears `hitboxEndDelay`. The same priority-11 BulletManager update first
+runs ItemManager, then moves each state-5 bullet by half velocity and advances
+the laser retirement state.
+
+The exact offline f3499 transition predicts f3500/sub6 t1 with 88 state-5
+bullets, both lasers at state 2/timer 1, and 127 live items in slots 113--239.
+The item types are 122 Point, one Big Power, and four Small Power; the last
+five are the source `DROPITEMS 5` and account for RNG generation 3764 to 3784.
+All items receive their same-frame ItemManager update. No active hostile
+bullet remains in the exact nominal world, while the common Hard world keeps
+the old hazards conservatively during certification.
+
+The route candidate opens only exact sub6/t0/spell-active, uses the ordinary
+target-only Hard-4 proposal for one frame, and then exposes sub6/t1 as
+uncovered. A focused source regression covers the conversion/allocation/half-
+velocity ordering. The next default physical run must validate the entire
+adjacent transition before this state is promoted. Later state-5 lifetime is
+not modeled because the captured bullet record lacks the donut ANM VM.

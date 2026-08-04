@@ -769,6 +769,99 @@ class PlayerAttackTests(unittest.TestCase):
             (2, 0, 0),
         )
 
+    def test_spell_end_despawns_bullets_and_awards_laser_points_in_one_pass(self):
+        spell_end_raw = struct.pack(
+            "<ihhBBBB", 0, 94, 12, 0, 4, 0, 0
+        )
+        spell_end = EclInstruction(
+            0x1000, 0, 94, 12, 4, spell_end_raw.hex()
+        )
+        wait_raw = struct.pack(
+            "<ihhBBBB", 999, 0, 12, 0, 4, 0, 0
+        )
+        wait = EclInstruction(
+            0x100C, 999, 0, 12, 4, wait_raw.hex()
+        )
+        source = source_enemy_template(
+            (spell_end, wait), (spell_end.address,), 0, 50.0, 50.0, 10
+        )
+        self.assertIsNotNone(source)
+        bullet = Bullet(
+            x=100.0,
+            y=100.0,
+            vx=2.0,
+            vy=4.0,
+            half_width=3.0,
+            half_height=3.0,
+            state=1,
+            timer=7,
+            timer_float=7.0,
+            slot=3,
+        )
+        laser = Laser(
+            x=50.0,
+            y=50.0,
+            angle=0.0,
+            start_offset=0.0,
+            end_offset=65.0,
+            start_length=100.0,
+            width=16.0,
+            speed=0.0,
+            start_time=0,
+            hitbox_start_time=0,
+            duration=60,
+            despawn_duration=10,
+            hitbox_end_delay=5,
+            timer=7,
+            timer_float=7.0,
+            flags=0,
+            state=1,
+            slot=4,
+        )
+        attack = replace(_attack_with_shot(1, spell=True), shots=())
+        root = replace(
+            _snapshot(attack),
+            bullets=(bullet,),
+            lasers=(laser,),
+            laser_count=1,
+            spawners=(replace(source, slot=0),),
+            item_next_index=0,
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        following = step_nominal_battle_world(root, stay)
+
+        self.assertEqual(following.bullets, ())
+        self.assertEqual(len(following.despawning_bullets), 1)
+        despawning = following.despawning_bullets[0]
+        self.assertEqual(
+            (despawning.slot, despawning.state, despawning.x, despawning.y),
+            (3, 5, 101.0, 102.0),
+        )
+        self.assertEqual((despawning.timer, despawning.timer_float), (8, 8.0))
+        self.assertEqual(len(following.lasers), 1)
+        self.assertEqual(
+            (
+                following.lasers[0].state,
+                following.lasers[0].timer,
+                following.lasers[0].hitbox_end_delay,
+            ),
+            (2, 1, 0),
+        )
+        # One bullet item, one explicit laser-origin item, and the source
+        # offset walk at 0/32/64. The zero offset duplicates the origin.
+        self.assertEqual(
+            [item.slot for item in following.item_states],
+            [0, 1, 2, 3, 4],
+        )
+        self.assertTrue(all(
+            (item.item_type, item.state, item.timer) == (6, 1, 1)
+            for item in following.item_states
+        ))
+        self.assertEqual(following.item_next_index, 5)
+        self.assertFalse(following.player_attack.spell_active)
+        self.assertEqual(following.rng_generation, root.rng_generation)
+
     def test_ecl_laser_birth_joins_same_frame_bullet_manager_pass(self):
         raw = struct.pack(
             "<ihhBBBBhhffffffiiiiii",

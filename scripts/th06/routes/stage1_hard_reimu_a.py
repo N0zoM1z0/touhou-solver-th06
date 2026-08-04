@@ -343,6 +343,24 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             "Stage 1 sub9 spell reached an ECL clock beyond the source "
             "t331 cycle rewind",
         )
+    if (
+        ecl_subroutine_index(boss) == 6
+        and spell_active
+        and boss.ecl_time == 0
+    ):
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="spell-end-conversion",
+            algorithm="target-only",
+            horizon=4,
+            target=BOTTOM_CENTER,
+            commitment_frames=1,
+            provenance=(
+                "physical f3499 post-death-callback root; source opcode 94 "
+                "converts every occupied bullet and both active lasers "
+                "before their same-update manager pass"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 midboss source state outside the audited sub8 control "

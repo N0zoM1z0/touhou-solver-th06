@@ -683,7 +683,9 @@ class _NominalCombatStep:
                 "nominal combat needs unique exact source bullet slots"
             )
         self.cancelled_bullet_slots: frozenset[int] = frozenset()
+        self.despawned_bullet_slots: frozenset[int] = frozenset()
         self.spell_started = False
+        self.spell_ended = False
         self.lasers = {laser.slot: laser for laser in snapshot.lasers}
         if (
             len(self.lasers) != len(snapshot.lasers)
@@ -722,9 +724,9 @@ class _NominalCombatStep:
 
     def spell_start(self, rng: RngState) -> None:
         """Apply ECL opcode 93's source bullet/laser point conversion."""
-        if self.spell_started:
+        if self.spell_started or self.spell_ended:
             raise UnsupportedStatefulModel(
-                "multiple spell starts in one nominal source update"
+                "multiple spell boundaries in one nominal source update"
             )
         self.spell_started = True
         self.attack = replace(self.attack, spell_active=True)
@@ -739,6 +741,54 @@ class _NominalCombatStep:
         for slot in sorted(self.lasers):
             laser = self.lasers[slot]
             if laser.state < 2:
+                sine = _f32(math.sin(laser.angle))
+                cosine = _f32(math.cos(laser.angle))
+                offset = _f32(laser.start_offset)
+                while laser.end_offset > offset:
+                    self.spawn_item(
+                        (
+                            _f32(cosine * offset + laser.x),
+                            _f32(sine * offset + laser.y),
+                        ),
+                        6,
+                        1,
+                        rng,
+                    )
+                    offset = _f32(offset + 32.0)
+                laser = replace(
+                    laser,
+                    state=2,
+                    timer=0,
+                    timer_float=0.0,
+                )
+            self.lasers[slot] = replace(laser, hitbox_end_delay=0)
+
+    def spell_end(self, rng: RngState) -> None:
+        """Apply active ECL opcode 94's DespawnBullets conversion."""
+        if not self.attack.spell_active:
+            return
+        if self.spell_started or self.spell_ended:
+            raise UnsupportedStatefulModel(
+                "multiple spell boundaries in one nominal source update"
+            )
+        self.spell_ended = True
+        self.attack = replace(self.attack, spell_active=False)
+        for bullet in self.source_bullets:
+            # DespawnBullets differs from RemoveAllBullets(true): every
+            # occupied slot receives a point item and remains allocated in
+            # the DESPAWNING state for BulletManager's later same-frame pass.
+            self.spawn_item((bullet.x, bullet.y), 6, 1, rng)
+        self.despawned_bullet_slots = frozenset(
+            bullet.slot for bullet in self.source_bullets
+        )
+
+        for slot in sorted(self.lasers):
+            laser = self.lasers[slot]
+            if laser.state < 2:
+                # DespawnBullets emits a separate origin item, then starts
+                # its 32-pixel walk at startOffset.  At startOffset zero the
+                # source therefore allocates two items at the laser origin.
+                self.spawn_item((laser.x, laser.y), 6, 1, rng)
                 sine = _f32(math.sin(laser.angle))
                 cosine = _f32(math.cos(laser.angle))
                 offset = _f32(laser.start_offset)
@@ -1375,6 +1425,22 @@ def _step_hostile_bullets_after_effects(
     despawning: list[Bullet] = []
     player_state = snapshot.player_state
     for bullet in bullets:
+        if bullet.state == 5:
+            if bullet.slot not in combat.despawned_bullet_slots:
+                raise UnsupportedStatefulModel(
+                    "despawning bullet animation state is not captured"
+                )
+            # A bullet converted by DespawnBullets before this manager pass
+            # executes the first donut-animation update after moving at half
+            # velocity.  The source does not reset its ordinary bullet timer.
+            despawning.append(_copy_bullet(
+                bullet,
+                x=_f32(bullet.x + _f32(bullet.vx / 2.0)),
+                y=_f32(bullet.y + _f32(bullet.vy / 2.0)),
+                timer=bullet.timer + 1,
+                timer_float=_f32(bullet.timer_float + 1.0),
+            ))
+            continue
         advanced = step_bullet(bullet, player)
         if advanced.state != 1:
             active.append(advanced)
@@ -1584,7 +1650,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
     """Advance bullets, live ECL emitters, and simple stage timeline state.
 
     This is the source-shaped offline battle rung.  It deliberately rejects
-    lasers, despawning bullets, and an active message/boss timeline wait.
+    pre-existing despawning bullets and an active message/boss timeline wait.
     Captured Reimu-A rank-9 roots also advance player shots, damage, death,
     callbacks, pool capacity, and their same-frame RNG consequences. Other
     attack states retain the older exploratory nominal behavior. This remains
@@ -1659,19 +1725,30 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             forecast.reason or "nominal battle world has no continuation"
         )
 
-    if combat is not None and combat.spell_started and forecast.births[0]:
-        # Bullet allocation and opcode-93 cancellation share the live source
-        # pool. The compact birth forecast does not yet retain whether each
-        # same-frame birth executed before or after SPELLCARDSTART, so refuse
-        # that ordering instead of silently cancelling or retaining it.
+    if (
+        combat is not None
+        and (combat.spell_started or combat.spell_ended)
+        and forecast.births[0]
+    ):
+        # Bullet allocation and a spell-boundary conversion share the live
+        # source pool. The compact birth forecast does not yet retain whether
+        # each same-frame birth executed before or after opcode 93/94, so
+        # refuse that ordering instead of silently converting or retaining it.
         raise UnsupportedStatefulModel(
-            "spell start with same-frame bullet births needs ECL ordering"
+            "spell boundary with same-frame bullet births needs ECL ordering"
         )
 
     bullets = [
         bullet for bullet in snapshot.bullets
         if combat is None or bullet.slot not in combat.cancelled_bullet_slots
     ]
+    if combat is not None and combat.despawned_bullet_slots:
+        bullets = [
+            _copy_bullet(bullet, state=5)
+            if bullet.slot in combat.despawned_bullet_slots
+            else bullet
+            for bullet in bullets
+        ]
     used_slots = {bullet.slot for bullet in bullets if bullet.slot >= 0}
     if len(used_slots) != len(bullets):
         raise UnsupportedStatefulModel("bullet slots must be unique and known")
