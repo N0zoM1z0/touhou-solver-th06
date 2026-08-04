@@ -589,6 +589,74 @@ class PlayerAttackTests(unittest.TestCase):
         self.assertEqual(graze_combat.post_effect_ids, [8])
         self.assertEqual(graze_rng.generation_count, 1)
 
+    def test_reaching_full_power_converts_live_laser_points_in_pool_order(self):
+        attack = _attack_with_shot(1)
+        power_item = ItemState(
+            slot=0,
+            x=192.0,
+            y=402.2,
+            start_x=0.0,
+            start_y=-2.2,
+            target_x=0.0,
+            target_y=0.0,
+            timer_previous=9,
+            timer=10,
+            timer_float=10.0,
+            item_type=0,
+            state=0,
+        )
+        laser = Laser(
+            x=100.0,
+            y=100.0,
+            angle=0.0,
+            start_offset=0.0,
+            end_offset=65.0,
+            start_length=100.0,
+            width=16.0,
+            speed=0.0,
+            start_time=0,
+            hitbox_start_time=0,
+            duration=60,
+            despawn_duration=10,
+            hitbox_end_delay=5,
+            timer=7,
+            timer_float=7.0,
+            flags=0,
+            state=1,
+            slot=4,
+        )
+        root = replace(
+            _snapshot(attack),
+            current_power=127,
+            item_states=(power_item,),
+            item_active_upper_bound=1,
+            item_next_index=1,
+            lasers=(laser,),
+            laser_count=1,
+        )
+        combat = _NominalCombatStep(root, attack)
+        lasers = [laser]
+
+        following = _step_items_after_effects(
+            combat,
+            (root.x, root.y),
+            root.player_state,
+            root,
+            lasers=lasers,
+            rng=RngState(0x1234, 0),
+        )
+
+        self.assertEqual(following, (0, 1, 128))
+        self.assertEqual(tuple(combat.items), (1, 2, 3))
+        self.assertTrue(all(
+            (item.item_type, item.state, item.timer) == (6, 1, 1)
+            for item in combat.items.values()
+        ))
+        self.assertEqual(
+            (lasers[0].state, lasers[0].timer, lasers[0].hitbox_end_delay),
+            (2, 0, 0),
+        )
+
     def test_ecl_laser_birth_joins_same_frame_bullet_manager_pass(self):
         raw = struct.pack(
             "<ihhBBBBhhffffffiiiiii",

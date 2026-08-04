@@ -1133,10 +1133,6 @@ def _step_items_after_effects(
             raise UnsupportedStatefulModel(
                 "full-power conversion needs exact item allocation state"
             )
-        if lasers:
-            raise UnsupportedStatefulModel(
-                "full-power laser-to-item conversion is not yet modeled"
-            )
         retained_bullets = []
         for bullet in sorted(bullets, key=lambda value: value.slot):
             if bullet.state == 5:
@@ -1146,6 +1142,30 @@ def _step_items_after_effects(
                 (bullet.x, bullet.y), 6, 1, rng
             )
         bullets[:] = retained_bullets
+        lasers[:] = sorted(lasers, key=lambda value: value.slot)
+        for index, laser in enumerate(lasers):
+            if laser.state < 2:
+                sine = _f32(math.sin(laser.angle))
+                cosine = _f32(math.cos(laser.angle))
+                offset = _f32(laser.start_offset)
+                while laser.end_offset > offset:
+                    combat.spawn_item(
+                        (
+                            _f32(cosine * offset + laser.x),
+                            _f32(sine * offset + laser.y),
+                        ),
+                        6,
+                        1,
+                        rng,
+                    )
+                    offset = _f32(offset + 32.0)
+                laser = replace(
+                    laser,
+                    state=2,
+                    timer=0,
+                    timer_float=0.0,
+                )
+            lasers[index] = replace(laser, hitbox_end_delay=0)
 
     # Source iterates the live array.  A conversion-created point item in a
     # later slot is updated in this same pass; one allocated into an already
@@ -1556,7 +1576,9 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         forecast.continuation.rng_generation,
     )
     if combat is not None:
-        laser_state = list(combat.lasers.values())
+        laser_state = [
+            combat.lasers[slot] for slot in sorted(combat.lasers)
+        ]
         rank, subrank, current_power = _step_items_after_effects(
             combat,
             (x, y),

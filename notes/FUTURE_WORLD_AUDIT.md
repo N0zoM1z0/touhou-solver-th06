@@ -757,3 +757,16 @@ slots without a pointer-layout, phase, or coherence failure.  All inputs were
 released, exact PID 55288 was stopped, and no game, agent, or high-CPU worker
 remained.  This is capture/integration evidence, not a Stage clear and not
 physical parity for a future laser creation event.
+
+The same shared pool closes the previously explicit full-Power laser gap.
+`RemoveAllBullets(true)` changes each live laser below state 2 to state 2,
+resets its timer, emits one state-1 Point item at every 32-unit offset in the
+half-open `[startOffset, endOffset)` beam segment, and sets
+`hitboxEndDelay = 0`; already-despawning lasers emit no items but still lose
+their hitbox delay.  Allocation uses laser pool order and the live ItemManager
+loop, so newly allocated later item slots advance during that same update.
+The focused 65-unit regression produces offsets 0, 32, and 64 in item slots
+1--3, all at state 1/timer 1, while the source laser reaches state 2/timer 0
+before its later BulletManager pass.  This boundary still lacks a naturally
+captured 127-to-128 physical transition and therefore retains source/unit,
+not physical-parity, status.
