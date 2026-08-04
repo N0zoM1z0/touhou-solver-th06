@@ -101,8 +101,13 @@ cost 16.762 ms median/27.718 ms maximum, caused 17 stale publications and 46
 timeouts, then missed a downward correction while holding `up`. Stateful
 physical-battle replay kept h8/h12/h16 alive for 32 frames on the retained
 roots, but h8 used fewer commands, had better mean minimum clearance than h12,
-and produced the missed f1320 downward correction. The phase is now changed
-to h8; this has not yet been physically rerun.
+and produced the missed f1320 downward correction. Its h8 rerun crossed the
+old boundary with 317 decisions, zero stale results, zero timeouts, and 5.926
+ms median solve time. The next stop was alive at f1615 in
+`timeline:t1514:sub10`: h12 measured 19.785 ms median with 10 stale results and
+18 timeouts. Offline retained-root replay kept all compared horizons alive for
+32 frames, while h8 used materially fewer commands. t1514 is now changed to
+h8 and awaits physical rerun.
 
 ## Immediate experiment
 

@@ -126,3 +126,13 @@ history. On f1290/f1300/f1310/f1313 roots, h8, h12, and h16 each survived the
 h12 proposed `down_right`; the physical h12 query timed out and published
 neither. The smallest falsifier is therefore phase-local h8, not a new common
 fallback or a weakened Hard set.
+
+The h8 physical rerun crossed the old f1329 boundary. Across 317 t1004
+decisions it recorded zero stale publications and zero policy timeouts, with
+5.926 ms median solve time. It next stopped alive at f1615 in
+`timeline:t1514:sub10`, again with no HIT or Bomb. That phase's h12 placeholder
+measured 19.785 ms median, produced 10 stale publications and 18 timeouts, and
+missed its late correction window. On seven retained f1568--f1607 battle
+roots, h8/h12/h16 all survived 32 frames; h8 used 2.64 mean commands versus
+h12's 4.50 and h16's 8.93. The next phase-local falsifier changes only t1514
+to h8.

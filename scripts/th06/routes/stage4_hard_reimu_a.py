@@ -37,7 +37,11 @@ TIMELINE_PHASES = (
     # f1329 stop.  Stateful replay on the retained f1290--f1327 battle roots
     # kept h8 alive while publishing the missed downward f1320 correction.
     TimelinePhase(1004, "timeline:t1004:subs2-3", 8, (192.0, 380.0)),
-    TimelinePhase(1514, "timeline:t1514:sub10", 12, (192.0, 380.0)),
+    # The next physical run crossed t1004 with zero stale results, then
+    # measured this h12 section at 19.79 ms median with 10 stale publications
+    # and 18 timeouts before f1615.  Retained battle roots keep h8 alive for
+    # 32 frames with 2.64 mean commands versus h12's 4.50.
+    TimelinePhase(1514, "timeline:t1514:sub10", 8, (192.0, 380.0)),
     TimelinePhase(1878, "timeline:t1878:subs3-2", 12, (192.0, 380.0)),
     TimelinePhase(2388, "timeline:t2388:subs11-13", 16, (192.0, 380.0)),
     TimelinePhase(2712, "timeline:t2712:subs5-4-3", 12, (192.0, 380.0)),
