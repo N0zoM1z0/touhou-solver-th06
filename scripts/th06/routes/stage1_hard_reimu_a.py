@@ -270,9 +270,35 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                     "through local t149"
                 ),
             )
+        if boss.ecl_time < 152:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="rotating-laser-loop",
+                algorithm="policy-volume",
+                horizon=6,
+                target=None,
+                commitment_frames=4,
+                provenance=(
+                    "physical local-t150 root; source int4 counts the "
+                    "opposed opcode-88 laser rotations from 120 to zero"
+                ),
+            )
+        if boss.ecl_time < 211:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="laser-retirement-tail",
+                algorithm="policy-volume",
+                horizon=6,
+                target=None,
+                commitment_frames=4,
+                provenance=(
+                    "same exact local-t150 battle sweep; both source lasers "
+                    "retire after the t151 loop and ECL advances to t210"
+                ),
+            )
         return uncovered(
             phase_id,
-            "Stage 1 sub9 spell at or after the local-t150 laser-rotation "
+            "Stage 1 sub9 spell at or after the local-t211 movement "
             "transition has not been authored",
         )
     return uncovered(

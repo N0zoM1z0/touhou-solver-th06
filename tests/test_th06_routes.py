@@ -313,8 +313,41 @@ class RoutePhaseTests(unittest.TestCase):
             spawners=(boss,),
             player_attack=replace(player_attack(), spell_active=True),
         ))
-        self.assertEqual(laser_rotation.algorithm, "uncovered")
-        self.assertEqual(laser_rotation.policy_state, "uncovered")
+        self.assertEqual(laser_rotation.algorithm, "policy-volume")
+        self.assertEqual(laser_rotation.policy_state, "rotating-laser-loop")
+        self.assertEqual(laser_rotation.horizon, 6)
+        self.assertIsNone(laser_rotation.target)
+
+        boss.ecl_time = 151
+        repeated_rotation = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3250,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(repeated_rotation.policy_state, "rotating-laser-loop")
+
+        boss.ecl_time = 152
+        laser_tail = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3313,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(laser_tail.algorithm, "policy-volume")
+        self.assertEqual(laser_tail.policy_state, "laser-retirement-tail")
+        self.assertEqual(laser_tail.horizon, 6)
+        self.assertIsNone(laser_tail.target)
+
+        boss.ecl_time = 211
+        spell_movement = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3372,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(spell_movement.algorithm, "uncovered")
+        self.assertEqual(spell_movement.policy_state, "uncovered")
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

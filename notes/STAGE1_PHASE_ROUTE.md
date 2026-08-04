@@ -501,3 +501,37 @@ births and all 58 retained laser transitions with zero geometry/timer error.
 The next exact root is local t150; opcode 88's opposed angle mutations and the
 state-0-to-state-1 laser transition must be audited and physically validated
 before extending the spell policy.
+
+## sub9 rotating-laser candidate
+
+At local t150 the source sets integer register 4 to 120. Local t151 applies
+opcode 88 to laser slots 0/1 with opposed angular deltas of approximately
+`+0.008267/-0.008267`, decrements the register, and jumps the ECL clock back
+to t150 while the value remains positive. The published clock therefore stays
+at t151 for 120 physical updates; the register is the source loop state, and
+no game-frame identity is needed. The first t150 update also advances both
+lasers from source state 0/timer 30 to state 1/timer 1. When the register
+reaches zero, ECL advances to t152, both lasers enter state 2, and they retire
+through their 16-update despawn before the clock reaches the next instruction
+at t211.
+
+The complete exact-root 180-update sweep to local t211 sharply rejects h4:
+only 3/8 targeted h4 delivery seeds survived, while targeted h6/h8 survived
+8/8. Removing the bottom target kept h6/h8 at 8/8 but reduced mean commands
+from about 70 to 9.25/9.38 and raised mean minimum clearance to 7.71/9.95.
+
+The higher-pressure corpus derived 27 complete worlds through 2,082 varied
+Hard-safe warmup updates and 2,562 source births, spanning 20 enemy-combat,
+27 player-attack, and 19 RNG states. Across 32 measured 96-update delivery
+cases, target-free h6 and h8 each survived 30. Each won one differing seed
+and both lost one; h6 retained slightly more aggregate frames and used 6.16
+mean commands versus 7.25, while h8 clearance was 11.45 versus 9.82. There is
+no causal survival evidence for paying h8's extra online cost, so the smallest
+physical falsifier is target-free policy-volume h6.
+
+The route records the repeating `150 <= ecl_time < 152` source state as
+`rotating-laser-loop` and the `152 <= ecl_time < 211` post-loop state as
+`laser-retirement-tail`. Both use the same measured h6 primitive, while the
+state names keep the rotation and retirement transitions independently
+observable in the physical trace. Local t211 remains fail-visible before the
+next boss movement instruction.

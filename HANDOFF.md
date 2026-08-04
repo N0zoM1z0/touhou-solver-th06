@@ -518,6 +518,20 @@ opposed opcode-88 rotation loop and the imminent state-0-to-state-1 laser
 transition; expose only the smallest source-clock state that can be validated
 against the next physical boundary.
 
+The complete exact-root sweep to local t211 rejects h4 and selects target-free
+h6 as the next falsifier. h6/h8 survived all 8 exact 180-update seeds; h4
+survived only 3. A 27-world high-pressure corpus derived through 2,082
+Hard-safe updates and 2,562 births kept h6/h8 on 30/32 measured cases, with
+one paired win each and one common loss. h6 used fewer commands and retained
+slightly more aggregate survival, so h8 has no measured causal advantage.
+
+Only the source `t150/151` register-controlled rotation is authored as
+target-free h6 `rotating-laser-loop`, followed by the independently visible
+`t152..210` h6 `laser-retirement-tail`. Run ordinary RNG/default fail-close.
+Expected success is an alive stop at local t211. Require adjacent parity for
+every opposed angle mutation, the state-1-to-state-2 transition, laser
+retirement, accumulated aimed circles, combat, and RNG before promotion.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
