@@ -800,3 +800,35 @@ h6 uses 236 aggregate commands versus 259 and removes the old late-root
 clearance collapse to 1.313. Only source t1220--1400 `random-insertion` is
 changed; the t1401 tail remains target-only h4, and Hard-4 authority is
 unchanged. The next ordinary-RNG default run is the physical falsifier.
+
+The next ordinary-RNG run physically promoted the target-free h6 state. It
+crossed the old f1330 boundary and completed all of source t1220--1400 without
+HIT, Bomb, stale-decision retry, timeout, or authority loss. Its 133 fresh
+policy decisions measured 7.265/13.998/17.508 ms median/p90/maximum. Every
+fresh root retained at least 15 Hard actions and seven strongest h6 actions.
+The unchanged t1401 tail then completed normally. The physical result matches
+the offline prediction and does not require changing common Hard-4.
+
+## physical SpellEnd promotion
+
+The same run reached f3979/sub6 local t0 and executed the authored SpellEnd
+transition. This RNG world had 105 active bullets rather than the earlier
+candidate root's 88; both source lasers had already retired, and the item pool
+was empty with next index 118. The following complete f3980 root is sub6 local
+t1/op59 with the global spell inactive.
+
+Exact nominal-versus-physical comparison matches all 105 state-5 slot IDs,
+positions, velocities, and timers after their half-speed update. It also
+matches all 110 live items in slots 118--227: 105 Point items plus the
+DROPITEMS Big Power and four Small Power items, including every same-frame
+position/velocity/type/timer. RNG seed/generation is exactly 2992/3956 from
+32265/3936, Power remains 9, active bullets and lasers are empty, and ECL is
+local t1/op59. The compact corpus retains two observed bullets and the five
+physical random drops under stable synthetic ECL addresses.
+
+The retained 253-pair report is exact for all combat enemy, player-shot, RNG,
+rank, item and Power transitions; 19,515 fired-bullet steps; 4,242 spawning
+steps; 2,523 player-shot steps; 322 laser transitions; and both removals. The
+active SpellEnd source transition is therefore physically promoted. The
+source/unit laser-origin and 32-pixel conversion branch remains unvalidated by
+physical SpellEnd evidence because no laser was live at f3979.

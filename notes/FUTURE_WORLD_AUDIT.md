@@ -1096,3 +1096,12 @@ The retained Stage 1 f3499 world closes for one update and predicts 88
 despawning bullets, two state-2/timer-1 lasers, 127 item slots, and the exact
 DROPITEMS RNG/type split. This is source plus offline evidence only. Physical
 f3499-to-f3500 parity is the required falsifier before route promotion.
+
+The subsequent ordinary-RNG run supplied a different but stronger bullet-pool
+falsifier at f3979--f3980. It converted 105 occupied bullets and exactly
+matched every state-5 slot, half-velocity position, and timer, plus all 110
+new item states and the 20-generation DROPITEMS RNG transition. ECL, spell,
+Power, player attack, enemy state, and item allocation all match. A minimized
+independent corpus case retains two physical bullets and all five random
+drops. The two spell lasers had already retired in this run, so active-laser
+SpellEnd conversion remains source/unit evidence rather than physical parity.

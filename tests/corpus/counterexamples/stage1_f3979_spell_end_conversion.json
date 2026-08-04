@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "id": "stage1-f3979-spell-end-conversion",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "failure_frame": 3979
+  },
+  "runner": "nominal_spell_end_transition",
+  "contract": "An active opcode-94 SpellEnd allocates Point items in occupied bullet-slot order, changes those bullets to state 5 without resetting their timers, runs their first half-velocity despawn update, then allocates and advances the same-frame DROPITEMS results with exact RNG.",
+  "summary": "Physical f3979-to-f3980 converted 105 bullets with exact state-5 slots, positions, and timers; allocated 105 Point plus five Power items; advanced RNG generation 3936 to 3956; cleared spell state; and continued sub6 at local t1/op59. This minimized case retains two physical bullets and all five physical random drops with stable synthetic ECL addresses.",
+  "input": {
+    "player": [76.64462280273438, 372.0072937011719],
+    "enemy": [63.01349639892578, 144.0],
+    "power": 9,
+    "rng_seed": 32265,
+    "rng_generation": 3936,
+    "item_next_index": 118,
+    "action": "right",
+    "bullets": [
+      {
+        "x": 386.1903076171875,
+        "y": 389.8623352050781,
+        "vx": 2.0274546146392822,
+        "vy": 1.617704153060913,
+        "half_width": 2.0,
+        "half_height": 2.0,
+        "state": 1,
+        "ex_flags": 4,
+        "speed": 2.59375,
+        "angle": 0.6734585762023926,
+        "timer": 153,
+        "timer_float": 153.0,
+        "slot": 319
+      },
+      {
+        "x": 344.147705078125,
+        "y": 435.14996337890625,
+        "vx": 1.763702630996704,
+        "vy": 1.9018129110336304,
+        "half_width": 2.0,
+        "half_height": 2.0,
+        "state": 1,
+        "ex_flags": 4,
+        "speed": 2.59375,
+        "angle": 0.8230586051940918,
+        "timer": 153,
+        "timer_float": 153.0,
+        "slot": 320
+      }
+    ],
+    "ecl_program": [
+      {"address": 4096, "time": 0, "opcode": 47, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000002f00100000ffff0000000000"},
+      {"address": 4112, "time": 0, "opcode": 94, "offset_to_next": 12, "skip_for_difficulty": 255, "raw_hex": "000000005e000c0000ffff00"},
+      {"address": 4124, "time": 0, "opcode": 106, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006a00100000ffff0012000000"},
+      {"address": 4140, "time": 0, "opcode": 76, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000004c00100000ffff0000000000"},
+      {"address": 4156, "time": 0, "opcode": 119, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000007700100000ffff0005000000"},
+      {"address": 4172, "time": 0, "opcode": 66, "offset_to_next": 12, "skip_for_difficulty": 255, "raw_hex": "0000000042000c0000ffff00"},
+      {"address": 4184, "time": 0, "opcode": 104, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006800100000ffff0000000000"},
+      {"address": 4200, "time": 0, "opcode": 105, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006900100000ffff0000000000"},
+      {"address": 4216, "time": 0, "opcode": 97, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006100100000ffff0080000000"},
+      {"address": 4232, "time": 40, "opcode": 59, "offset_to_next": 28, "skip_for_difficulty": 255, "raw_hex": "280000003b001c0000ffff007800000000004043000080c200000000"},
+      {"address": 4260, "time": 160, "opcode": 1, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "a00000000100100000ffff0000000000"},
+      {"address": 4276, "time": -1, "opcode": -1, "offset_to_next": 12, "skip_for_difficulty": 255, "raw_hex": "ffffffffffff0c0000ffff00"}
+    ]
+  },
+  "expect": {
+    "despawning_slots": [319, 320],
+    "despawning_positions": [
+      [387.20404052734375, 390.6711730957031],
+      [345.0295715332031, 436.1008605957031]
+    ],
+    "bullet_timer": 154,
+    "item_slots": [118, 119, 120, 121, 122, 123, 124],
+    "item_types": [6, 6, 2, 0, 0, 0, 0],
+    "item_positions": [
+      [378.2037658691406, 389.3986511230469],
+      [336.3647766113281, 433.29901123046875],
+      [-2.4586868286132812, 110.52168273925781],
+      [19.999839782714844, 183.022705078125],
+      [48.00225830078125, 89.3759765625],
+      [-1.6172256469726562, 132.99119567871094],
+      [92.39741516113281, 212.70806884765625]
+    ],
+    "item_next_index": 125,
+    "rng_seed": 2992,
+    "rng_generation": 3956,
+    "next_instruction_address": 4232
+  }
+}

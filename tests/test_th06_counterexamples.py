@@ -176,6 +176,144 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     following.rng_generation, root.rng_generation
                 )
 
+    def test_nominal_spell_end_transition_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "nominal_spell_end_transition"
+        )
+        self.assertTrue(cases, "spell-end transition corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                program = tuple(
+                    EclInstruction(**instruction)
+                    for instruction in values["ecl_program"]
+                )
+                emitter = source_enemy_template(
+                    program,
+                    (program[0].address,),
+                    0,
+                    values["enemy"][0],
+                    values["enemy"][1],
+                    0,
+                )
+                self.assertIsNotNone(emitter)
+                emitter = replace(
+                    emitter,
+                    slot=0,
+                    is_boss=True,
+                    boss_id=0,
+                    interactable=False,
+                    damageable=True,
+                    collidable=True,
+                    has_been_in_bounds=True,
+                    life_callback_sub=9,
+                    timer_callback_sub=6,
+                    death_mode=1,
+                )
+                player_x, player_y = values["player"]
+                attack = PlayerAttackState(
+                    shots=(),
+                    last_enemy_hit_x=values["enemy"][0],
+                    last_enemy_hit_y=values["enemy"][1],
+                    orb_state=3,
+                    is_focus=True,
+                    focus_timer_previous=-999,
+                    focus_timer=0,
+                    focus_timer_float=0.0,
+                    fire_timer_previous=1,
+                    fire_timer=2,
+                    fire_timer_float=2.0,
+                    orb_positions=(
+                        (player_x - 8.0, player_y - 32.0),
+                        (player_x + 8.0, player_y - 32.0),
+                    ),
+                    shot_type=0,
+                    bomb_active=False,
+                    spell_active=True,
+                )
+                root = Snapshot(
+                    frame=case["origin"]["failure_frame"],
+                    stage=case["origin"]["stage"],
+                    player_state=0,
+                    x=player_x,
+                    y=player_y,
+                    half_width=1.25,
+                    half_height=1.25,
+                    normal_speed=4.0,
+                    focus_speed=2.0,
+                    normal_diagonal_speed=2.8284270763397217,
+                    focus_diagonal_speed=1.4142135381698608,
+                    frame_multiplier=1.0,
+                    input_mask=0x05,
+                    bullets=tuple(
+                        Bullet(**bullet) for bullet in values["bullets"]
+                    ),
+                    laser_count=0,
+                    in_menu=False,
+                    time_stopped=False,
+                    replay_or_demo=False,
+                    spawners=(emitter,),
+                    difficulty=2,
+                    rank=22,
+                    subrank=62,
+                    max_rank=32,
+                    min_rank=10,
+                    rng_seed=values["rng_seed"],
+                    rng_generation=values["rng_generation"],
+                    current_power=values["power"],
+                    timeline_complete=True,
+                    player_attack=attack,
+                    effect_active_upper_bound=0,
+                    item_active_upper_bound=0,
+                    item_next_index=values["item_next_index"],
+                )
+                following = step_nominal_battle_world(
+                    root, ACTION_BY_NAME[values["action"]]
+                )
+                expected = case["expect"]
+                self.assertEqual(following.bullets, ())
+                self.assertEqual(
+                    [bullet.slot for bullet in following.despawning_bullets],
+                    expected["despawning_slots"],
+                )
+                for bullet, position in zip(
+                    following.despawning_bullets,
+                    expected["despawning_positions"],
+                ):
+                    self.assertAlmostEqual(bullet.x, position[0], places=5)
+                    self.assertAlmostEqual(bullet.y, position[1], places=5)
+                    self.assertEqual(bullet.state, 5)
+                    self.assertEqual(bullet.timer, expected["bullet_timer"])
+                self.assertEqual(
+                    [item.slot for item in following.item_states],
+                    expected["item_slots"],
+                )
+                self.assertEqual(
+                    [item.item_type for item in following.item_states],
+                    expected["item_types"],
+                )
+                for item, position in zip(
+                    following.item_states, expected["item_positions"]
+                ):
+                    self.assertAlmostEqual(item.x, position[0], places=5)
+                    self.assertAlmostEqual(item.y, position[1], places=5)
+                    self.assertEqual(item.timer, 1)
+                self.assertEqual(
+                    following.item_next_index, expected["item_next_index"]
+                )
+                self.assertEqual(
+                    (following.rng_seed, following.rng_generation),
+                    (expected["rng_seed"], expected["rng_generation"]),
+                )
+                self.assertFalse(following.player_attack.spell_active)
+                self.assertEqual(following.current_power, values["power"])
+                self.assertEqual(following.spawners[0].ecl_time, 1)
+                self.assertEqual(
+                    following.spawners[0].next_instruction.address,
+                    expected["next_instruction_address"],
+                )
+
     def test_stage4_phase_policy_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

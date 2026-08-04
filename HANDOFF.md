@@ -698,6 +698,33 @@ CE is stored independently. Rerun ordinary RNG/default fail-close. Promotion
 requires crossing f1330 without a publication regression; if the run reaches
 sub6, validate the already-authored SpellEnd transition in the same trial.
 
+That default ordinary-RNG run physically promoted both pending candidates. It
+crossed t1220--1400 with no HIT, Bomb, stale decision, timeout, or authority
+loss. The 133 fresh `random-insertion` decisions measured 7.265 ms median,
+13.998 ms p90, and 17.508 ms maximum; every root retained at least 15 Hard
+actions and seven h6 winners. It then completed the already-promoted sub8/sub9
+route and stopped exactly as designed at f3980/sub6 local t1, after executing
+the one-frame SpellEnd state.
+
+Physical f3979 had 105 active bullets, no despawning bullets or lasers, no
+items, Power 9, RNG generation 3936, active spell publication, and sub6
+local t0/op47. Physical and nominal f3980 agree exactly: the same 105 bullet
+slots are state 5 with exact half-velocity positions and timer 154; there are
+no active bullets or lasers; 110 item slots 118--227 contain 105 Point, one
+Big Power, and four Small Power items with exact same-frame ItemManager state;
+RNG is seed 2992/generation 3956; Power remains 9; spell is false; and sub6 is
+local t1/op59. The minimized physical transition is now an independent corpus
+case. This physical instance does not validate active-laser point conversion,
+because both spell lasers had already retired before f3979.
+
+Across the retained 253-pair window, all player/combat/RNG/item/Power worlds,
+19,515 fired-bullet steps, 4,242 spawning steps, 2,523 player-shot steps, all
+322 laser transitions, and both laser removals are exact. Next audit sub6
+local t1 through its source t40 move and t160 despawn. Pre-existing state-5
+ANM lifetime remains unavailable to nominal replay, but those bullets are
+nonlethal; do not invent their retirement or pool reuse if later source events
+need it.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
