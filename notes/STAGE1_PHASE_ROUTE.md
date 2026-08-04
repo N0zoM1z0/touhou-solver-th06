@@ -115,3 +115,20 @@ combat, player-shot, RNG, graze/rank, item/Power, and enemy transition. It
 also matched all 9,691 fired-bullet and 774 spawning-bullet steps, including
 72 births, with no unsupported transition or positional error. This promotes
 target-free h8 only for t640--t1219.
+
+## t1220 random-body candidate
+
+The physical entry still carries 80 bullets from the aimed stream, but the
+newly inserted sub0/sub1 routines have no Hard bullet instruction. On an
+exact 379-frame sweep to t1599, bottom-target h4, h6, and h8 were identical
+for every one of eight delivery seeds: all survived, used 134 mean commands,
+and had 14.85 mean minimum clearance. Deeper continuation therefore adds no
+phase information.
+
+Target-free h4 also survived 8/8, but reduced mean minimum clearance to 4.73,
+including one 0.62 case, and changed the first action from `down` to `left`.
+The target is useful here: it returns the high t1220 entry toward the lower
+route while the inherited bullets expire. The smallest falsifier is thus
+`target-only` h4 from t1220 through t1599, with a private tail state after the
+last random parent at t1400. The t1600 sub0 body/resource formation remains
+explicitly uncovered.

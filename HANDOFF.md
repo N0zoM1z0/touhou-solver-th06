@@ -281,11 +281,13 @@ and all 18 Hard-safe actions. There was one stale retry; 511 fresh h8 calls
 measured 4.943 ms median, 10.251 ms p90, and 22.474 ms maximum. All final 241
 adjacent combat/RNG transitions and 10,465 bullet steps matched exactly.
 
-Use this physical entry to author only the random-coordinate t1220--t1599
-sub0/sub1 body stream. Its source routines do not fire on Hard, but the entry
-retains the previous aimed bullets and the future body coordinates consume
-the shared RNG stream. Compare target/target-free and the smallest viable
-rung in the exact battle world; keep t1600 explicitly uncovered.
+The t1220 exact-root sweep selected bottom-target `target-only` h4 through
+t1599. Targeted h4/h6/h8 were identical and survived all eight 379-frame
+delivery seeds. Target-free h4 also survived, but its mean minimum clearance
+fell from 14.85 to 4.73 and its worst case reached 0.62. Physically falsify
+the minimal targeted h4 phase with ordinary RNG/default fail-close. Expected
+success is an alive `phase-unavailable` stop at t1600; keep that next sub0
+body/resource formation uncovered until the run.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

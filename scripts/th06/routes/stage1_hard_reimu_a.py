@@ -1,8 +1,8 @@
 """Hard/Reimu-A Stage 1, authored one source phase at a time.
 
-Only the quiet setup, t128 body stream, and t640 aimed stream are covered. The
-t1220 random-coordinate insertion is deliberately fail-visible until the
-preceding aimed policy has physical evidence.
+Only the quiet setup and source phases through the t1220 random body stream
+are covered. The t1600 body/resource formation is deliberately fail-visible
+until the preceding random phase has physical evidence.
 """
 
 from __future__ import annotations
@@ -91,6 +91,32 @@ AIMED_STREAM = TimelineStateMachine(
 )
 
 
+RANDOM_BODY_STREAM = TimelineStateMachine(
+    "timeline:t1220:random-subs0-1-body-stream",
+    (
+        PolicyState(
+            1220,
+            "random-insertion",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            provenance=(
+                "physical f1220 entry; installed random-x sub0/sub1 "
+                "parents through t1400"
+            ),
+        ),
+        PolicyState(
+            1401,
+            "tail",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            provenance="last random-coordinate parent spawned at source t1400",
+        ),
+    ),
+)
+
+
 def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     return RouteIntent(
         phase_id=phase_id,
@@ -128,8 +154,10 @@ class HardReimuAStage1:
             return FIRST_BODY_STREAM.intent(snapshot)
         if snapshot.timeline_time < 1220:
             return AIMED_STREAM.intent(snapshot)
+        if snapshot.timeline_time < 1600:
+            return RANDOM_BODY_STREAM.intent(snapshot)
         return uncovered(
-            "timeline:t1220:random-subs0-1-body-stream",
-            "next installed source phase begins with random-coordinate "
-            "sub0/sub1 insertion at t1220",
+            "timeline:t1600:sub0-body-resource-stream",
+            "next installed source phase begins with mirrored sub0 "
+            "body/resource formations at t1600",
         )
