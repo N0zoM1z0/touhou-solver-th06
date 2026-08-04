@@ -1,6 +1,6 @@
 # TH06 Future-World And Offline/Online Audit
 
-Snapshot refreshed 2026-08-04 through repository checkpoint `9eaef20` and the
+Snapshot refreshed 2026-08-04 through repository checkpoint `91ab12b` and the
 following measured physical-battle experiments and source-grounded work.
 Authoritative source remains
 `cc475a0bc3fef38683b0f02224c87ddba0a021d9`.
@@ -963,3 +963,98 @@ aimed/uncertain AABB paths still retain only conservative source/unit evidence.
 The capture flag requires `--stop-game`; focused and complete checks now pass
 350 tests with 28 skipped. All physical input was released, both exact trial
 PIDs were stopped, and no game or high-CPU trial process remained.
+
+## Random timeline world envelope and Stage 1 f1217 (2026-08-04)
+
+The next ordinary-RNG default fail-close Stage 1 run stopped alive at f1217,
+with 61 bullets and all 18 current actions otherwise viable.  Tracing the
+world forecast, rather than interpreting the terminal empty Hard set, found
+the exact authority boundary: the timeline was at 1217 and its time-1220
+opcode-6 record would create sub 0 at random x, fixed y -32.  At f1216 the
+transition was still four frames away and Hard covered four; at f1217 it was
+three frames away and the old world stopped after three with
+`random stage timeline enemy position needs a world envelope`.  This was not
+a soft route decision or a proved collision dead end.
+
+The authoritative ranges are smaller than the nominal constants previously
+used by this repository.  `GameManager::AddedCallback` initializes
+`playerMovementAreaSize` to `(368,416)`.  `EnemyManager::RunEclTimeline`
+opcodes 4--7 pass those two sizes directly to `Rng::GetRandomF32InRange`; they
+do not add `playerMovementAreaTopLeftPos`.  `Rng.hpp` implements the draw as a
+zero-to-one value times the supplied range.  Therefore the complete bounded
+source worlds are x in `[0,368]` and y in `[0,416]`, independently for the
+axes selected by the opcode.  The nominal model's former 384/448 draws were
+also source-incorrect and are now 368/416.
+
+Hard now instantiates a random timeline child at the midpoint of each random
+axis and carries the half-range as forecast-only axis uncertainty.  ECL reads
+of enemy position, aimed angle/distance, absolute movement, body geometry,
+bullet origins and future laser origins preserve or conservatively consume
+that interval.  A physical snapshot never gains this synthetic field.  It is
+only an internal representation of every source-possible not-yet-born world;
+no RNG point is guessed and safety eligibility is not relaxed.
+
+The actual f1217 artifact now covers all requested 16 frames and retains all
+18 Hard-4 actions.  At physical f1227 the diagnostic child in slot 1 has
+source position `(295.130249,-18.0)`, ECL time 8 and half-size 9.333333.  The
+f1217 Hard projection for that same physical frame is x
+`[-9.333333,377.333334]`, y `[-27.333333,-8.666667]`, which contains the
+complete observed body.  A focused source test additionally checks 32 exact
+nominal RNG seeds against the common Hard body envelope.  The independent
+physical f1217 corpus case, focused birth/attack/counterexample suites, and
+the complete checkpoint pass: 351 tests, 28 skipped.  This is source,
+retained-transition, and offline replay evidence; the integrated default
+physical rerun remains required.
+
+## General safety versus stage-conditioned route policy (2026-08-04)
+
+The historical Stage 1--4 Practice results are material evidence and must not
+be dismissed merely because current authority is stricter.  They also do not
+yet prove that Hard physics or the online planning algorithm must be tuned per
+stage.  The first Stage 1 clear checkpoint `408a68b` used a small observable
+scene classifier for effort: lasers selected h16; clearance below 48 or at
+least 220 bullets selected h16; clearance below 120 or at least 100 bullets
+selected h12; otherwise h8.  By the Stage 4 result checkpoint `17fd93a`, that
+had grown into many bullet-count, boundary, enemy-count and laser branches,
+including thresholds at 100, 220, 350 and 400 and several comments tied to
+individual physical frames.  It did not use a literal stage ID, but its
+threshold combinations functioned as an implicit scene table and mixed
+route/latency repair into planner mechanics.
+
+The current evidence supports a narrower split than either “one universal
+value function” or “put the old ifs back”:
+
+```text
+general, source-grounded online authority
+    physics + phase + future-world envelope + delivery -> allowed actions
+
+offline stage/shot policy data
+    ECL phase + Power/items + enemy life/kill deadlines + route value-to-go
+        -> rank only those currently allowed actions
+```
+
+Stage context may select immutable ECL-derived soft data, a reference route
+tube, phase-conditioned terminal value, expected kill deadlines, and
+Power/item value-to-go.  It must not select collision laws, Hard horizon,
+planner rungs, publication rules, or exceptions.  Fixed scalar weights alone
+are unlikely to be enough: Power before a boss, a kill before the next volley,
+and an item with or without a safe return bridge have nonlinear and
+phase-dependent value.  A compact phase-conditioned value/route policy is the
+more faithful form of agent “backboard”.
+
+The falsifiable comparison after the f1217 authority rerun is:
+
+1. replay historical clear decisions through the current source-grounded Hard
+   model where retained roots exist;
+2. separate old actions which remain Hard-legal from progress that depended on
+   an unmodelled transition or weaker fail-close contract;
+3. treat the former as route-policy demonstrations and compare a compact
+   offline phase/value prior against the current soft ranker on the same roots;
+4. require unchanged Hard eligibility, another RNG workload, and a default
+   physical run before promotion.
+
+If the old decisions remain legal and consistently preserve firepower,
+position and kill tempo, that is positive evidence for stage-conditioned
+soft policy.  If their apparent progress crosses states that current Hard
+cannot yet model, the next work remains source coverage.  In either case the
+result does not justify a counterexample branch in the main solver.

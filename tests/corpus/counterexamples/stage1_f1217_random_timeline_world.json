@@ -1,0 +1,158 @@
+{
+  "schema": 1,
+  "id": "stage1-f1217-random-timeline-world",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "failure_frame": 1217
+  },
+  "runner": "ecl_forecast",
+  "contract": "A future RunEclTimeline opcode 6 random-x child is inserted into a source-bounded Hard position world instead of ending authority when it enters Hard-4.",
+  "summary": "The default fail-close run retained all 18 actions through f1216, then stopped at f1217 only because the timeline time-1220 random-x child entered the four-frame window. The reduced physical source graph moves the child down from y=-32 and cannot reach the player during this window; its unknown x remains a conservative 0..368 body and birth envelope.",
+  "input": {
+    "horizon": 16,
+    "snapshot": {
+      "frame": 1217,
+      "stage": 1,
+      "player_state": 0,
+      "x": 235.18875122070312,
+      "y": 376.1838073730469,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 133,
+      "bullets": [],
+      "despawning_bullets": [],
+      "laser_count": 0,
+      "lasers": [],
+      "enemies": [],
+      "spawners": [],
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "difficulty": 2,
+      "rank": 0,
+      "rng_seed": 53347,
+      "rng_generation": 1252,
+      "bullet_sizes": [
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.0, 2.0],
+        [3.0, 3.0],
+        [2.5, 2.5],
+        [2.0, 2.0],
+        [8.0, 8.0],
+        [5.5, 5.5],
+        [4.5, 4.5],
+        [16.0, 16.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0]
+      ],
+      "timeline_time": 1217,
+      "timeline_instructions": [
+        {
+          "address": 165518170,
+          "time": 1220,
+          "arg0": 0,
+          "opcode": 6,
+          "size": 28,
+          "raw_hex": "c404000006001c0000c079c4000000c2000000002000ffff2c010000"
+        }
+      ],
+      "ecl_subroutines": [165498688],
+      "timeline_ecl_program": [
+        {
+          "address": 165498688,
+          "time": 0,
+          "opcode": 97,
+          "offset_to_next": 16,
+          "skip_for_difficulty": 255,
+          "raw_hex": "000000006100100000ffff0000000000"
+        },
+        {
+          "address": 165498704,
+          "time": 0,
+          "opcode": 103,
+          "offset_to_next": 24,
+          "skip_for_difficulty": 255,
+          "raw_hex": "000000006700180000ffff000000e0410000e04100000042"
+        },
+        {
+          "address": 165498728,
+          "time": 0,
+          "opcode": 100,
+          "offset_to_next": 16,
+          "skip_for_difficulty": 255,
+          "raw_hex": "000000006400100000ffff0001030000"
+        },
+        {
+          "address": 165498744,
+          "time": 0,
+          "opcode": 45,
+          "offset_to_next": 20,
+          "skip_for_difficulty": 255,
+          "raw_hex": "000000002d00140000ffff00db0fc93f00000040"
+        },
+        {
+          "address": 165498764,
+          "time": 0,
+          "opcode": 78,
+          "offset_to_next": 12,
+          "skip_for_difficulty": 8,
+          "raw_hex": "000000004e000c000008ff00"
+        },
+        {
+          "address": 165498776,
+          "time": 0,
+          "opcode": 67,
+          "offset_to_next": 44,
+          "skip_for_difficulty": 8,
+          "raw_hex": "0000000043002c000008ff000000060001000000010000000000404000000000000000000000000004000000"
+        },
+        {
+          "address": 165498820,
+          "time": 0,
+          "opcode": 79,
+          "offset_to_next": 12,
+          "skip_for_difficulty": 8,
+          "raw_hex": "000000004f000c000008ff00"
+        },
+        {
+          "address": 165498832,
+          "time": 0,
+          "opcode": 77,
+          "offset_to_next": 16,
+          "skip_for_difficulty": 8,
+          "raw_hex": "000000004d0010000008ff0078000000"
+        },
+        {
+          "address": 165498848,
+          "time": 40,
+          "opcode": 46,
+          "offset_to_next": 16,
+          "skip_for_difficulty": 255,
+          "raw_hex": "280000002e00100000ffff00db0fc9bc"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "covered_frames": {
+      "fail-closed": 16,
+      "nominal": 16
+    },
+    "birth_counts": {
+      "fail-closed": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nominal": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+  }
+}

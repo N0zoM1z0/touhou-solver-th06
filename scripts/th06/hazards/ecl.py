@@ -528,6 +528,15 @@ def _maximum_magnitude(value: float | FloatInterval) -> float:
     return abs(value)
 
 
+def _interval_center(
+    value: float | FloatInterval,
+) -> tuple[float, float]:
+    """Return a conservative midpoint/half-width representation."""
+    if isinstance(value, FloatInterval):
+        return (value.low + value.high) / 2.0, (value.high - value.low) / 2.0
+    return value, 0.0
+
+
 def _copy_spawner(spawner: EnemySpawner, **changes) -> EnemySpawner:
     """Clone forecast state without reflecting over the large dataclass."""
     clone = object.__new__(EnemySpawner)
@@ -640,7 +649,7 @@ def _float_var(
     difficulty: int,
     rank: int,
     life: int,
-    enemy: tuple[float, float],
+    enemy: tuple[float | FloatInterval, float | FloatInterval],
     player: tuple[float, float] | None,
 ) -> float | FloatInterval:
     literal = struct.unpack("<f", raw)[0]
@@ -662,10 +671,25 @@ def _float_var(
     if value == -10021:
         if player is None:
             return FloatInterval(-math.pi, math.pi)
+        if any(isinstance(axis, FloatInterval) for axis in enemy):
+            return FloatInterval(-math.pi, math.pi)
         return math.atan2(player[1] - enemy[1], player[0] - enemy[0])
     if value == -10023:
         if player is None:
             raise UnsupportedBirthModel("ECL reads future player distance")
+        if any(isinstance(axis, FloatInterval) for axis in enemy):
+            x_values = (
+                (enemy[0].low, enemy[0].high)
+                if isinstance(enemy[0], FloatInterval) else (enemy[0],)
+            )
+            y_values = (
+                (enemy[1].low, enemy[1].high)
+                if isinstance(enemy[1], FloatInterval) else (enemy[1],)
+            )
+            return FloatInterval(0.0, max(
+                math.hypot(player[0] - x, player[1] - y)
+                for x in x_values for y in y_values
+            ))
         return math.hypot(player[0] - enemy[0], player[1] - enemy[1])
     if value in range(-10024, -10000):
         resolved = _int_var(value, integers, difficulty, rank, life)
@@ -702,7 +726,7 @@ def _set_source_value(
     rank: int,
     life: int,
     boss_timer: int,
-    enemy: tuple[float, float],
+    enemy: tuple[float | FloatInterval, float | FloatInterval],
     player: tuple[float, float] | None,
 ) -> tuple[int | float | FloatInterval, bool]:
     """Resolve the raw 32-bit RHS used by source ``SetVar``.
@@ -736,12 +760,27 @@ def _set_source_value(
     if identifier == -10021:
         if player is None:
             return FloatInterval(-math.pi, math.pi), True
+        if any(isinstance(axis, FloatInterval) for axis in enemy):
+            return FloatInterval(-math.pi, math.pi), True
         return math.atan2(player[1] - enemy[1], player[0] - enemy[0]), True
     if identifier == -10022:
         return boss_timer, False
     if identifier == -10023:
         if player is None:
             raise UnsupportedBirthModel("SET reads future player distance")
+        if any(isinstance(axis, FloatInterval) for axis in enemy):
+            x_values = (
+                (enemy[0].low, enemy[0].high)
+                if isinstance(enemy[0], FloatInterval) else (enemy[0],)
+            )
+            y_values = (
+                (enemy[1].low, enemy[1].high)
+                if isinstance(enemy[1], FloatInterval) else (enemy[1],)
+            )
+            return FloatInterval(0.0, max(
+                math.hypot(player[0] - x, player[1] - y)
+                for x in x_values for y in y_values
+            )), True
         return math.hypot(player[0] - enemy[0], player[1] - enemy[1]), True
     if identifier == -10024:
         return life, False
@@ -783,7 +822,7 @@ def _resolved_pattern(
     difficulty: int,
     rank: int,
     life: int,
-    enemy: tuple[float, float],
+    enemy: tuple[float | FloatInterval, float | FloatInterval],
     player: tuple[float, float] | None,
     bullet_sizes: tuple[tuple[float, float], ...],
     radial_births: bool,
@@ -964,6 +1003,19 @@ def _forecast_ecl_births_single(
     upper_move_x = spawner.upper_move_x
     upper_move_y = spawner.upper_move_y
     should_clamp_position = spawner.should_clamp_position
+    if not all(
+        math.isfinite(value) and value >= 0.0
+        for value in (
+            spawner.forecast_position_uncertainty_x,
+            spawner.forecast_position_uncertainty_y,
+        )
+    ):
+        return EclForecast(
+            tuple(map(tuple, births)), 0,
+            "invalid forecast position uncertainty",
+        )
+    position_uncertainty_x = spawner.forecast_position_uncertainty_x
+    position_uncertainty_y = spawner.forecast_position_uncertainty_y
     position_uncertainty = 0.0
     velocity_uncertainty = 0.0
     uncertain_heading = False
@@ -1013,12 +1065,10 @@ def _forecast_ecl_births_single(
                     bullet,
                     half_width=(
                         bullet.half_width
-                        + position_uncertainty
                         + origin_uncertainty_x
                     ),
                     half_height=(
                         bullet.half_height
-                        + position_uncertainty
                         + origin_uncertainty_y
                     ),
                 )
@@ -1028,6 +1078,23 @@ def _forecast_ecl_births_single(
                 )
             )
         return spawn_pattern(resolved, (origin_x, origin_y), player, rng)
+
+    def uncertain_enemy() -> tuple[
+        float | FloatInterval,
+        float | FloatInterval,
+    ]:
+        uncertainty_x = position_uncertainty_x + position_uncertainty
+        uncertainty_y = position_uncertainty_y + position_uncertainty
+        return (
+            (
+                FloatInterval(enemy_x - uncertainty_x, enemy_x + uncertainty_x)
+                if uncertainty_x > 0.0 else enemy_x
+            ),
+            (
+                FloatInterval(enemy_y - uncertainty_y, enemy_y + uncertainty_y)
+                if uncertainty_y > 0.0 else enemy_y
+            ),
+        )
 
     def clamp_position(x: float, y: float) -> tuple[float, float]:
         if not should_clamp_position:
@@ -1168,7 +1235,7 @@ def _forecast_ecl_births_single(
             rank_amount1_low = rank_amount1_high = 0
             rank_amount2_low = rank_amount2_high = 0
             call_stack.clear()
-        enemy = (enemy_x, enemy_y)
+        enemy = uncertain_enemy()
         stop_after_frame = ""
         for _instruction_count in range(256):
             instruction = program.get(instruction_address)
@@ -1647,16 +1714,19 @@ def _forecast_ecl_births_single(
                 timed_move_progress = 0.0
                 timed_move_next_progress = 0.0
                 if instruction.opcode == OPCODE_MOVE_POSITION:
-                    enemy_x = _float_var(
+                    next_x = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
                             life, enemy, variable_player,
                     )
-                    enemy_y = _float_var(
+                    next_y = _float_var(
                         raw[0x10:0x14], integers, floats, difficulty, rank,
                         life, enemy, variable_player,
                     )
+                    enemy_x, position_uncertainty_x = _interval_center(next_x)
+                    enemy_y, position_uncertainty_y = _interval_center(next_y)
+                    position_uncertainty = 0.0
                     enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
-                    enemy = (enemy_x, enemy_y)
+                    enemy = uncertain_enemy()
                 elif instruction.opcode == OPCODE_MOVE_POSITION + 1:
                     velocity_x = _float_var(
                         raw[0x0C:0x10], integers, floats, difficulty, rank,
@@ -1912,7 +1982,7 @@ def _forecast_ecl_births_single(
                     )
                 should_clamp_position = True
                 enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
-                enemy = (enemy_x, enemy_y)
+                enemy = uncertain_enemy()
             elif instruction.opcode == OPCODE_MOVE_BOUNDS_DISABLE:
                 should_clamp_position = False
             elif OPCODE_BULLET_FIRST <= instruction.opcode <= OPCODE_BULLET_LAST:
@@ -2425,7 +2495,12 @@ def _forecast_ecl_births_single(
                     width = struct.unpack_from("<f", raw, 0x24)[0]
                     origin_x = _float_add(enemy_x, shoot_offset_x)
                     origin_y = _float_add(enemy_y, shoot_offset_y)
-                    uncertainty_x = uncertainty_y = position_uncertainty
+                    uncertainty_x = (
+                        position_uncertainty_x + position_uncertainty
+                    )
+                    uncertainty_y = (
+                        position_uncertainty_y + position_uncertainty
+                    )
                     if isinstance(origin_x, FloatInterval):
                         uncertainty_x += (origin_x.high - origin_x.low) / 2.0
                         origin_x = (origin_x.low + origin_x.high) / 2.0
@@ -2546,7 +2621,12 @@ def _forecast_ecl_births_single(
                     ) = struct.unpack_from("<iiiiii", raw, 0x28)
                     origin_x = _float_add(enemy_x, shoot_offset_x)
                     origin_y = _float_add(enemy_y, shoot_offset_y)
-                    uncertainty_x = uncertainty_y = position_uncertainty
+                    uncertainty_x = (
+                        position_uncertainty_x + position_uncertainty
+                    )
+                    uncertainty_y = (
+                        position_uncertainty_y + position_uncertainty
+                    )
                     if hard_spawn is not None:
                         if isinstance(origin_x, FloatInterval):
                             uncertainty_x += (
@@ -2739,7 +2819,12 @@ def _forecast_ecl_births_single(
                         )
                         next_x = _float_add(enemy_x, offset_x)
                         next_y = _float_add(enemy_y, offset_y)
-                        uncertainty_x = uncertainty_y = position_uncertainty
+                        uncertainty_x = (
+                            position_uncertainty_x + position_uncertainty
+                        )
+                        uncertainty_y = (
+                            position_uncertainty_y + position_uncertainty
+                        )
                         if isinstance(next_x, FloatInterval):
                             if hard_replace is None:
                                 return EclForecast(
@@ -2887,7 +2972,7 @@ def _forecast_ecl_births_single(
             velocity_y = 0.0
         else:
             velocity_uncertainty = 0.0
-        enemy = (enemy_x, enemy_y)
+        enemy = uncertain_enemy()
 
         if (
             interactable
@@ -2896,11 +2981,17 @@ def _forecast_ecl_births_single(
             and hitbox_half_width > 0.0
             and hitbox_half_height > 0.0
         ):
+            total_uncertainty_x = (
+                position_uncertainty_x + position_uncertainty
+            )
+            total_uncertainty_y = (
+                position_uncertainty_y + position_uncertainty
+            )
             body_hazards[frame_index].append((
-                enemy_x - hitbox_half_width - position_uncertainty,
-                enemy_y - hitbox_half_height - position_uncertainty,
-                enemy_x + hitbox_half_width + position_uncertainty,
-                enemy_y + hitbox_half_height + position_uncertainty,
+                enemy_x - hitbox_half_width - total_uncertainty_x,
+                enemy_y - hitbox_half_height - total_uncertainty_y,
+                enemy_x + hitbox_half_width + total_uncertainty_x,
+                enemy_y + hitbox_half_height + total_uncertainty_y,
             ))
 
         if life > 0 and interval > 0:
@@ -3032,6 +3123,12 @@ def _forecast_ecl_births_single(
             bullet_effect_ints=effect_ints,
             laser_slots=tuple(laser_slots),
             laser_store=laser_store,
+            forecast_position_uncertainty_x=(
+                position_uncertainty_x + position_uncertainty
+            ),
+            forecast_position_uncertainty_y=(
+                position_uncertainty_y + position_uncertainty
+            ),
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
         created_emitters=tuple(created_emitters),

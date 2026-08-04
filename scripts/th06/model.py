@@ -344,6 +344,12 @@ class EnemySpawner:
     # reused slot, so pointer identity is physical ECL state, not presentation.
     laser_slots: tuple[int, ...] = (-1,) * 32
     laser_store: int = 0
+    # Forecast-only uncertainty carried by not-yet-born enemies whose source
+    # timeline coordinates come from the shared RNG. Physical captures leave
+    # both values at zero; Hard forecasts use them to preserve a bounded
+    # position world without pretending that a future RNG value is known.
+    forecast_position_uncertainty_x: float = 0.0
+    forecast_position_uncertainty_y: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -268,6 +268,68 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertIsNotNone(nominal.continuation)
         self.assertEqual(nominal.continuation.elapsed_frames, 4)
 
+    def test_hard_world_encloses_random_timeline_enemy_position(self):
+        waiting = EclInstruction(
+            0x1000,
+            10000,
+            1,
+            16,
+            0xFF,
+            struct.pack(
+                "<ihhBBBBI", 10000, 1, 16, 0, 0xFF, 0, 0, 0
+            ).hex(),
+        )
+        transition = StageTimelineInstruction(
+            0x3000,
+            100,
+            0,
+            4,
+            28,
+            struct.pack(
+                "<hhhhfffhhI",
+                100,
+                0,
+                4,
+                28,
+                -999.0,
+                60.0,
+                0.0,
+                10,
+                -1,
+                100,
+            ).hex(),
+        )
+        positions = ((100.0, 400.0),) * 4
+        values = dict(
+            timeline_time=100,
+            timeline_instructions=(transition,),
+            ecl_subroutines=(0x1000,),
+            timeline_ecl_program=(waiting,),
+        )
+
+        hard = forecast_world_births(snapshot(100, **values), positions)
+
+        self.assertEqual(hard.covered_frames, 4, hard.reason)
+        self.assertEqual(len(hard.body_hazards[0]), 1)
+        self.assertEqual(hard.body_hazards[0][0], (-4.0, 56.0, 372.0, 64.0))
+        for seed in range(32):
+            nominal = forecast_world_births(
+                snapshot(100, rng_seed=seed, **values),
+                positions,
+                rng_mode="nominal",
+            )
+            self.assertEqual(nominal.covered_frames, 4, nominal.reason)
+            self.assertIsNotNone(nominal.continuation)
+            child = nominal.continuation.emitters[0]
+            self.assertGreaterEqual(child.x, 0.0)
+            self.assertLessEqual(child.x, 368.0)
+            outer = hard.body_hazards[0][0]
+            inner = nominal.body_hazards[0][0]
+            self.assertLessEqual(outer[0], inner[0])
+            self.assertLessEqual(outer[1], inner[1])
+            self.assertGreaterEqual(outer[2], inner[2])
+            self.assertGreaterEqual(outer[3], inner[3])
+
     def test_nominal_timeline_spawn_extension_matches_direct_slot_loop(self):
         waiting = EclInstruction(
             0x1000,

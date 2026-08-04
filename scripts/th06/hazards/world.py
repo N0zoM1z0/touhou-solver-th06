@@ -21,6 +21,11 @@ from .timeline import (
 
 
 SOURCE_ENEMY_SLOT_COUNT = 255
+# GameManager::AddedCallback initializes the exact ranges consumed by
+# RunEclTimeline's random-coordinate opcodes. Unlike player clamping, the
+# timeline draw does not add playerMovementAreaTopLeftPos.
+SOURCE_RANDOM_TIMELINE_WIDTH = 368.0
+SOURCE_RANDOM_TIMELINE_HEIGHT = 416.0
 
 
 def _program_can_create_enemy(emitter: EnemySpawner) -> bool:
@@ -416,21 +421,20 @@ def _forecast_hard_timeline_births(
                     tuple(map(tuple, bodies)),
                 )
             continue
-        if spawn.random_x or spawn.random_y:
-            return WorldBirthForecast(
-                tuple(map(tuple, births)),
-                _project_hazards(births, True),
-                lead,
-                "random stage timeline enemy position needs a world envelope "
-                f"at 0x{instruction.address:08x}",
-                tuple(map(tuple, bodies)),
-            )
+        child_x = (
+            SOURCE_RANDOM_TIMELINE_WIDTH / 2.0
+            if spawn.random_x else spawn.x
+        )
+        child_y = (
+            SOURCE_RANDOM_TIMELINE_HEIGHT / 2.0
+            if spawn.random_y else spawn.y
+        )
         child = source_enemy_template(
             snapshot.timeline_ecl_program,
             snapshot.ecl_subroutines,
             spawn.sub_id,
-            spawn.x,
-            spawn.y,
+            child_x,
+            child_y,
             spawn.life if spawn.life is not None else -1,
             spawn.item_drop,
         )
@@ -443,6 +447,17 @@ def _forecast_hard_timeline_births(
                 f"for sub {spawn.sub_id}",
                 tuple(map(tuple, bodies)),
             )
+        child = replace(
+            child,
+            forecast_position_uncertainty_x=(
+                SOURCE_RANDOM_TIMELINE_WIDTH / 2.0
+                if spawn.random_x else 0.0
+            ),
+            forecast_position_uncertainty_y=(
+                SOURCE_RANDOM_TIMELINE_HEIGHT / 2.0
+                if spawn.random_y else 0.0
+            ),
+        )
 
         # SpawnEnemy executes time-zero ECL inline. The manager then starts its
         # slot loop at zero, so every timeline child receives one ordinary
@@ -649,8 +664,14 @@ def _timeline_random_position(
     rng: RngState,
 ) -> tuple[float, float]:
     """Consume RunEclTimeline's x/y/z RNG in exact source order."""
-    x = rng.f32_in_range(384.0) if spawn.random_x else spawn.x
-    y = rng.f32_in_range(448.0) if spawn.random_y else spawn.y
+    x = (
+        rng.f32_in_range(SOURCE_RANDOM_TIMELINE_WIDTH)
+        if spawn.random_x else spawn.x
+    )
+    y = (
+        rng.f32_in_range(SOURCE_RANDOM_TIMELINE_HEIGHT)
+        if spawn.random_y else spawn.y
+    )
     if spawn.random_z:
         rng.f32_in_range(800.0)
     return x, y
