@@ -149,3 +149,28 @@ retained hostile-bullet steps and 1,765 player-shot steps, with no unsupported
 transition. The next offline root is therefore the exact f1600 entry; it must
 evaluate only the t1600--t2007 sub0 body/resource formation before the t2008
 midboss transition.
+
+## t1600 mirrored-body candidate
+
+The installed t1600 section contains 28 sub0 parents in two mirrored
+formations through t1808. Every parent has life 300 and item 3; sub0's only
+bullet instruction is not enabled on Hard. The phase still uses the complete
+battle world because player damage, enemy retirement, item collection, and
+Power determine the midboss entry.
+
+On the exact f1600 Power-3 root, bottom-target policy-volume h4, h6, and h8
+were identical across all eight delivery seeds for the complete 407 frames to
+t2007. Every case survived, used 162.88 mean commands, and retained 151.47
+mean minimum clearance; all horizons chose `left` first. Deeper continuation
+therefore adds no phase information. Target-free h4 also survived 8/8 with
+nearly identical clearance and fewer commands, but chose `up` on every seed.
+The historical Stage 1 physical clear's ranker explicitly preferred
+`(192,380)`, so its useful route-position lesson agrees with the current
+resource/midboss objective without restoring its global bullet-count scene
+classifier.
+
+The smallest physical falsifier is thus bottom-target `target-only` h4. Its
+private `mirrored-formations` state ends after the last t1808 parent and a
+`tail` state carries only to t2007. The t2008 sub8 midboss remains uncovered;
+once its ECL sets the boss state, stable boss source identity must take
+precedence over the timeline label.

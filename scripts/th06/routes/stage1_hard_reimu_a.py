@@ -1,8 +1,8 @@
 """Hard/Reimu-A Stage 1, authored one source phase at a time.
 
-Only the quiet setup and source phases through the t1220 random body stream
-are covered. The t1600 body/resource formation is deliberately fail-visible
-until the preceding random phase has physical evidence.
+Only the quiet setup and source phases through the t1600 body/resource stream
+are covered. The t2008 midboss entry is deliberately fail-visible until the
+preceding formation has physical evidence.
 """
 
 from __future__ import annotations
@@ -117,6 +117,32 @@ RANDOM_BODY_STREAM = TimelineStateMachine(
 )
 
 
+SECOND_BODY_STREAM = TimelineStateMachine(
+    "timeline:t1600:sub0-body-resource-stream",
+    (
+        PolicyState(
+            1600,
+            "mirrored-formations",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            provenance=(
+                "physical f1600 entry; installed mirrored sub0 parents "
+                "through t1808 carry item 3 and emit no Hard bullets"
+            ),
+        ),
+        PolicyState(
+            1809,
+            "tail",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            provenance="last mirrored sub0 parent spawned at source t1808",
+        ),
+    ),
+)
+
+
 def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     return RouteIntent(
         phase_id=phase_id,
@@ -156,8 +182,10 @@ class HardReimuAStage1:
             return AIMED_STREAM.intent(snapshot)
         if snapshot.timeline_time < 1600:
             return RANDOM_BODY_STREAM.intent(snapshot)
+        if snapshot.timeline_time < 2008:
+            return SECOND_BODY_STREAM.intent(snapshot)
         return uncovered(
-            "timeline:t1600:sub0-body-resource-stream",
-            "next installed source phase begins with mirrored sub0 "
-            "body/resource formations at t1600",
+            "timeline:t2008:sub8-midboss-entry",
+            "next installed source phase begins with the sub8 midboss "
+            "entry at t2008",
         )

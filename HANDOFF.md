@@ -293,12 +293,15 @@ final 255 adjacent combat/RNG/item/Power transitions, 3,289 hostile-bullet
 steps, and 1,765 player-shot steps all matched exactly with no unsupported
 transition.
 
-Use this exact f1600 entry for the next stateful sweep. The installed source
-phase is the t1600--t2007 mirrored sub0 body/resource formation; compare only
-the smallest publishable local policies through that boundary. Keep the t2008
-sub8 midboss entry uncovered, and expect runtime boss identity to supersede
-the timeline label as soon as the newborn source enemy publishes its boss
-state.
+The exact f1600 battle-world sweep now selects bottom-target `target-only` h4
+through t2007. Targeted h4/h6/h8 were identical across all eight complete
+407-frame delivery seeds, so deeper continuation adds no information.
+Target-free h4 also survived 8/8 but consistently moved upward; the retained
+bottom-center proposal agrees with the historical Stage 1 clear's positioning
+lesson and the current resource/midboss objective. Physically falsify this
+minimal h4 phase with ordinary RNG/default fail-close. Keep the t2008 sub8
+midboss entry uncovered, and expect runtime boss identity to supersede the
+timeline label as soon as the newborn source enemy publishes its boss state.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
