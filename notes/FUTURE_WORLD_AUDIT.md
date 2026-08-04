@@ -1,7 +1,7 @@
 # TH06 Future-World And Offline/Online Audit
 
-Snapshot refreshed 2026-08-04 through repository checkpoint `16cf0c0` and the
-following measured barrage-policy experiment.  Authoritative source remains
+Snapshot refreshed 2026-08-04 through repository checkpoint `20e7ae5` and the
+following measured physical-battle experiment.  Authoritative source remains
 `cc475a0bc3fef38683b0f02224c87ddba0a021d9`.
 
 This is a source-coverage audit, not an implementation roadmap and not clear
@@ -63,12 +63,19 @@ The concise rule is: precompute the source program, not a future trajectory.
   forecasting advances captured RNG state and active emitters frame-first and
   slot-second where the model is complete.
 - Source `ENEMYCREATE` can be audited inside the Hard window through newborn
-  time-zero ECL and both relevant EnemyManager slot-order cases.  Persistent
-  nominal world insertion remains unsupported.
+  time-zero ECL and both relevant EnemyManager slot-order cases. Nominal
+  forecasting now keeps persistent children in the 255-slot EnemyManager
+  world, including the source distinction between a lower already-visited
+  slot and a higher same-pass slot.
 - Deterministic stage-timeline children are now inserted into the Hard world:
   their source record is decoded, newborn time-zero ECL runs inline, and the
   child is advanced through the remaining Hard interval. Random-coordinate
   timeline children fail closed at their first unresolved RNG dependency.
+- Nominal stage-timeline children are now also inserted before the source
+  slot loop. Their time-zero ECL, ordinary same-pass update, deterministic or
+  shared-RNG position, life override, invert-X write, boss suppression, and
+  continuation offset are preserved. This is proposal evidence; Hard still
+  rejects an unresolved random coordinate.
 - Timeline boss-interrupt records are applied before the affected live boss
   update. The sensor now retains every installed live interrupt target graph,
   including targets whose `ENEMYINTERRUPTSET` instruction precedes the
@@ -85,9 +92,12 @@ The concise rule is: precompute the source program, not a future trajectory.
 
 - `stage5_f8447_final_frame_enemy_create.json` proves a final-Hard-frame child
   creation can be audited as immediately hazard-neutral.
-- `stage5_f8456_persistent_enemy_create.json` proves the retained children can
-  be audited through the remaining Hard window while nominal persistent
-  insertion still stops.
+- `stage5_f8456_persistent_enemy_create.json` originally exposed the missing
+  persistent child. The current nominal model now carries those children.
+- From retained f8441, two source updates predict the f8443 parent plus six
+  children in slots 0..6, every ECL time, and RNG seed/generation exactly;
+  child positions differ only by about `1.4e-5`. This validates inline child
+  ECL, shared RNG, and the higher-slot same-pass rule on that transition.
 - Adjacent physical history has been used to check player movement, existing
   bullet transitions, and newborn bullet geometry.  The current generic
   stateful parity rung deliberately excludes live enemies, spawners, lasers,
@@ -97,10 +107,16 @@ The concise rule is: precompute the source program, not a future trajectory.
   boss interrupt executed across that adjacent boundary. Hard retained all 18
   actions and no authority stop occurred. The 75-second diagnostic reached
   f4320 with no HIT and no Bomb, but is not a default clear.
+- From physical f1774, the newly inserted nominal timeline transition creates
+  the two f1784 children at `(32,-44)` and `(352,-44)` with ECL time 3, exactly
+  matching their positions and ECL phase. The full slot world does not yet
+  match: nominal allocation uses 9/10, while the game reuses 0/1 after older
+  enemies retire. That mismatch is retained evidence for future
+  damage/retirement modeling, not a parity claim.
 
 ## Coverage gaps found in this audit
 
-### 1. Stage timeline Hard insertion is bounded; nominal insertion remains
+### 1. Stage timeline insertion exists; full nominal occupancy causality is
 incomplete
 
 ### Source/current-code fact
@@ -117,10 +133,12 @@ future timeline instruction
     -> newborn bullet/laser/body hazard
 ```
 
-This closes the identified deterministic Hard-4 omission. It does not yet
-install those children into the nominal continuation used for deeper soft
-ranking. Random-coordinate timeline records still require a shared-RNG world
-envelope and therefore stop Hard coverage at the unresolved transition.
+This closes the identified deterministic Hard-4 omission. Nominal forecasting
+also installs the children and can consume exact captured RNG for random
+coordinates. Random-coordinate timeline records still require a shared-RNG
+world envelope for Hard and therefore stop Hard coverage at the unresolved
+transition. Nominal slot identity remains contingent on every earlier enemy
+despawn, player-shot kill, and callback, which is not yet modeled completely.
 
 ### 2. Same frame number does not by itself prove one calc-chain phase
 
@@ -174,19 +192,19 @@ corresponding EnemyManager/ECL birth and must retain separate world/RNG states
 when two action histories generate different aimed hazards.  Once this is
 implemented, reachable-state deduplication cannot use player endpoint alone.
 
-### 5. Persistent world insertion and future lasers are incomplete
+### 5. Persistent world insertion has advanced; future lasers remain incomplete
 
 ### Source/current-code fact
 
-- `ENEMYCREATE` Hard auditing does not install a lasting child in the nominal
-  emitter collection.
-- Nested child mutation, exact free-slot selection, and shared RNG interaction
-  remain unsupported.
+- `ENEMYCREATE` and stage-timeline children now persist in the nominal emitter
+  collection with exact free-slot selection for the represented world and one
+  shared ECL RNG stream.
+- A newborn that itself creates another enemy inline still stops coverage;
+  exact future slot occupancy also needs enemy retirement and player damage.
 - Future laser create/aim/store/rotate/test/cancel lacks a persistent laser
   world state and exact geometry.
-- Deterministic future stage-timeline enemies are inserted only in the bounded
-  Hard forecast, not in nominal continuation; random-coordinate records stop
-  at the unresolved RNG transition.
+- Random-coordinate stage records remain fail-closed in Hard even though the
+  nominal proposal path can instantiate their captured RNG branch.
 
 ### 6. Nominal RNG is exact only within the modelled consumer set
 
@@ -194,8 +212,8 @@ implemented, reachable-state deduplication cannot use player endpoint alone.
 
 The current nominal world preserves captured RNG state across modelled active
 emitters.  It does not yet compose every possible shared consumer, including
-random stage-timeline placement, unsupported external instructions, exact
-future world insertion, and every action-conditioned damage/callback path.
+  non-ECL RNG consumers, unsupported external instructions, future lasers,
+  and every action-conditioned damage/callback path.
 Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
 
 ## Offline assets and current limitations
@@ -215,6 +233,12 @@ Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
   player/input/rank/density frames, or start from every complete captured
   bullet world. The latter deliberately removes enemy/laser/timeline state and
   is labelled a physical-bullet ablation, never a complete battle forecast.
+- A second `--physical-battle-world` rung retains complete captured bullets,
+  ECL emitters, lethal bodies, timeline, slot occupancy, and nominal RNG, then
+  advances player pickup, ECL births, and BulletManager state closed-loop. It
+  rejects live lasers, despawning bullets, and unresolved timeline waits. It
+  is explicitly nominal because player shots, sprite-bound enemy retirement,
+  and non-ECL RNG consumers are not yet reproduced.
 - The independent planner oracle and stateful runner are valuable algorithm
   falsifiers.  They are not replacements for full source-world execution or
   physical play.
@@ -267,19 +291,55 @@ understood constant witness when the stronger optional rung is empty. They do
 not justify making the experimental barrage policy a new online controller,
 nor do offline survivors count as a physical clear.
 
+### Full physical-battle stateful results
+
+Eight retained roots at f1733, f1774, f1784, f1804, f1840, f1880, f1920, and
+f1929 were replayed for 180 updates at h8/h12/h16 with captured bullets,
+emitters, timeline and source-valid future births. Raw terminal count stopped
+once: the f1920/h12 case lost lease authority after 158 updates. Exact
+repeated-pickup filtering survived all 24 root/horizon cases, converting that
+case to 180 updates (+22) with no paired survival loss. Raw h16 also survived
+all eight and had substantially better mean minimum clearance than raw h12,
+so the experiment supports deeper future evidence without declaring one fixed
+horizon sufficient.
+
+The workload took about 135 seconds for raw count and 146 seconds for the
+delivery-filtered policy on Windows. It is deliberately a high-intensity
+offline falsifier. Its retained f1774 slot divergence proves that the next
+modeling target is not more synthetic bullet volume: action-conditioned
+damage/kill/callback and source enemy retirement are required before the
+battle rung can claim physical world parity.
+
+## Latest physical causal trace
+
+The first integrated run after persistent ECL-child insertion was a fixed-RNG
+default fail-close diagnostic and stopped at f1948, before the f8442 child
+transition. It therefore neither validates nor falsifies that child model.
+At f1774 the controller changed from `up_right` to `left`: local h12/h16/h20
+were tied and the soft suppression target at x=22 broke the tie. The old
+nominal forecast ended at the timeline enemy transition eight frames ahead,
+so deeper ranks silently contained no later birth/body evidence. By f1804,
+exact p8 terminal volume already preferred the rightward family, but the
+online budget completed only membership and preserved the held left input.
+At f1943 h12/h16 excluded left; f1945 and f1947 were stale retries, and fresh
+Hard-4 became empty at f1948. Thus the terminal stop is an effect of a long
+left-wall commitment plus a missed correction window, not evidence that the
+horizontal strip itself was inevitable.
+
 ## Smallest useful direction
 
 The evidence order for future work is now:
 
-1. Retain the new deterministic timeline enemy/message/interrupt Hard
-   coverage and obtain another adjacent physical spawn transition; add a
-   source-bounded envelope for random timeline coordinates rather than a
-   nominal point.
-2. Insert the next source-defined persistent world families one at a time:
-   ECL child, then future laser, retaining exact slot/update order.
-3. Make nominal future births candidate-path conditioned and preserve shared
-   RNG/world state per causal branch, including damage/kill/callback effects.
-4. Extend adjacent-frame parity only for each newly supported transition.
+1. Retain the new Hard and nominal timeline/ECL-child insertion and validate
+   another adjacent timeline spawn with exact slot occupancy; add a
+   source-bounded Hard envelope for random timeline coordinates.
+2. Model the smallest action-conditioned combat transition needed by the
+   f1774 slot mismatch: player shot hit geometry, damage, kill/despawn, and
+   callback entry. Keep attack soft; only source world state changes.
+3. Make nominal future aim candidate-path conditioned and preserve shared
+   RNG/world state per causal branch; then insert future laser state.
+4. Extend adjacent-frame parity only for each newly supported transition,
+   including enemy retirement and bullet-pool insertion/removal.
 5. Profile the integrated online path, then compile immutable ECL/timeline
    blocks offline or move a measured stable kernel to native code without
    changing semantics.
