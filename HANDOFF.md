@@ -504,6 +504,20 @@ local t150 with exact laser slots/timers and the first circle present. Require
 adjacent parity for delayed RNG, every bullet birth/motion transition, both
 laser births and all first 30 timer updates before promotion.
 
+The run physically promoted `laser-pattern-start` and stopped exactly at
+f3500/local t150 with no HIT, Bomb, stale publication, timeout, or earlier
+authority loss. The boundary has all 18 Hard-safe actions at
+`(194.846,379.581)`, Power 9, 42 bullets, and laser slots 0/1 at source state 0
+timer 30. All 27 fresh queries measured 1.181/2.428/3.070 ms
+median/p90/maximum.
+
+Adjacent replay is exact for all 252 combat/RNG/item/Power transitions, 9,388
+fired-bullet and 2,334 spawning-bullet steps, both laser births, and all 58
+laser transitions. Use the exact local-t150 root next. Audit the t150/t151
+opposed opcode-88 rotation loop and the imminent state-0-to-state-1 laser
+transition; expose only the smallest source-clock state that can be validated
+against the next physical boundary.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

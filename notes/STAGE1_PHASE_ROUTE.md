@@ -482,3 +482,22 @@ therefore authors only `120 <= ecl_time < 150` as target-only h4 state
 `laser-pattern-start`. This is the smallest physical falsifier for bullet
 birth, laser allocation, delayed RNG, and the first 30 laser timer updates;
 it does not claim that the later rotating laser geometry is solved.
+
+The ordinary-RNG default fail-close run physically promoted this state. It
+stopped exactly at f3500/local t150 with `phase-unavailable`, before the
+t150/t151 rotation-loop instructions. There was no HIT, Bomb, stale
+publication, timeout, or earlier authority loss. The boundary retained all 18
+Hard-safe actions at `(194.846,379.581)`, Power 9, with 42 bullets and exactly
+two lasers. Both lasers occupy source slots 0/1, remain in state 0 at timer
+30, preserve angles 0.393/2.749 and end offset 500, and retain hitbox end delay
+14. The delayed interval is 38 with timer 28; the boss is damageable at life
+460 and local boss timer 150.
+
+All 27 fresh policy queries measured 1.181 ms median, 2.428 ms p90, and
+3.070 ms maximum. Adjacent replay matched all 252 player/combat/RNG/rank/item/
+Power transitions, 9,388 fired-bullet steps, 2,334 spawning steps, 138 births,
+166 removals, and 2,652 player-shot steps. It also matched both source laser
+births and all 58 retained laser transitions with zero geometry/timer error.
+The next exact root is local t150; opcode 88's opposed angle mutations and the
+state-0-to-state-1 laser transition must be audited and physically validated
+before extending the spell policy.
