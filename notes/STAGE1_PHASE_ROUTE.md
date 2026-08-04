@@ -60,3 +60,16 @@ candidate-conditioned battle world through t640--t1219. It must compare small
 phase-local policies across source-valid RNG/action warmups, including the
 sub2 local-t70 aimed shots and player damage/kill state. The t1220
 random-coordinate insertion remains the next explicit uncovered boundary.
+
+The first replay initially could not make that claim: the offline combat
+world supported only Reimu-A's full-Power rank-9 shot table, while this entry
+has Power 2. The smallest source fix compiled authoritative rank 1 (Power
+0--7): one straight main shot every five fire-timer ticks, speed 12 and damage
+48. Intermediate ranks remain fail-closed until physically reached.
+
+After that addition, the captured f386--f641 window matched all 255 adjacent
+player-attack, enemy-combat, player-shot, RNG, graze, rank, item, and Power
+transitions. All 49 newborn rank-1 shots and 1,800 retained shot steps matched;
+23 enemy birth/removal transitions were exact and unsupported combat steps
+fell from 255 to zero. This validates the low-Power causal root used by the
+t640 offline sweep; it is not evidence for uncompiled power ranks.
