@@ -457,3 +457,28 @@ f3433/local t120. The next experiment must expose the Hard 42-way delayed
 pattern and both source lasers only over the smallest adjacent source window,
 then validate their birth, slot allocation, timers, and motion against
 physical frames before authoring any larger spell state.
+
+## sub9 laser/pattern-start candidate
+
+The exact f3433/local-t120 root resolves the Hard-only opcode-69 instruction
+as a 42-by-1 player-aimed circle at speed 2.5, then enables a delayed interval
+whose rank-adjusted period is 38. The physical RNG state selects initial timer
+36, so no bullet is born on t120 itself; the first 42 slots are allocated on
+the third update. The same t120 instruction group allocates fixed-angle laser
+slots 0 and 1 at angles approximately 0.393 and 2.749, each with start time
+30, hitbox start time 30, duration 120, despawn duration 16, width 32, and
+source hitbox end delay 14.
+
+Exact one-frame stepping preserves the seven ECL/RNG draws and produces both
+laser slots at timer 1. A complete 30-update constant diagnostic reaches
+local t150 with 42 fired bullets at timer 13 and both lasers still in state 0
+at timer 30. The t150/t151 sound, loop initialization, and opposed opcode-88
+laser rotations have not executed and remain a distinct source boundary.
+
+On eight delivery seeds from the exact physical root, bottom-target
+policy-volume h4/h6/h8 all survived 30/30 updates and were identical: 11.875
+mean commands, 12.125 decisions, and no deeper-horizon win. The route
+therefore authors only `120 <= ecl_time < 150` as target-only h4 state
+`laser-pattern-start`. This is the smallest physical falsifier for bullet
+birth, laser allocation, delayed RNG, and the first 30 laser timer updates;
+it does not claim that the later rotating laser geometry is solved.

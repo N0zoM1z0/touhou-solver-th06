@@ -256,9 +256,23 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                     "before creating its Hard pattern and two lasers"
                 ),
             )
+        if boss.ecl_time < 150:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="laser-pattern-start",
+                algorithm="target-only",
+                horizon=4,
+                target=BOTTOM_CENTER,
+                commitment_frames=4,
+                provenance=(
+                    "physical local-t120 root; exact source stepping covers "
+                    "the Hard delayed 42-way birth and laser slots 0/1 "
+                    "through local t149"
+                ),
+            )
         return uncovered(
             phase_id,
-            "Stage 1 sub9 spell at or after the local-t120 bullet/laser "
+            "Stage 1 sub9 spell at or after the local-t150 laser-rotation "
             "transition has not been authored",
         )
     return uncovered(

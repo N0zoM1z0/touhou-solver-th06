@@ -301,8 +301,20 @@ class RoutePhaseTests(unittest.TestCase):
             spawners=(boss,),
             player_attack=replace(player_attack(), spell_active=True),
         ))
-        self.assertEqual(spell_attack.algorithm, "uncovered")
-        self.assertEqual(spell_attack.policy_state, "uncovered")
+        self.assertEqual(spell_attack.algorithm, "target-only")
+        self.assertEqual(spell_attack.policy_state, "laser-pattern-start")
+        self.assertEqual(spell_attack.horizon, 4)
+        self.assertIsNotNone(spell_attack.target)
+
+        boss.ecl_time = 150
+        laser_rotation = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3192,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(laser_rotation.algorithm, "uncovered")
+        self.assertEqual(laser_rotation.policy_state, "uncovered")
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

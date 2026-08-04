@@ -491,6 +491,19 @@ Require exact source slot allocation, delayed-interval RNG, laser timers and
 motion, then physically capture a short adjacent window before authoring a
 larger spell policy state. Do not infer the remaining spell from source alone.
 
+That smallest transition is now authored, but not yet physically promoted.
+The exact t120 step allocates fixed-angle laser slots 0/1, consumes the
+delayed-interval RNG, and births the Hard 42-way circle on the third update.
+Across eight exact-root delivery seeds, targeted h4/h6/h8 were identical and
+survived all 30 updates to local t150. Only `120 <= ecl_time < 150` is exposed
+as target-only h4 `laser-pattern-start`; t150 remains fail-visible before the
+t150/t151 rotation loop.
+
+Run ordinary RNG/default fail-close. Expected success is an alive stop at
+local t150 with exact laser slots/timers and the first circle present. Require
+adjacent parity for delayed RNG, every bullet birth/motion transition, both
+laser births and all first 30 timer updates before promotion.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
