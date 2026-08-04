@@ -390,3 +390,22 @@ while h6/h8 survived all 32. h8 raised mean minimum clearance from 4.62 to
 `738 <= ecl_time <= 840` as target-free h8 `late-circles-loop`; the t840
 update naturally returns to `first-circle-movement`, and sub9 remains explicit
 `phase-unavailable`.
+
+The ordinary-RNG default fail-close run physically promoted the complete
+control loop. It crossed t840, repeated the h8 source states over accumulated
+bullets, and stopped alive exactly when stable identity changed at f3044 to
+`boss:0:sub9:life_cb9:timer_cb6:spell`. This is the earliest callback frame
+predicted by the eight offline delivery branches. There was no HIT, Bomb,
+stale publication, timeout, or earlier authority loss.
+
+The sub9 boundary retained all 18 Hard-safe actions at `(192.260,208.083)`,
+Power 9. Spell start had source-cancelled the old bullets; the boss was at
+exact life 500, its life threshold was cleared to -1, its timer callback was
+sub6 at 1320, and ECL/boss timers were both 2. All 237 post-t738 h8 decisions
+were fresh at 3.976 ms median, 5.699 ms p90, and 7.655 ms maximum.
+
+Adjacent replay matched all 254 player/combat/RNG/rank/item/Power transitions,
+21,519 fired-bullet steps, 3,020 spawning steps, 100 births, 197 removals,
+2,342 player-shot steps, 11 graze transitions, and all 45 boss life-change
+frames. The next phase is now the exact sub9 spell entry, not an estimated
+future callback.

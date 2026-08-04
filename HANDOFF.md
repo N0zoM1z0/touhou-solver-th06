@@ -438,6 +438,25 @@ Require adjacent parity for the loop, accumulated bullets, candidate damage,
 callback life 500, ECL identity/timer publication, and RNG before authoring
 any sub9 spell state.
 
+The run physically promoted the loop and stopped exactly at the source phase
+change: f3044 published `boss:0:sub9:life_cb9:timer_cb6:spell`, matching the
+earliest callback frame in the offline delivery probe. The boundary has all
+18 Hard-safe actions at `(192.260,208.083)`, Power 9, no old bullets, and boss
+life 500. Life threshold is cleared, timer callback is sub6/1320, and ECL plus
+boss timers are both 2. No HIT, Bomb, stale publication, timeout, or earlier
+authority loss occurred.
+
+All 237 post-t738 h8 decisions were fresh at 3.976 ms median, 5.699 ms p90,
+and 7.655 ms maximum. Adjacent replay matched all 254 player/combat/RNG/rank/
+item/Power transitions, 21,519 fired-bullet steps, 3,020 spawning steps, 100
+births, 197 removals, 11 graze transitions, and all 45 boss life changes.
+
+Use the exact f3044 sub9 spell root next. Audit its local t0--t120 protected
+entry, Hard t120 circle/interval and two source lasers, then author only the
+smallest state whose future laser and bullet transitions are completely
+modeled. Sub9 is a new stable phase; do not inherit sub8 route intent merely
+because the same enemy slot remains alive.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
