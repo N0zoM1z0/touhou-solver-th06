@@ -1005,3 +1005,38 @@ Power 32 is a newly reached Reimu-A shot rank, so the earlier Power-16--31
 offline attack table is no longer sufficient. The next phase audit must join
 the sub10 entry ECL, the still-active message/timeline wait, and the Power-32
 player attack state before opening any boss movement policy.
+
+## main-boss sub10 dialogue-gated entry candidate
+
+The immutable Stage 1 ECL identifies the f5286 boss as sub10. Its time-zero
+instructions disable damage and collision, mark the slot as boss 0, set the
+entry position to `(320,-32)`, install interrupt 0 -> sub11, and begin a
+60-tick decelerating move to `(192,96)`. At local t60 it changes animation and
+installs the source move bounds. There is no bullet or laser creation opcode
+anywhere in sub10. Its t1060 rewind is irrelevant to the ordinary online path
+but remains part of the audited source graph.
+
+The stage timeline is still stopped on the t5280 MSGWAIT. The captured message
+VM proves 48 remaining priority-9 waits; after the wait releases, t5281 writes
+interrupt 0 before the boss slot updates, so the first unaudited state is
+sub11 rather than sub10 local t60. Sub11 enables collision and damage at time
+zero, installs life 7000 plus life/timer callbacks, and reaches its first call
+site at local t100. It therefore stays a distinct fail-visible phase.
+
+Reimu-A Rank 4 (Power 32--47) is now compiled directly from authoritative
+`g_CharacterPowerBulletDataReimuARank4`: three five-frame main shots at
+-96/-90/-84 degrees with damage 24/30/24, plus the two existing 30-frame orb
+shots with damage 14. On the retained f5031--f5286 physical history, all 255
+player-attack transitions, 145 shot births, and 3,227 shot steps match. The
+nominal combat world is exact on 248/255 adjacent pairs, including 17 enemy
+slot transitions and all item/RNG/Power state. The seven unsupported pairs are
+exactly f5279--f5286 while the active message holds the timeline; they remain
+explicitly unsupported rather than receiving an invented countdown state.
+
+Route-neutral fail-closed forecasting from f5286 covers the first 120 frames
+with zero hostile births and exposes the sub11 boss body after the proved
+message delay. It stops at lead 137 because player damage can then reach an
+active, not-yet-authored life callback. The next physical candidate therefore
+uses only target-only Hard-4 toward bottom center during sub10. The exact root
+retains all 18 Hard actions and selects `down_left`; sub11 remains uncovered,
+so the run must stop on its first stable snapshot.

@@ -414,14 +414,64 @@ class PlayerAttackTests(unittest.TestCase):
         self.assertLess(following.shots[0].vx, 0.0)
         self.assertGreater(following.shots[1].vx, 0.0)
 
+    def test_rank4_fire_phase_spawns_three_main_and_source_orb_shots(self):
+        player = bytearray(
+            PLAYER_BOMB_ACTIVE_OFFSET + 4 - PLAYER_POSITION_OFFSET
+        )
+        relative = lambda offset: offset - PLAYER_POSITION_OFFSET
+        struct.pack_into(
+            "<ff", player, relative(PLAYER_LAST_ENEMY_HIT_OFFSET),
+            -999.0, -999.0,
+        )
+        struct.pack_into(
+            "<ff", player, relative(PLAYER_ORBS_POSITION_OFFSET),
+            168.0, 400.0,
+        )
+        struct.pack_into(
+            "<ff", player, relative(PLAYER_ORBS_POSITION_OFFSET) + 12,
+            216.0, 400.0,
+        )
+        struct.pack_into(
+            "<ifi", player, relative(PLAYER_FOCUS_TIMER_OFFSET),
+            -999, 0.0, 0,
+        )
+        struct.pack_into(
+            "<ifi", player, relative(PLAYER_FIRE_TIMER_OFFSET),
+            -999, 0.0, -1,
+        )
+        attack = _decode_player_attack(
+            bytes(player), {}, shot_type=0, spell_active=False
+        )
+
+        following = step_reimu_a_player_attack(
+            attack, (192.0, 400.0), False, 32
+        )
+
+        self.assertEqual(len(following.shots), 5)
+        self.assertEqual(
+            tuple(shot.damage for shot in following.shots),
+            (24, 30, 24, 14, 14),
+        )
+        self.assertEqual(
+            tuple(shot.bullet_type for shot in following.shots),
+            (0, 0, 0, 1, 1),
+        )
+        self.assertLess(following.shots[0].vx, 0.0)
+        self.assertAlmostEqual(following.shots[1].vx, 0.0, places=5)
+        self.assertGreater(following.shots[2].vx, 0.0)
+        self.assertEqual(
+            following.orb_positions,
+            ((168.0, 400.0), (216.0, 400.0)),
+        )
+
     def test_uncompiled_intermediate_reimu_a_rank_fails_closed(self):
         attack = _attack_with_shot(1)
 
         with self.assertRaisesRegex(
-            ValueError, "power ranks 4 through 8 are not compiled"
+            ValueError, "power ranks 5 through 8 are not compiled"
         ):
             step_reimu_a_player_attack(
-                attack, (192.0, 400.0), False, 32
+                attack, (192.0, 400.0), False, 48
             )
 
     def test_focusing_reaches_focused_without_same_frame_timer_reset(self):

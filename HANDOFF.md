@@ -840,6 +840,25 @@ shot rank together with the sub10 entry ECL before authoring the first boss
 movement interval. Do not treat the still-active dialogue as a quiet boss
 root, and do not extend through the first source attack speculatively.
 
+That audit now opens only sub10. Authoritative ECL disables boss damage and
+collision, starts its 60-tick entry move, installs interrupt 0 -> sub11, and
+contains no hostile birth opcode. The still-active message proves 48 timeline
+waits before t5281 applies that interrupt; sub11 immediately enables collision
+and damage and remains uncovered. The exact f5286 target-only Hard-4 query has
+all 18 actions safe and selects `down_left` toward bottom center.
+
+Authoritative Reimu-A Rank 4 (Power 32--47) is compiled. Retained physical
+parity is exact for 255/255 player-attack transitions, 145 shot births, and
+3,227 shot steps. Full nominal combat parity rises from 15 to 248 of 255
+adjacent pairs; the seven unsupported pairs are precisely the active-message
+timeline waits and remain explicit. Route-neutral forecasting sees no hostile
+birth through 120 frames and fails closed at lead 137 when candidate damage
+can reach sub11's unaudited life callback.
+
+Run ordinary RNG/default fail-close next. Promotion requires sub10 movement
+to remain under fresh Hard authority with no HIT/Bomb and an intentional stop
+on the first stable sub11 snapshot. Do not issue an unaudited sub11 action.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

@@ -273,6 +273,34 @@ def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     )
 
 
+def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
+    spell_active = bool(
+        snapshot.player_attack and snapshot.player_attack.spell_active
+    )
+    phase_id = boss_phase_id(boss, spell_active)
+    if ecl_subroutine_index(boss) == 10 and not spell_active:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="dialogue-gated-entry",
+            algorithm="target-only",
+            horizon=4,
+            target=BOTTOM_CENTER,
+            commitment_frames=4,
+            provenance=(
+                "physical f5286 sub10 root; source time-zero disables boss "
+                "collision and damage, starts the 60-tick decelerating "
+                "entry movement, and contains no hostile birth opcode; "
+                "message 0 still proves 48 priority-9 waits before the "
+                "timeline interrupt enters unaudited sub11"
+            ),
+        )
+    return uncovered(
+        phase_id,
+        "Stage 1 main-boss source state after the dialogue-gated sub10 "
+        "entry has not been authored",
+    )
+
+
 def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
     spell_active = bool(
         snapshot.player_attack and snapshot.player_attack.spell_active
@@ -482,6 +510,8 @@ class HardReimuAStage1:
         bosses = tuple(spawner for spawner in snapshot.spawners if spawner.is_boss)
         if bosses:
             boss = min(bosses, key=lambda spawner: (spawner.boss_id, spawner.slot))
+            if snapshot.timeline_time >= 5280:
+                return mainboss_intent(snapshot, boss)
             return midboss_intent(snapshot, boss)
 
         if snapshot.timeline_time < 128:

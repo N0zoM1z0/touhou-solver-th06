@@ -230,6 +230,52 @@ class RoutePhaseTests(unittest.TestCase):
             "timeline:t2009:sub8-midboss-missing",
         )
 
+    def test_stage1_main_boss_opens_only_dialogue_gated_sub10_entry(self):
+        subroutines = tuple(0x1000 + index * 0x100 for index in range(12))
+        boss = SimpleNamespace(
+            is_boss=True,
+            boss_id=0,
+            slot=0,
+            next_instruction=SimpleNamespace(address=subroutines[10] + 0x10),
+            ecl_subroutines=subroutines,
+            life_callback_sub=0,
+            timer_callback_sub=0,
+            ecl_time=2,
+        )
+
+        entry = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5280,
+            message_active=True,
+            timeline_current_message_waits=48,
+            current_power=32,
+            spawners=(boss,),
+        ))
+
+        self.assertEqual(entry.algorithm, "target-only")
+        self.assertEqual(entry.policy_state, "dialogue-gated-entry")
+        self.assertEqual(entry.horizon, 4)
+        self.assertEqual(entry.target, (192.0, 380.0))
+        self.assertEqual(
+            entry.phase_id,
+            "boss:0:sub10:life_cb0:timer_cb0:nonspell",
+        )
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[11] + 0x10
+        )
+        first_nonspell = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5281,
+            spawners=(boss,),
+        ))
+        self.assertEqual(first_nonspell.algorithm, "uncovered")
+        self.assertEqual(first_nonspell.policy_state, "uncovered")
+        self.assertEqual(
+            first_nonspell.phase_id,
+            "boss:0:sub11:life_cb0:timer_cb0:nonspell",
+        )
+
     def test_stage1_midboss_uses_stable_sub8_identity_after_insertion(self):
         subroutines = tuple(0x1000 + index * 0x100 for index in range(10))
         boss = SimpleNamespace(
