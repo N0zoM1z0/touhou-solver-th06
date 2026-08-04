@@ -242,9 +242,41 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=2745,
             spawners=(boss,),
         ))
-        self.assertEqual(third_attack.algorithm, "uncovered")
-        self.assertEqual(third_attack.policy_state, "uncovered")
+        self.assertEqual(third_attack.algorithm, "policy-volume")
+        self.assertEqual(third_attack.policy_state, "late-circles-loop")
+        self.assertEqual(third_attack.horizon, 8)
+        self.assertIsNone(third_attack.target)
         self.assertEqual(third_attack.phase_id, intent.phase_id)
+
+        boss.ecl_time = 840
+        loop = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2847,
+            spawners=(boss,),
+        ))
+        self.assertEqual(loop.policy_state, "late-circles-loop")
+
+        boss.ecl_time = 193
+        repeated_cycle = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2848,
+            spawners=(boss,),
+        ))
+        self.assertEqual(repeated_cycle.policy_state, "first-circle-movement")
+
+        boss.ecl_time = 1
+        boss.next_instruction = SimpleNamespace(address=subroutines[9] + 0x10)
+        life_callback = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3044,
+            spawners=(boss,),
+        ))
+        self.assertEqual(life_callback.algorithm, "uncovered")
+        self.assertEqual(life_callback.policy_state, "uncovered")
+        self.assertEqual(
+            life_callback.phase_id,
+            "boss:0:sub9:life_cb9:timer_cb7:nonspell",
+        )
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

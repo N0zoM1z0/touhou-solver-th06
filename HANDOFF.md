@@ -419,6 +419,25 @@ local-t738 root for the next source/offline comparison. The t738/t768 attacks
 and the now-near life threshold must remain candidate-conditioned; a switch
 to sub9 is a stable phase boundary, not an error to suppress.
 
+The source audit shows t840 jumping back to local t192, not ending sub8. An
+exact 299-update sweep kept h4/h6/h8 alive on 8/8 seeds; h8 raised clearance
+from h6's 3.68 to 6.90 with slightly fewer commands. A bounded h8 probe crossed
+the rewind on all eight branches and entered sub9 after 299--362 updates,
+always at exact life 500 but at candidate-dependent frames. Minimum clearance
+remained 5.03--8.71.
+
+A 31-world high-pressure corpus derived through 1,070 Hard-safe updates and
+4,000 source births retained h6/h8 on 32/32 viable delivery cases versus
+29/32 for h4. h8 clearance was 6.85 versus h6's 4.62 with essentially equal
+command count. The route now authors `738 <= ecl_time <= 840` as target-free
+h8 `late-circles-loop`; after the jump, the existing h8 source states repeat.
+
+Run ordinary RNG/default fail-close. Expected success is an alive stop when
+stable identity first changes from sub8 to sub9, not at the t840 rewind.
+Require adjacent parity for the loop, accumulated bullets, candidate damage,
+callback life 500, ECL identity/timer publication, and RNG before authoring
+any sub9 spell state.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

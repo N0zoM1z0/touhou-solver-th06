@@ -226,10 +226,24 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "circles and the t526 movement through local t737"
             ),
         )
+    if is_sub8_nonspell and boss.ecl_time <= 840:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="late-circles-loop",
+            algorithm="policy-volume",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical local-t738 root; candidate-conditioned sweeps "
+                "cover the t738/t768 Hard circles and the source t840 "
+                "jump back to local t193"
+            ),
+        )
     return uncovered(
         phase_id,
-        "Stage 1 midboss source state at or after the local-t738 aimed "
-        "circle has not been authored",
+        "Stage 1 midboss source state outside the audited sub8 control "
+        "cycle has not been authored",
     )
 
 

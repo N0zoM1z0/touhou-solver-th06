@@ -364,3 +364,29 @@ births, 222 removals, 2,135 player-shot steps, 16 graze transitions, and all
 next exact root begins before the local-t738/t768 attacks; life-callback
 reachability is now a near-term causal boundary rather than a hypothetical
 later concern.
+
+## sub8 late-circle loop candidate
+
+Installed sub8 fires the final pair of the control cycle at local t738/t768.
+At t840 it performs a source jump back to local t192, so ECL time rewinds and
+the already authored h8 movement/circle states repeat over the complete live
+bullet world. The next distinct stable phase is therefore the life callback
+into sub9, not an invented timeline boundary at t840.
+
+On the exact 299-update pre-callback window, target-free h4/h6/h8 survived all
+eight delivery seeds. h4 again aliased its lease and fell to 0.59 mean minimum
+clearance. h8 improved h6 from 3.68 to 6.90 clearance while also reducing mean
+commands from 88.25 to 87.13. A direct bounded callback probe then ran h8 until
+the stable subroutine changed: all eight branches survived, crossed the t840
+rewind at physical-equivalent f2848/local t193, and entered sub9 after 299--362
+updates. Candidate-conditioned damage changed the callback frame, while every
+branch entered at exact life 500; minimum clearance ranged from 5.03 to 8.71.
+
+The high-pressure corpus retained 31 complete worlds after 1,070 Hard-safe
+warmup updates and 4,000 source births, spanning five enemy-combat, 31 player-
+attack, and eight RNG states. Across 32 viable 128-frame cases h4 survived 29,
+while h6/h8 survived all 32. h8 raised mean minimum clearance from 4.62 to
+6.85 for only 0.13 additional mean commands. The route now authors only
+`738 <= ecl_time <= 840` as target-free h8 `late-circles-loop`; the t840
+update naturally returns to `first-circle-movement`, and sub9 remains explicit
+`phase-unavailable`.
