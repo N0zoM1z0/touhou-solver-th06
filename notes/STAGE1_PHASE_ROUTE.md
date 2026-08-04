@@ -347,3 +347,20 @@ survived 27, while h6 and h8 survived all 31. h8 raised mean minimum clearance
 from h6's 5.44 to 7.77 at 21.42 versus 20.58 mean commands. The authored
 `paired-circles-movement` state therefore uses target-free policy-volume h8
 for `414 <= ecl_time < 738`; local t738 remains explicit `phase-unavailable`.
+
+The ordinary-RNG default fail-close run physically promoted this state. It
+completed both aimed circles and the t526 movement without HIT, Bomb, stale
+publication, timeout, or earlier authority loss, then stopped exactly at
+f2745/local t738 before the next attack. The boundary retained all 18
+Hard-safe actions and a five-frame held certificate at `(188.551,225.213)`,
+Power 9, with 41 live bullets. The life callback had not fired; sub8 remained
+stable at life 2364.
+
+All 272 h8 decisions were fresh, measuring 3.918 ms median, 5.643 ms p90, and
+8.061 ms maximum. Adjacent replay matched all 255 player/combat/RNG/rank/item/
+Power transitions, 19,062 fired-bullet steps, 1,800 spawning steps, 120
+births, 222 removals, 2,135 player-shot steps, 16 graze transitions, and all
+42 boss life-change frames with no unsupported state or position error. The
+next exact root begins before the local-t738/t768 attacks; life-callback
+reachability is now a near-term causal boundary rather than a hypothetical
+later concern.

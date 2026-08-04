@@ -406,6 +406,19 @@ success is an alive stop at local t738 before the next attack, or an earlier
 fail-visible stop if the source life callback changes the stable subroutine to
 sub9. Require exact adjacent parity before promoting either boundary.
 
+The run reached the local-t738 boundary under sub8 and physically promoted the
+state. It stopped alive at f2745 with all 18 Hard-safe actions at
+`(188.551,225.213)`, Power 9, 41 bullets, and boss life 2364. There was no HIT,
+Bomb, stale publication, timeout, or earlier authority loss. All 272 h8
+decisions were fresh at 3.918 ms median, 5.643 ms p90, and 8.061 ms maximum.
+
+Adjacent replay matched all 255 player/combat/RNG/rank/item/Power transitions,
+19,062 fired-bullet steps, 1,800 spawning steps, 120 births, 222 removals, 16
+graze transitions, and all 42 boss life-change frames. Use this exact
+local-t738 root for the next source/offline comparison. The t738/t768 attacks
+and the now-near life threshold must remain candidate-conditioned; a switch
+to sub9 is a stable phase boundary, not an error to suppress.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
