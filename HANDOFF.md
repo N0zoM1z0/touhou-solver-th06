@@ -725,6 +725,31 @@ ANM lifetime remains unavailable to nominal replay, but those bullets are
 nonlethal; do not invent their retirement or pool reuse if later source events
 need it.
 
+That sub6 tail is now physically promoted. A source-grounded dynamic Power
+target, evaluated only inside fresh Hard-4, collected the Big Power and one
+Small Power in the new ordinary-RNG world, raising Power 8 to 17. The crossing
+of Power 16 physically exercised the newly compiled authoritative Reimu-A
+Rank-3 shot table; the paired 30-damage births and subsequent shot steps have
+exact adjacent parity. Sixteen exact delivery branches from f3687 all survive
+through boss removal and finish at Power 17.
+
+Installed ECL still contains nominal t160 opcode 1, but physical execution
+removes the boss earlier: its t40/120-tick move toward `(192,-64)` leaves the
+source bounds after local t140, and `EnemyManager` despawns it before the next
+`RunEcl`. The default run stopped safely at f3827 immediately after that
+removal, with no HIT, Bomb, stale authority, timeout, or earlier fail-close.
+The retained 255 pairs match all player steps, 8,169 fired-bullet steps, 1,890
+spawning steps, and 2,502 player-shot steps. Item and Power stepping matches
+all 244 supported combat pairs; eleven unrelated post-midboss enemy-slot
+worlds remain explicitly unsupported rather than claimed exact.
+
+The next experiment is the actual post-midboss timeline rooted at physical
+t3827. Three nonboss sub2/sub3 emitters are already live and the next installed
+timeline spawn is t3848. Replace the obsolete no-boss fallback label only
+after auditing the source timeline section and replaying this exact root.
+Do not route by the old t2009 insertion boundary once the midboss has been
+removed; timeline time continued advancing during the fight.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

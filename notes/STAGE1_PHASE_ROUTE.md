@@ -832,3 +832,41 @@ steps; 2,523 player-shot steps; 322 laser transitions; and both removals. The
 active SpellEnd source transition is therefore physically promoted. The
 source/unit laser-origin and 32-pixel conversion branch remains unvalidated by
 physical SpellEnd evidence because no laser was live at f3979.
+
+## physical sub6 Power-tail promotion
+
+The next ordinary-RNG default fail-close run entered sub6 at f3686/t0 with
+Power 8 and 64 active bullets. The exact SpellEnd transition produced f3687/t1
+with the 64 bullets nonlethal in state 5, 64 Point items, one Big Power, and
+four Small Power items. The phase-local target continued to use ordinary
+Hard-4 and selected its target only from the live item pool: Big Power first,
+then the nearest Small Power.
+
+The run remained alive with all 18 Hard actions throughout this tail. It
+collected the Big Power at f3822, raising Power 8 to 16, then one Small Power
+at f3823, reaching Power 17. The following physical attack update created the
+authoritative Rank-3 paired 30-damage main shots; their slots, positions,
+velocities, timers, and later steps match the newly compiled Rank-3 table.
+Thus this static offline table has adjacent physical parity at the resource
+transition that first needs it.
+
+The installed sub6 ECL contains a t40 opcode-59 movement over 120 ticks toward
+`(192,-64)` and a nominal opcode-1 termination at t160. Physical execution
+does not reach the latter: after local t140, `EnemyManager::OnUpdate` moves
+the already-in-bounds boss outside the source bounds before `RunEcl`, so the
+source out-of-bounds rule despawns it at f3827. A 16-seed exact replay from
+f3687 predicts Power 17 on 12 seeds and Power 16 on four at local t140; after
+the removal update all 16 have Power 17. The physical Power 17 result matches
+that robust phase prediction rather than the earlier 159-frame diagnostic
+from a different root.
+
+Across the retained 255 adjacent pairs, player motion is exact; all 8,169
+fired-bullet and 1,890 spawning-bullet steps are exact; all 2,502 player-shot
+steps and 67 births are exact; and all 244 supported item, Power, RNG, graze,
+rank, and pending-effect transitions are exact. Eleven combat worlds are
+explicitly unsupported because unrelated post-midboss enemy-slot births are
+not reproduced, beginning at f3698; they are not silently counted as parity.
+The run stopped safely after boss removal at f3827 with three ordinary
+post-midboss emitters already live. This exposes the next missing route as the
+post-midboss timeline at physical t3827, not the old synthetic
+`timeline:t2009:sub8-midboss-missing` label.

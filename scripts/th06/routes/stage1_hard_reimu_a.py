@@ -403,9 +403,10 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             commitment_frames=4,
             provenance=(
                 "physical f3980 SpellEnd root; source sub6 has no hostile "
-                "births before its local-t160 despawn, and sixteen exact "
-                "delivery branches collect the live Big Power plus three "
-                "Small Power items while common Hard-4 remains unchanged"
+                "births before the t40 exit movement; exact delivery "
+                "branches collect the live Big Power and at least one "
+                "Small Power before source out-of-bounds despawn, while "
+                "common Hard-4 remains unchanged"
             ),
         )
     return uncovered(
