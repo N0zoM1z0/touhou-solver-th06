@@ -312,3 +312,41 @@ survival frames, used 684 fewer commands, and raised mean minimum clearance
 from 2.08 to 4.23. This is not universal dominance; together with the exact
 physical CE, it selects the smallest next falsifier: keep sub5 h6
 policy-volume and remove only its soft target.
+
+## t1514 tail target-churn counterexample
+
+The next ordinary-RNG default fail-close run followed an earlier physical
+branch and therefore did not reach the newly changed t2712 sub5 state. It
+crossed the old f1615 boundary and entered the source-defined t1514 sub10
+tail, then stopped alive without a HIT or Bomb at f1782. The terminal empty
+Hard set retained ten repairable actions and was not the explanation. At
+f1778 and f1780 there were still 18 and 17 Hard-safe actions, but both results
+were stale. Across the tail, 29 of 62 completed policy queries were stale;
+the child-circle immediately before it was already slower than parent-entry,
+but had only 4 stale results in 32 queries.
+
+The source boundary is t1649, immediately after the last t1578 sub10 parent
+has reached its local-t70 child creation by t1648. That boundary is also the
+earliest consequential route decision in the retained failure: the physical
+bottom-target h8 policy began a high-transition tail path there, later
+alternating directions near y=380 while solve times reached 15--25 ms. This
+separates the cause from the f1782 authority-loss effect and confines the
+experiment to `tail`; `parent-entry` and `child-circle` remain independent.
+
+Adjacent physical replay matched all 177 player and combat-world transitions,
+25,204 fired-bullet steps, and 1,360 spawning-bullet steps. There were no
+unsupported bullet, enemy, player-shot, RNG, graze, item, or power
+transitions. On sixteen exact physical roots, h6 and h8 survived all 64-frame
+cases with and without the bottom target. Target-free h8 used 5.13 mean
+commands versus 23.75 with the target; target-free h6 used 3.50 versus 24.06.
+
+The higher-pressure screen derived 64 complete battle worlds from twelve tail
+roots through 1,056 varied Hard-safe warmup updates and 2,752 source-valid
+births. It covered 29 enemy-combat states, 63 player-attack states, and 34 RNG
+states; 63 worlds retained fresh authority for the 96-frame sweep. h8 survived
+63/63 under both policies, but target-free h8 used 9.81 mean commands versus
+34.73 and raised mean minimum clearance from 6.80 to 8.17. h6 was not promoted:
+it lost one world under each policy, whereas h8 lost none. The smallest
+falsifier therefore keeps the tail at policy-volume h8, removes only its soft
+target, and leaves common Hard-4 eligibility and the preceding two states
+unchanged.

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "stage4-f1782-sub10-tail-target-churn",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 4,
+    "decision_frame": 1649,
+    "failure_frame": 1782,
+    "rng": "ordinary"
+  },
+  "runner": "stage4_phase_policy",
+  "contract": "Only the source-defined t1514 sub10 tail removes its soft bottom target; it retains policy-volume h8 and common Hard-4 eligibility. The parent-entry and child-circle states remain independently targeted.",
+  "summary": "The default fail-close run stopped alive without HIT or Bomb at f1782 with ten repairable actions. The terminal empty Hard set was downstream: h8 tail queries had a 29/62 stale-retry rate, while f1778 and f1780 still exposed 18 and 17 Hard-safe actions. Physical adjacent replay matched all 177 player/combat transitions, 25,204 fired-bullet steps, and 1,360 spawning-bullet steps. On sixteen exact roots, target-free and bottom-target h6/h8 all survived 64 frames, but target-free h8 used 5.13 mean commands versus 23.75. A 64-case Hard-safe warmup generated 63 viable battle worlds through 1,056 updates and 2,752 source births, covering 29 enemy-combat, 63 player-attack, and 34 RNG states. At h8 both policies survived 63/63 for 96 frames, while target-free used 9.81 mean commands versus 34.73 and raised mean minimum clearance from 6.80 to 8.17. h6 lost one world under each policy, so the falsifier keeps h8 and removes only the tail target.",
+  "input": {
+    "timeline_time": 1649
+  },
+  "expect": {
+    "phase_id": "timeline:t1514:sub10",
+    "policy_state": "tail",
+    "algorithm": "policy-volume",
+    "horizon": 8,
+    "target": null
+  }
+}

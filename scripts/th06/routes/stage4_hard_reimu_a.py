@@ -80,7 +80,19 @@ TIMELINE_PHASES = (
             8,
             "sub10 child sub1 at local t70; physical f1615 h12 timed out",
         ),
-        state(1649, "tail", 8, "last t1578 parent child emitted by t1648"),
+        # The ordinary-RNG f1782 run reached this tail with h8 but spent
+        # 29/62 completed policy queries on stale retries. Exact and
+        # warmup-derived battle worlds retained h8's survival advantage while
+        # showing that the bottom target multiplied route commands and reduced
+        # clearance. Remove only that soft tie-break; parent/child behavior
+        # and the common Hard frontier are unchanged.
+        state(
+            1649,
+            "tail",
+            8,
+            "physical f1782 target-churn CE; target-free h8 falsifier",
+            target=None,
+        ),
     ),
     phase(
         "timeline:t1878:subs3-2",

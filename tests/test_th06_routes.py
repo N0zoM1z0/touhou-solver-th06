@@ -122,6 +122,10 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(phase.state(1514).state_id, "parent-entry")
         self.assertEqual(phase.state(1584).state_id, "child-circle")
         self.assertEqual(phase.state(1615).horizon, 8)
+        self.assertIsNotNone(phase.state(1648).target)
+        self.assertEqual(phase.state(1649).state_id, "tail")
+        self.assertEqual(phase.state(1649).horizon, 8)
+        self.assertIsNone(phase.state(1649).target)
 
     def test_historical_dense_rules_are_owned_by_their_source_states(self):
         horizontal = timeline_phase(2388)

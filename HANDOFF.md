@@ -212,6 +212,23 @@ frames, used 684 fewer commands, and raised mean minimum clearance from 2.08
 to 4.23. Only sub5 now removes the target; sub4/sub3 retain the previous
 behavior pending their own physical evidence.
 
+A later ordinary-RNG default fail-close run took an earlier branch and stopped
+alive without HIT or Bomb at f1782 in the independent `t1514/sub10` tail, so
+it did not physically promote the t2712 change. The terminal had ten
+repairable actions; earlier f1778/f1780 still had 18/17 Hard-safe actions but
+published stale results. Tail h8 queries produced 29 stale retries in 62
+completed queries. Adjacent replay matched all 177 player/combat transitions,
+25,204 fired-bullet steps, and 1,360 spawning-bullet steps.
+
+On sixteen exact roots, target-free and bottom-target h6/h8 all survived 64
+frames, but target-free h8 used 5.13 mean commands versus 23.75. A 64-case
+Hard-safe warmup produced 63 viable 96-frame worlds, covering 29 enemy-combat,
+63 player-attack, and 34 RNG states. h8 survived 63/63 with either policy;
+target-free used 9.81 mean commands versus 34.73 and raised mean minimum
+clearance from 6.80 to 8.17. h6 lost one world in each policy, so the tail
+keeps h8 and removes only its soft target. The t1514 parent/child states remain
+targeted and independent.
+
 ## Immediate experiment
 
 Run exactly:
@@ -221,8 +238,8 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t2108 h8, t2388 constant-frontier, and t2712 sub5
-target-loop corrections:
+Expected outcomes after the t1514 tail target-churn, t2108 h8, t2388
+constant-frontier, and t2712 sub5 target-loop corrections:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id`, `phase_id`, and `policy_state`; or
