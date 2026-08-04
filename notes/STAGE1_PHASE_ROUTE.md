@@ -535,3 +535,27 @@ The route records the repeating `150 <= ecl_time < 152` source state as
 state names keep the rotation and retirement transitions independently
 observable in the physical trace. Local t211 remains fail-visible before the
 next boss movement instruction.
+
+The ordinary-RNG default fail-close run physically promoted both states. Its
+earlier candidate-conditioned sub8 callback shifted the absolute boundary to
+f3490, but source dispatch still completed the register-controlled t151 loop,
+entered `laser-retirement-tail` at t152, and stopped exactly at local t211
+before the next opcode-50 movement instruction. There was no HIT, Bomb, stale
+publication, timeout, or earlier authority loss. The boundary retained all 18
+Hard-safe actions at `(223.657,381.480)`, Power 8, with 112 bullets, no lasers,
+boss life 256, and interval 38/timer 7.
+
+The rotating state published 118 fresh h6 decisions at 4.074 ms median,
+4.944 ms p90, and 6.236 ms maximum. The retirement tail published 58 fresh
+decisions at 3.029/4.884/14.496 ms; neither state produced a stale retry or
+timeout. Adjacent replay matched all 254 combat/RNG/rank/item/Power
+transitions, 12,650 fired-bullet steps, 3,444 spawning steps, 252 births, 140
+removals, and 3,448 player-shot steps.
+
+The first parity report marked 236 retained-laser pairs as externally mutated
+by ECL and intentionally skipped them in its manager-only check. Promotion was
+held until the harness used the complete same-frame combat prediction to
+validate the preceding ECL mutation and later BulletManager update together.
+The corrected report matches all 326/326 retained laser transitions, including
+all 236 opposed angle mutations, plus both source-defined laser removals, with
+zero geometry/timer error. The next exact root is local t211.

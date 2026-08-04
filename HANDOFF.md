@@ -532,6 +532,19 @@ Expected success is an alive stop at local t211. Require adjacent parity for
 every opposed angle mutation, the state-1-to-state-2 transition, laser
 retirement, accumulated aimed circles, combat, and RNG before promotion.
 
+The ordinary-RNG run physically promoted both states and stopped exactly at
+local t211 (absolute f3490 under this run's earlier callback). There was no
+HIT, Bomb, stale publication, timeout, or earlier authority loss. The boundary
+has all 18 Hard-safe actions at `(223.657,381.480)`, Power 8, 112 bullets, no
+lasers, and boss life 256. Rotation h6 measured 4.074/4.944/6.236 ms and the
+retirement tail 3.029/4.884/14.496 ms median/p90/maximum.
+
+Adjacent parity is exact for all 254 combat/RNG/item/Power transitions, 12,650
+fired-bullet and 3,444 spawning-bullet steps, 326/326 retained-laser
+transitions (including 236 ECL angle mutations), and both source laser
+removals. Use exact local-t211 next. Audit the movement and subsequent spell
+attack boundary from installed ECL before exposing another state.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
