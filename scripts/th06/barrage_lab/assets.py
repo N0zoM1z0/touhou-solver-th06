@@ -231,6 +231,72 @@ class EclBulletOpcode:
         )
 
 
+@dataclass(frozen=True)
+class EclTimelineOpcode:
+    """One immutable ``EclTimelineInstr`` from an installed stage asset."""
+
+    source: str
+    offset: int
+    time: int
+    arg0: int
+    opcode: int
+    size: int
+    raw: bytes
+
+
+def parse_ecl_timeline(
+    data: bytes,
+    source: str,
+) -> tuple[EclTimelineOpcode, ...]:
+    """Decode the source timeline without executing any stage behavior."""
+    if len(data) < 16:
+        raise SourceAssetError(f"truncated ECL header in {source}")
+    timeline_offset = struct.unpack_from("<I", data, 4)[0]
+    if not 16 <= timeline_offset <= len(data) - 8:
+        raise SourceAssetError(f"invalid ECL timeline offset in {source}")
+    result = []
+    offset = timeline_offset
+    seen = set()
+    while offset not in seen:
+        seen.add(offset)
+        if offset + 4 > len(data):
+            raise SourceAssetError(f"truncated timeline instruction in {source}")
+        time = struct.unpack_from("<h", data, offset)[0]
+        # Shipped ECL timelines end in a four-byte ``(-1, arg0)`` sentinel;
+        # it has no opcode/size fields despite the ordinary C++ struct view.
+        if time < 0:
+            break
+        if offset + 8 > len(data):
+            raise SourceAssetError(f"truncated timeline instruction in {source}")
+        time, arg0, opcode, size = struct.unpack_from("<hhhh", data, offset)
+        if size < 8 or offset + size > len(data):
+            raise SourceAssetError(f"invalid timeline instruction size in {source}")
+        result.append(EclTimelineOpcode(
+            source=source,
+            offset=offset,
+            time=time,
+            arg0=arg0,
+            opcode=opcode,
+            size=size,
+            raw=data[offset:offset + size],
+        ))
+        offset += size
+    else:
+        raise SourceAssetError(f"cyclic ECL timeline in {source}")
+    return tuple(result)
+
+
+def load_stage_timeline(
+    stage_archive: str | Path,
+    stage: int,
+) -> tuple[EclTimelineOpcode, ...]:
+    if not 1 <= stage <= 7:
+        raise ValueError("TH06 stage must be in 1..7")
+    archive = Pbg3Archive.open(stage_archive)
+    source = f"ecldata{stage}.ecl"
+    return parse_ecl_timeline(archive.read(source), source)
+
+
 def parse_ecl_bullet_opcodes(data: bytes, source: str) -> tuple[EclBulletOpcode, ...]:
     """Catalogue raw bullet instructions without pretending to execute ECL."""
     if len(data) < 16:

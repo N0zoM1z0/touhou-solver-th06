@@ -1,6 +1,5 @@
 import os
 import unittest
-from dataclasses import replace
 
 from counterexample_corpus import (
     ACTION_BY_NAME,
@@ -28,7 +27,6 @@ from th06.native import _message_minimum_waits
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
-from th06.solver import Solver
 from th06.viability import (
     delivery_segment_viability_scores,
     nominal_policy_scores,
@@ -184,73 +182,6 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 )
                 self.assertIsNone(expired)
 
-    def test_anytime_policy_counterexamples(self):
-        cases = tuple(
-            case for case in load_cases()
-            if case.get("runner") == "anytime_policy"
-        )
-        self.assertTrue(cases, "anytime policy corpus is empty")
-        for case in cases:
-            with self.subTest(case=case["id"]):
-                state = decode_snapshot(case["input"]["snapshot"])
-                solver = Solver(decision_budget_ms=100.0)
-                solver.effort.rollout_ms_per_work = 0.0
-                decision = None
-                for offset in range(case["input"]["warmup_decisions"]):
-                    decision = solver.decide(
-                        replace(state, frame=state.frame + offset)
-                    )
-                self.assertIsNotNone(decision)
-                expected_action = ACTION_BY_NAME[case["expect"]["action"]]
-                self.assertEqual(
-                    (decision.action.dx, decision.action.dy),
-                    (expected_action.dx, expected_action.dy),
-                )
-                self.assertGreaterEqual(
-                    decision.effort_horizon,
-                    case["expect"]["effort_horizon"],
-                )
-
-    def test_anytime_solver_keeps_physical_snapshots_inside_hard_authority(self):
-        cases = tuple(
-            case for case in load_cases()
-            if case.get("snapshot") is not None
-            or case.get("input", {}).get("snapshot") is not None
-        )
-        self.assertTrue(cases, "physical snapshot corpus is empty")
-        for case in cases:
-            with self.subTest(case=case["id"]):
-                raw = case.get("snapshot") or case["input"]["snapshot"]
-                state = decode_snapshot(raw)
-                hard = certify_actions(
-                    state,
-                    4,
-                    actions=CONTROL_ACTIONS,
-                )
-                decision = Solver(decision_budget_ms=0.001).decide(state)
-                if hard:
-                    self.assertEqual(
-                        tuple(candidate.action for candidate in decision.safe_actions),
-                        tuple(candidate.action for candidate in hard),
-                    )
-                    self.assertIn(
-                        decision.action,
-                        {candidate.action for candidate in hard},
-                    )
-                else:
-                    self.assertEqual(
-                        decision.reason,
-                        "hard-safe-set-empty",
-                    )
-                    if decision.action is not None:
-                        self.assertIn(
-                            decision.action,
-                            {
-                                candidate.action
-                                for candidate in decision.safe_actions
-                            },
-                        )
-
     def test_action_factor_counterexamples(self):
         cases = tuple(
             case for case in load_cases()
@@ -365,19 +296,23 @@ class CounterexampleCorpusTests(unittest.TestCase):
                         current.name,
                         case["expect"]["observed_current_action"],
                     )
-                    decision = Solver(decision_budget_ms=1e-9).decide(state)
-                    self.assertGreaterEqual(
-                        decision.held_horizon,
-                        required_held_horizon,
+                    hard = certify_actions(
+                        state, 4, actions=CONTROL_ACTIONS
                     )
+                    held = certify_actions(
+                        state,
+                        required_held_horizon,
+                        actions=(current,),
+                    )
+                    self.assertTrue(held)
                     self.assertTrue(
                         covered_current_retry(
                             state.frame,
                             state.frame
                             + case["expect"]["observed_delivery_age"],
-                            decision.held_horizon,
+                            required_held_horizon,
                             current,
-                            decision.safe_actions,
+                            hard,
                         )
                     )
 
@@ -757,28 +692,6 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     scores[ACTION_BY_NAME[observed["action"]]],
                     observed["score"],
                 )
-                solver_expect = case["expect"].get("solver")
-                if solver_expect is not None:
-                    solver = Solver(decision_budget_ms=100.0)
-                    solver.effort.rollout_ms_per_work = 0.0
-                    decision = None
-                    for offset in range(solver_expect["warmup_decisions"]):
-                        decision = solver.decide(
-                            replace(state, frame=state.frame + offset)
-                        )
-                    self.assertIsNotNone(decision)
-                    expected_action = ACTION_BY_NAME[
-                        solver_expect["action"]
-                    ]
-                    self.assertEqual(
-                        (decision.action.dx, decision.action.dy),
-                        (expected_action.dx, expected_action.dy),
-                    )
-                    self.assertGreaterEqual(
-                        decision.effort_horizon,
-                        solver_expect["effort_horizon"],
-                    )
-
     def test_reference_policy_horizon_divergence_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

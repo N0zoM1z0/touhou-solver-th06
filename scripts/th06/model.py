@@ -441,6 +441,9 @@ class Decision:
     suppression_deadline: int | None = None
     suppression_life: int = 0
     suppression_source: str = ""
+    route_id: str = ""
+    phase_id: str = ""
+    proposal_source: str = ""
 
 
 def action_from_input(mask: int) -> Action:

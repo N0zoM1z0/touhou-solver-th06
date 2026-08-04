@@ -1124,7 +1124,10 @@ class BaselineTests(unittest.TestCase):
         blocked_decision = Solver().decide(blocked, required_action=right)
         self.assertIsNone(blocked_decision.action)
         self.assertEqual(blocked_decision.reason, "input-lease-unsafe")
-        self.assertTrue(blocked_decision.safe_actions)
+        # A lease proof certifies only the command already in flight.  It no
+        # longer computes unrelated focused alternatives for a retired
+        # universal planner.
+        self.assertFalse(blocked_decision.safe_actions)
 
     def test_pending_action_uses_only_the_remaining_pickup_frame(self):
         # Reduced from the physical input-pipeline CE: extending the pending
@@ -2004,7 +2007,8 @@ class BaselineTests(unittest.TestCase):
 
         decision = Solver().decide(state)
 
-        self.assertIsNotNone(decision.action)
+        self.assertTrue(decision.safe_actions)
+        self.assertEqual(decision.reason, "route-unavailable")
         self.assertNotEqual(decision.reason, "unsupported-laser-motion")
 
     def test_unknown_laser_motion_fails_closed_when_its_envelope_can_reach(self):

@@ -1,122 +1,108 @@
 # TH06 Working Rules
 
-Read `START_HERE.md` first. Use `README.md` and the ignored
-`reference/GensokyoClub-th06/` only as needed for the current question.
-Do not use REA or any REA-provided tooling for this project.
-Do not use REA or any REA-provided tool. Base reverse-engineering claims only
-on the authoritative source clone, existing IDA material, and controlled
-runtime/physical evidence.
+Read `START_HERE.md` first. Use the ignored authoritative clone at
+`reference/GensokyoClub-th06/` for source claims. Do not use REA, any
+REA-provided tool, or LeanToken.
 
-The goal is a physically validated TH06 Hard clear. Keep the implementation
-small, correct, and source-grounded. **Physical iteration, model exploration,
-and measured solver optimization are the work; software engineering is not the
-goal.** Prefer the next falsifiable experiment, physical run, causal analysis,
-or measured hot-path improvement over refactoring, framework construction,
-documentation polish, or architectural generalization. Do not build broad
-abstractions or a TH08-style architecture in anticipation of future needs.
-Engineering work is justified only when it directly enables the next physical
-iteration, makes an understood behavior testable, or removes a measured
-bottleneck without changing semantics.
+The goal is one physically validated TH06 1.02h Hard Reimu-A clear with no
+HIT, no authority loss, and no Bomb. Physical play is the final evidence;
+offline search and tests accelerate iteration but never constitute a clear.
 
-Keep these authority boundaries:
+## Current design decision
 
-1. Hard safety decides which actions are allowed.
-2. Adaptation changes compute effort, never safety eligibility.
-3. Learning proposes/ranks only among allowed actions.
+The old single universal online planner is retired. Its preserved checkpoint
+is the annotated tag `pre-phase-route-pivot-20260804`.
 
-These are boundaries, not a fixed implementation roadmap. Change the model
-when physical evidence disproves it. Survival is hard; attack, collection, and
-position are soft. Bomb bit `0x02` must never be emitted. Unknown hazards fail
-closed.
+The active design is a small common authority substrate plus source-grounded
+route packs selected by difficulty, character, shot type, stage, and
+source-defined phase. A route pack may choose its planning algorithm,
+lookahead, route target, combat/Power priorities, and offline policy data for
+that phase. This is deliberate route knowledge, not an exception hidden in
+the safety kernel.
 
-The adaptive layer must be general and budget-driven. Do not select a horizon,
-planner, or ranking rule from stage/spell IDs, bullet-count bands, boundary
-thresholds, or a counterexample-specific condition. Extend the Hard-certified
-frontier progressively while measured compute budget remains. Generic bounded
-continuation is an ordinary budgeted rung, not a scene-triggered fallback; a
-constant-action count can hide aliased reachable states. A counterexample may
-fix source semantics, authority, cost estimation, or a general algorithm, but
-must not receive its own branch in the main solver.
+Keep the boundary exact:
 
-## Do not
+1. The common Hard layer alone decides whether an action may be emitted.
+2. Route packs propose or rank actions only; they cannot change collision
+   physics, uncertainty, delivery coverage, fail-close behavior, or no-Bomb.
+3. Every proposal is checked against the same fresh snapshot and Hard set
+   immediately before publication.
+4. Unknown or incoherent hazards fail closed. Bomb bit `0x02` is forbidden in
+   every mode.
 
-- Do not explain a failure from the final HIT or empty Hard set alone. Trace
-  backward to the earliest still-viable state where the solver first made a
-  consequentially wrong decision. The terminal dead end is usually an effect,
-  not the cause.
-- Do not add main-solver conditions keyed by stage, spell, frame, coordinates,
-  RNG seed, bullet count, boundary distance, or counterexample identity. A
-  physical CE may expose incorrect source semantics, missing hazard modeling,
-  authority or publication latency, cost estimation, or a general algorithmic
-  flaw; fix that cause instead.
-- Do not mix pattern-specific source semantics with route strategy. When a
-  hazard family genuinely has different source-defined physics, isolate that
-  model in its hazard module. Do not encode where to move for a named scene.
-- Do not allow attack, collection, position, free-space targets, target
-  distance, learning, or any other soft/global proposal to change Hard
-  eligibility, shorten ordinary survival lookahead, or override materially
-  stronger fresh continuation evidence. Global and local reasoning must use a
-  consistent fresh snapshot, hazard projection, and publication timeline; do
-  not build independent controllers that can disagree through stale state.
-- Do not treat raw path multiplicity as independent robustness. Boundary
-  clamping and different action sequences can alias to the same reachable
-  state; deduplicate reachable states or use another physically meaningful
-  continuation measure.
-- Do not turn a soft target deadline into the survival horizon. A commitment
-  may expire a proposal, but it must not collapse the general budgeted
-  lookahead as the deadline approaches.
-- Do not relax safety eligibility merely to avoid a fail-close stop. The
-  default physical loop stops on the first HIT or authority failure. Any
-  continue-on-failure run is explicit diagnostics only: release input, publish
-  no uncertified action, record the event, and resume only after fresh Hard
-  authority returns. Bomb remains forbidden in every mode.
-- Do not equate fail-close with proof that a HIT is inevitable. It means the
-  current model lacks sufficient authority; the cause may be a true physical
-  dead end, unknown source behavior, latency, or an overly conservative
-  envelope. Diagnose it from source and physical evidence.
-- Do not call a continue-on-failure result path a clear. Only a default
-  fail-close run with no HIT, no authority loss, and no Bomb physically
-  validates a stage or route.
-- Do not freeze the current horizon ladder, target representation, ranking
-  metric, or solver architecture into permanent doctrine. The authority
-  boundaries are stable; algorithms remain hypotheses and must change when
-  physical evidence disproves them.
-- Do not choose between speculative complexity and artificial simplicity.
-  Avoid frameworks built for imagined future needs, but use deeper planning,
-  ECL/RNG forecasting, better algorithms, or native C/C++ hot paths when a
-  measured physical CE or bottleneck justifies them. Add only the smallest
-  falsifiable piece needed for the next iteration.
-- Do not optimize by changing semantics. Native rewrites, flattened storage,
-  projection reuse, and pruning require measurement plus reference/native
-  parity. Do not use stale hazard projections, unproved pruning, or omitted
-  work as hidden speedups.
-- Do not turn tests into an application framework. Keep runtime CEs compact
-  and independent, keep focused algorithm tests in their owning modules, and
-  avoid unrelated refactors or bulk fixture migration during a solver-behavior
-  iteration.
-- Do not leave physical control or compute behind after a run. Release every
-  input, stop the exact trial PID, and check for leftover high-CPU processes.
-  Never use a PTY for the Windows launch path.
+Stage/phase specialization is now expected in `scripts/th06/routes/`, not in
+the common solver or hazard modules. Source-defined physics that genuinely
+differs by hazard family belongs in that hazard module, not in route strategy.
+
+## Offline and online responsibilities
+
+Use offline computation aggressively for work knowable before play:
+
+- decode and audit stage timeline and ECL;
+- name source phases and transitions;
+- simulate candidate-conditioned aim, damage, kill/retirement, callbacks,
+  items, Power, and RNG consumption where source coverage supports them;
+- search phase entry states, robust command tubes, policy branches, and
+  parameters over many RNG/resource states;
+- compile small, inspectable route data and retain source provenance.
+
+The online loop should only:
+
+- capture one coherent physical snapshot;
+- identify the route and current source phase;
+- condition the phase policy on actual RNG, resources, player/enemy state,
+  and recent delivery;
+- request a short proposal;
+- Hard-certify and publish one action.
+
+Do not encode a blind `frame -> direction` replay. Policies must branch on the
+physical state needed by the authoritative source behavior. Raw addresses are
+not stable phase IDs; use stable subroutine indices, timeline events, callback
+state, and source-relative instruction identity.
+
+## How to iterate
+
+Work one route and one source phase at a time. The current pilot is Hard /
+Reimu-A / Stage 4.
 
 For each iteration:
 
-- use source/IDA/runtime evidence to explain the first physical failure;
-- make the smallest falsifiable change;
-- add only the focused regression needed for an understood bug;
-- rerun physically when the integrated behavior changes.
+1. audit the relevant authoritative timeline/ECL and record the phase
+   contract;
+2. reproduce or generate a stateful offline workload for that phase;
+3. make the smallest route-policy or shared-source-model change with a clear
+   prediction;
+4. keep only focused tests for that understood behavior;
+5. rerun the integrated physical phase or stage;
+6. trace any failure back to the earliest still-viable wrong proposal, not
+   merely the terminal HIT or empty Hard set.
 
-Store understood physical solver counterexamples as independent JSON files in
-`tests/corpus/counterexamples/`. The generic corpus test should load and replay
-them; do not keep appending long runtime snapshot fixtures to
-`tests/test_th06_baseline.py`. Keep algorithm unit tests in focused Python test
-modules, and put only stable, minimal regression contracts in corpus data.
-Gradually migrate older understood physical fixtures to this corpus during a
-dedicated test-only cleanup, not while changing integrated solver behavior.
+A physical counterexample may change shared source semantics only if the same
+semantic error is demonstrated. Otherwise it changes the owning route phase.
+Do not add counterexample identity, RNG seed, or one captured frame as an
+opaque branch. A source-derived phase boundary, spatial lane, timing window,
+or RNG-conditioned policy is allowed when its provenance and offline evidence
+are explicit.
 
-Offline checks cannot replace physical play. Do not hardcode a stage or spell
-before a general cause has been tested. Keep menu and dialogue control separate
-from movement. Do not commit the game, source clone, traces, logs, or caches;
-release input and stop all trial processes after a run.
+Store small understood shared-model counterexamples independently under
+`tests/corpus/counterexamples/`. Store route-phase tests with their route
+module. Do not grow `tests/test_th06_baseline.py` with runtime snapshots.
 
-When launching the Windows game from WSL, use non-PTY execution. A PTY can
-stall `cmd.exe` before the game and agent attach correctly.
+## Physical-run safety
+
+- Default physical play stops on the first HIT or authority failure.
+- `--continue-on-failure`, fixed RNG, and time-limited runs are diagnostics.
+- Menu/dialogue control stays separate from movement.
+- Never launch the Windows path through a PTY.
+- Release all input, stop the exact trial PID, and check for leftover game,
+  agent, or high-CPU processes after every run.
+- Do not commit the game, source clone, DAT archives, traces, logs, caches, or
+  build products.
+
+## Engineering restraint
+
+The product is a clear, not a framework. Do not recreate a TH08-style
+architecture, generic plugin platform, event bus, policy service, or broad
+schema. Add only the smallest route contract and offline tool needed for the
+next Stage 4 experiment. Optimize measured hot paths without changing
+semantics and retain Python/reference versus native parity.

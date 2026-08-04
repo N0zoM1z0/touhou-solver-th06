@@ -241,8 +241,7 @@ def run(args: argparse.Namespace) -> int:
                 "frame_multiplier", "action", "safe", "horizon", "held_horizon",
                 "effort_horizon",
                 "effort_safe", "repairable",
-                "attack_x", "attack_deadline", "attack_life", "attack_source",
-                "guidance_x", "guidance_y", "guidance_deadline",
+                "route_id", "phase_id", "proposal_source",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
@@ -534,28 +533,9 @@ def run(args: argparse.Namespace) -> int:
                     len(decision.safe_actions), decision.horizon, decision.held_horizon,
                     decision.effort_horizon,
                     decision.effort_safe_count, decision.repairable_count,
-                    (
-                        "" if decision.suppression_target_x is None
-                        else f"{decision.suppression_target_x:.3f}"
-                    ),
-                    (
-                        "" if decision.suppression_deadline is None
-                        else decision.suppression_deadline
-                    ),
-                    decision.suppression_life,
-                    decision.suppression_source,
-                    (
-                        "" if solver.guidance_target is None
-                        else f"{solver.guidance_target[0]:.3f}"
-                    ),
-                    (
-                        "" if solver.guidance_target is None
-                        else f"{solver.guidance_target[1]:.3f}"
-                    ),
-                    (
-                        "" if solver.guidance_deadline is None
-                        else solver.guidance_deadline
-                    ),
+                    decision.route_id,
+                    decision.phase_id,
+                    decision.proposal_source,
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}",
                     int(dialogue.active),
@@ -571,7 +551,9 @@ def run(args: argparse.Namespace) -> int:
                         f"action={action_name} "
                         f"safe={len(decision.safe_actions)} effort_safe={decision.effort_safe_count} "
                         f"repairable={decision.repairable_count} "
-                        f"h={decision.horizon}/{decision.held_horizon} reason={row_reason}",
+                        f"h={decision.horizon}/{decision.held_horizon} "
+                        f"route={decision.route_id or '-'} "
+                        f"phase={decision.phase_id or '-'} reason={row_reason}",
                         flush=True,
                     )
                 last_reason = row_reason
