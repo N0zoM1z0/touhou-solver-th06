@@ -307,3 +307,21 @@ algorithm selection, not a stage/frame condition in common Hard: aim, player
 attack, enemy damage, movement, RNG, and bullet births remain candidate-
 conditioned source transitions. At local t414 the same stable boss phase
 returns `phase-unavailable` before the second aimed circle.
+
+The ordinary-RNG default fail-close run physically promoted this state. It
+completed the first circle and source movement without HIT, Bomb, stale
+publication, timeout, or earlier Hard-authority loss, then stopped exactly at
+f2421/local t414 before the next opcode-69 instruction. The boundary retained
+all 18 Hard-safe actions and a five-frame held certificate at
+`(197.029,259.456)`, Power 9, with 64 live bullets; the boss remained in sub8
+with life 4140.
+
+All 214 fresh h8 decisions published. Solve time was 3.789 ms median, 4.437 ms
+p90, and 12.525 ms maximum. Adjacent replay of the complete 255-transition
+window matched all player, player-attack, enemy-combat, RNG, graze/rank, item,
+and Power transitions. It matched 17,075 fired-bullet steps, 3,980 spawning
+steps, 180 births, 116 removals, 2,623 player-shot steps, six graze transitions,
+and all 43 boss life-change frames with no unsupported world state or position
+error. The next root is therefore exact local t414; the t414/t444 aimed
+attacks must be evaluated as their own source state before any later t738/t768
+state is exposed.

@@ -373,12 +373,24 @@ target-free h6/h8 survived 32/32, with h8 raising mean minimum clearance from
 7.37 to 9.23 for 0.25 additional mean commands. Target-free also removed the
 large command churn seen with the bottom waypoint.
 
-Run an ordinary-RNG default fail-close physical falsifier. Expected success is
-an alive `phase-unavailable` stop at exact local t414 under the same stable
-sub8 identity, before the second aimed circle. Require adjacent parity for the
-first 16-by-5 circle, boss movement, player attack, damage/life, RNG, and
-bullet transitions. Do not author local t414/t444 until that evidence is
-exact.
+The ordinary-RNG default fail-close run physically promoted this candidate.
+It completed the first circle and movement without HIT, Bomb, stale
+publication, timeout, or earlier authority loss, then stopped exactly at
+f2421/local t414 before the next opcode-69 instruction. The boundary has all
+18 Hard-safe actions at `(197.029,259.456)`, Power 9, 64 live bullets, and the
+sub8 boss at life 4140.
+
+All 214 fresh h8 decisions published at 3.789 ms median, 4.437 ms p90, and
+12.525 ms maximum. Adjacent replay matched all 255 player/combat/RNG/rank/
+item/Power transitions, 17,075 fired-bullet steps, 3,980 spawning steps, 180
+births, 116 removals, six graze transitions, and all 43 boss life-change
+frames with no unsupported state or position error.
+
+Use the exact local-t414 root for the next source/offline comparison. Treat
+the t414 and t444 aimed attacks as one candidate state only if their complete
+source transition and physical-root sweep support it; keep the later
+t738/t768 attack state independently fail-visible. Preserve candidate-
+conditioned aim, player damage, boss life/callback, and RNG in every branch.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
