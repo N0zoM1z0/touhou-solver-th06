@@ -1678,6 +1678,39 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertIsNotNone(decision.action)
         self.assertIn("repeated_pickup", [call[0] for call in kernel.calls])
         self.assertNotIn("progressive", [call[0] for call in kernel.calls])
+        self.assertNotIn("policy", [call[0] for call in kernel.calls])
+        self.assertEqual(
+            solver.effort.next_decision_budget_cap_ms,
+            SAME_FRAME_DECISION_BUDGET_MS,
+        )
+
+        leased = solver.decide(
+            snapshot(frame=101),
+            required_action=hard[0].action,
+        )
+
+        self.assertEqual(leased.reason, "ok")
+        self.assertIsNone(solver.effort.decision_budget_cap_ms)
+        self.assertEqual(
+            solver.effort.next_decision_budget_cap_ms,
+            SAME_FRAME_DECISION_BUDGET_MS,
+        )
+
+        kernel.calls.clear()
+        solver.effort.continuation_extension_affordable = (
+            lambda *_args: False
+        )
+        solver.decide(snapshot(frame=102))
+
+        self.assertEqual(
+            solver.effort.decision_budget_cap_ms,
+            SAME_FRAME_DECISION_BUDGET_MS,
+        )
+        self.assertIn(
+            "delivery_replanning",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn("prepare", [call[0] for call in kernel.calls])
 
     def test_admitted_deeper_rung_follows_complete_local_viability(self):
         clock = ManualClock()
@@ -1849,6 +1882,24 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         self.assertNotIn(("prepare", 16), kernel.calls)
         self.assertLessEqual(clock.seconds * 1000.0, 6.25)
+
+    def test_constrained_next_rung_charges_fresh_soft_projection(self):
+        controller = EffortController(6.25)
+        state = snapshot()
+        controller.projection_ms_per_work = 4.0 / (
+            controller.projection_work(state, 12)
+        )
+        controller.projection_frame = state.frame
+        controller.policy_rate_by_horizon[12] = 0.0
+        controller.policy_frame_by_horizon[12] = state.frame
+
+        self.assertFalse(controller.continuation_extension_affordable(
+            state,
+            3,
+            8,
+            12,
+            2.0,
+        ))
 
     def test_local_micro_uses_residual_budget_when_ladder_is_closed(self):
         for robustness_complete in (False, True):

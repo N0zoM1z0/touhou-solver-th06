@@ -56,6 +56,7 @@ class EffortController:
             raise ValueError("decision budget must be positive")
         self.decision_budget_ms = decision_budget_ms
         self.decision_budget_cap_ms: float | None = None
+        self.next_decision_budget_cap_ms: float | None = None
         self.publication_scale = 1.0
         self.rollout_ms_per_work: float | None = None
         self.rollout_frame: int | None = None
@@ -136,8 +137,17 @@ class EffortController:
     def begin_decision(self) -> None:
         self.decision_budget_cap_ms = None
 
+    def begin_fresh_decision(self) -> None:
+        """Apply a deferred cap only to a full authority decision."""
+        self.decision_budget_cap_ms = self.next_decision_budget_cap_ms
+        self.next_decision_budget_cap_ms = None
+
     def require_same_frame_publication(self) -> None:
         self.decision_budget_cap_ms = SAME_FRAME_DECISION_BUDGET_MS
+
+    def require_next_same_frame_publication(self) -> None:
+        """Reserve the next fresh control decision after a local cliff."""
+        self.next_decision_budget_cap_ms = SAME_FRAME_DECISION_BUDGET_MS
 
     def full_publication_budget_available(self) -> bool:
         return (
@@ -477,7 +487,14 @@ class EffortController:
         horizon: int,
         elapsed_ms: float,
     ) -> bool:
-        """Whether measured marginal projection plus one exact rung fits."""
+        """Whether a fresh soft projection plus one exact rung fits.
+
+        The local p8 gate is prepared with a fully fail-closed birth window.
+        Extending it to h12 starts the nominal source/ECL projection rather
+        than continuing an already-built soft prefix, so admission must charge
+        the complete requested projection.  Later contiguous soft extensions
+        are admitted separately from their measured marginal cost.
+        """
         remaining_ms = (
             self.budget_ms()
             - elapsed_ms
@@ -493,9 +510,9 @@ class EffortController:
             ) < 0.5
         ):
             return False
-        projection_estimate = self.projection_ms_per_work * (
-            self.projection_work(snapshot, horizon)
-            - self.projection_work(snapshot, previous_horizon)
+        projection_estimate = (
+            self.projection_ms_per_work
+            * self.projection_work(snapshot, horizon)
         )
         policy_estimate = self.policy_estimate_ms(
             snapshot,
@@ -1361,6 +1378,7 @@ class Solver:
                 1,
             )
 
+        self.effort.begin_fresh_decision()
         started = self.clock()
         hard, age_zero, hard_held = self._hard_authority(snapshot)
         if not hard:
@@ -1633,6 +1651,7 @@ class Solver:
                     nonlocal planning_candidates
                     nonlocal segment_delivery_viable
                     nonlocal segment_delivery_exhausted
+                    nonlocal policy_exhausted
                     elapsed_ms = (self.clock() - started) * 1000.0
                     remaining_ms = (
                         self.effort.budget_ms()
@@ -1687,6 +1706,14 @@ class Solver:
                             # the publication window rebuilding an impossible
                             # deeper repeated-pickup search.
                             segment_delivery_exhausted = True
+                            policy_exhausted = True
+                            # The empty rung often precedes a short timing
+                            # window in which a different command becomes
+                            # Hard-safe.  Preserve the next snapshot's
+                            # publication time so the controller can act on
+                            # that fresh authority instead of consuming it on
+                            # a weaker nominal search.
+                            self.effort.require_next_same_frame_publication()
                             return False
                         planning_candidates = tuple(
                             candidate for candidate in planning_candidates
