@@ -750,6 +750,21 @@ after auditing the source timeline section and replaying this exact root.
 Do not route by the old t2009 insertion boundary once the midboss has been
 removed; timeline time continued advancing during the fight.
 
+That source/offline audit now selects the next physical candidate. Installed
+t2408--4298 alternates 64 sub2/sub3 aimed parents every 30 ticks; the physical
+f3827 root has three live parents and next inserts at t3848. A native 671-frame
+screen through t4498 keeps h4/h6/h8 alive on 8/8 delivery seeds, but h8 raises
+mean minimum clearance to 5.709 and its worst case to 3.463, versus h6's
+3.587/1.608 and h4's 2.254/0.839. A derived seven-world combat corpus covers
+1,520 warmup updates and 558 source births; h6/h8 both survive 12/12 96-frame
+cases, with h8 retaining the higher mean clearance.
+
+Only the no-boss post-midboss timeline before t4498 is authored as target-free
+h8 `policy-volume`. Run ordinary RNG/default fail-close next. Promotion needs
+to cross the complete residual aimed stream with no HIT, Bomb, stale authority,
+or timeout and stop at the distinct t4498 sub0 resource formation. Common
+Hard-4, hazard semantics, and the already promoted boss route are unchanged.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

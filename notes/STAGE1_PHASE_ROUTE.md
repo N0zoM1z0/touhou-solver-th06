@@ -870,3 +870,31 @@ The run stopped safely after boss removal at f3827 with three ordinary
 post-midboss emitters already live. This exposes the next missing route as the
 post-midboss timeline at physical t3827, not the old synthetic
 `timeline:t2009:sub8-midboss-missing` label.
+
+## post-midboss aimed-stream candidate
+
+The installed timeline continues throughout the midboss. Its next combat
+section is not keyed to the boss callback: source t2408--4298 inserts 64
+alternating sub2/sub3 parents every 30 ticks. The physical f3827 root appears
+after the boss exits, with three such parents already live and the next source
+insertion at t3848. Sub2 emits the difficulty-selected immediate Hard aimed
+fans at local t70; sub3 emits its Hard aimed fan at the same local clock. The
+last t4298 child therefore still contributes a residual attack after the last
+timeline insertion. The next distinct source formation starts at t4498.
+
+An exact native full-section screen starts at f3827 and runs 671 updates to
+t4498, retaining timeline births, candidate-conditioned aim, Reimu-A Rank-3
+shots, enemy damage/retirement, RNG, items, Power, and delivery delay. H4, h6,
+and h8 all survive 8/8. H4 has 2.254 mean minimum clearance and reaches 0.839;
+h6 has 3.587 mean and reaches 1.608; h8 has 5.709 mean and never falls below
+3.463. Mean command counts are 141.75, 114.125, and 123.5 respectively.
+
+A second screen derives seven complete worlds from 12 Hard-safe exploration
+attempts through 1,520 total warmup updates and 558 source births. These worlds
+contain seven distinct enemy-combat, player-attack, and RNG states. H6 and h8
+both survive 12/12 96-update delivery cases; h8 has 11.038 mean clearance
+versus 9.258, while h6 uses 11.33 mean commands versus 15.58. Neither dominates
+every individual world. The full-section worst-case margin selects target-free
+h8 as the smallest physical candidate with the stronger measured tail reserve;
+this is a phase-local falsifier, not a universal horizon claim. Coverage ends
+before t4498 so the following resource formation remains explicit.

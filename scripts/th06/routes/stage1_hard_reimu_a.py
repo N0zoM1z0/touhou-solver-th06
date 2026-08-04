@@ -203,6 +203,26 @@ MIDBOSS_INSERTION = TimelineStateMachine(
 )
 
 
+POST_MIDBOSS_AIMED_STREAM = TimelineStateMachine(
+    "timeline:t2408:subs2-3-post-midboss-aimed-stream",
+    (
+        PolicyState(
+            2408,
+            "aimed-stream-and-residual-tail",
+            "policy-volume",
+            8,
+            None,
+            provenance=(
+                "physical f3827 post-midboss root; installed t2408-t4298 "
+                "alternating sub2/sub3 aimed parents plus their residual "
+                "children; complete 671-frame delivery sweeps and derived "
+                "stateful battle worlds select target-free h8"
+            ),
+        ),
+    ),
+)
+
+
 def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     return RouteIntent(
         phase_id=phase_id,
@@ -438,8 +458,15 @@ class HardReimuAStage1:
             return SECOND_BODY_STREAM.intent(snapshot)
         if snapshot.timeline_time < 2009:
             return MIDBOSS_INSERTION.intent(snapshot)
+        if snapshot.timeline_time < 2408:
+            return uncovered(
+                "timeline:t2009:sub8-midboss-missing",
+                "sub8 should have published stable boss ECL state after its "
+                "t2008 timeline insertion",
+            )
+        if snapshot.timeline_time < 4498:
+            return POST_MIDBOSS_AIMED_STREAM.intent(snapshot)
         return uncovered(
-            "timeline:t2009:sub8-midboss-missing",
-            "sub8 should have published stable boss ECL state after its "
-            "t2008 timeline insertion",
+            "timeline:t4498:sub0-resource-formations",
+            "the post-midboss sub0 resource formations have not been authored",
         )

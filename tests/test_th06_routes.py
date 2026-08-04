@@ -12,6 +12,7 @@ from th06.routes.stage1_hard_reimu_a import (
     FIRST_BODY_STREAM,
     HardReimuAStage1,
     MIDBOSS_INSERTION,
+    POST_MIDBOSS_AIMED_STREAM,
     RANDOM_BODY_STREAM,
     SECOND_BODY_STREAM,
 )
@@ -168,6 +169,24 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(
             next_phase.phase_id,
             "timeline:t2009:sub8-midboss-missing",
+        )
+
+        post_midboss = pack.intent(snapshot(stage=1, timeline_time=3827))
+        residual_tail = pack.intent(snapshot(stage=1, timeline_time=4497))
+        next_resource = pack.intent(snapshot(stage=1, timeline_time=4498))
+        self.assertEqual(post_midboss.phase_id, POST_MIDBOSS_AIMED_STREAM.phase_id)
+        self.assertEqual(
+            post_midboss.policy_state,
+            "aimed-stream-and-residual-tail",
+        )
+        self.assertEqual(post_midboss.algorithm, "policy-volume")
+        self.assertEqual(post_midboss.horizon, 8)
+        self.assertIsNone(post_midboss.target)
+        self.assertEqual(residual_tail.phase_id, post_midboss.phase_id)
+        self.assertEqual(next_resource.algorithm, "uncovered")
+        self.assertEqual(
+            next_resource.phase_id,
+            "timeline:t4498:sub0-resource-formations",
         )
 
     def test_common_solver_stops_if_stage1_midboss_is_missing_after_insertion(self):
