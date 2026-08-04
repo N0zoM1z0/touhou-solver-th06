@@ -1799,10 +1799,14 @@ class AnytimePolicyTests(unittest.TestCase):
             SAME_FRAME_DECISION_BUDGET_MS,
         )
         self.assertIn(
+            "repeated_pickup",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertIn("prepare", [call[0] for call in kernel.calls])
+        self.assertNotIn(
             "delivery_replanning",
             [call[0] for call in kernel.calls],
         )
-        self.assertNotIn("prepare", [call[0] for call in kernel.calls])
 
     def test_admitted_deeper_rung_follows_complete_local_viability(self):
         clock = ManualClock()
@@ -2128,9 +2132,32 @@ class AnytimePolicyTests(unittest.TestCase):
                     candidate.action: 1 for candidate in candidates
                 }
 
+            def delivery_segment_viability_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "repeated_pickup",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidate.action for candidate in candidates),
+                ))
+                self.clock.advance_ms(min(1.0, budget_ms))
+                return (
+                    maximum_horizon,
+                    {candidate.action: 1 for candidate in candidates},
+                    True,
+                )
+
             def prepare(self, _state, horizon):
                 self.calls.append(("prepare", horizon))
-                self.clock.advance_ms(4.0)
+                self.clock.advance_ms(0.1)
 
         kernel = ConstrainedKernel(
             clock,
@@ -2141,17 +2168,24 @@ class AnytimePolicyTests(unittest.TestCase):
                 self.hard[2].action: 1,
             },
             delivery_ms=2.0,
-            terminal_scores_by_horizon={},
+            terminal_scores_by_horizon={
+                8: {
+                    self.hard[0].action: 2,
+                    local_winner.action: 7,
+                    self.hard[2].action: 1,
+                },
+            },
             scores_by_horizon={},
+            flexible_completed_horizon=8,
         )
         solver = self.solver(kernel, clock)
         solver.effort.publication_scale = 0.5
-        solver.effort.choose_limit = lambda *_args: 16
+        solver.effort.choose_limit = lambda *_args: BASE_POLICY_HORIZON
 
         decision = solver.decide(snapshot())
 
         self.assertEqual(decision.action, local_winner.action)
-        self.assertIn(
+        self.assertNotIn(
             "delivery_replanning",
             [call[0] for call in kernel.calls],
         )
@@ -2159,10 +2193,16 @@ class AnytimePolicyTests(unittest.TestCase):
             "delivery_viability",
             [call[0] for call in kernel.calls],
         )
-        self.assertNotIn(
-            "prepare",
+        self.assertIn(
+            "repeated_pickup",
             [call[0] for call in kernel.calls],
         )
+        self.assertIn(
+            "terminal_progressive",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertEqual(decision.effort_horizon, BASE_POLICY_HORIZON)
+        self.assertLessEqual(clock.seconds * 1000.0, 6.25)
 
     def test_incomplete_local_robustness_preserves_viable_input(self):
         clock = ManualClock()
@@ -3048,6 +3088,10 @@ class AnytimePolicyTests(unittest.TestCase):
         controller.observe_publication(True)
 
         self.assertLess(controller.budget_ms(), before)
+        self.assertGreaterEqual(
+            controller.budget_ms(),
+            SAME_FRAME_DECISION_BUDGET_MS + TERMINAL_DEADLINE_GUARD_MS,
+        )
         self.assertEqual(controller.last_limit, HARD_SAFETY_HORIZON)
 
     def test_fresh_publications_recover_budget_gradually(self):
@@ -3094,9 +3138,10 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertLess(first_recovery, restored)
         self.assertLess(restored, 12.5)
         self.assertEqual(first, HARD_SAFETY_HORIZON)
-        self.assertEqual(second, HARD_SAFETY_HORIZON)
-        self.assertEqual(third, HARD_SAFETY_HORIZON)
-        self.assertEqual(fourth, HARD_SAFETY_HORIZON)
+        self.assertTrue(all(
+            horizon <= BASE_POLICY_HORIZON
+            for horizon in (second, third, fourth)
+        ))
 
     def test_commitment_requires_a_fresh_preferred_certificate(self):
         ranker = ProposalRanker()

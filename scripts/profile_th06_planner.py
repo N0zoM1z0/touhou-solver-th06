@@ -234,6 +234,52 @@ def main() -> int:
         if args.pipelines_only:
             continue
         profile_components(samples, snapshot)
+        reserved_kernel = NativeSafetyKernel()
+        held = action_from_input(snapshot.input_mask)
+        reserved_authority = timed(
+            samples,
+            "reserved_hard8",
+            lambda: reserved_kernel.certify_delivery_sets_with_selected_reserved(
+                snapshot, 4, 5, 8, (held,), 0.35
+            ),
+        )
+        reserved_hard = reserved_authority[0]
+        timed(
+            samples,
+            "reserved_extended4",
+            lambda: reserved_kernel.certify_selected_extended_delivery(
+                snapshot,
+                4,
+                tuple(candidate.action for candidate in reserved_hard),
+                0.35,
+            ),
+        )
+        timed(
+            samples,
+            "reserved_boolean8",
+            lambda: reserved_kernel.delivery_segment_viability_progressive(
+                snapshot,
+                reserved_hard,
+                4,
+                8,
+                8,
+                0.35,
+                args.budget_ms,
+            ),
+        )
+        timed(
+            samples,
+            "reserved_terminal8",
+            lambda: reserved_kernel.segment_terminal_counts_progressive(
+                snapshot,
+                reserved_hard,
+                4,
+                8,
+                8,
+                0.35,
+                args.budget_ms,
+            ),
+        )
         kernel = NativeSafetyKernel()
         hard = timed(samples, "hard4", lambda: kernel.certify_selected(
             snapshot,
@@ -242,6 +288,27 @@ def main() -> int:
             collision_margin=0.35,
         ))
         timed(samples, "prepare8", lambda: kernel.prepare(snapshot, 8))
+        replanning_viability = timed(
+            samples,
+            "replanning_viability8",
+            lambda: kernel.replanning_viability_budgeted(
+                snapshot, hard, 4, 8, 0.35, args.budget_ms
+            ),
+        )
+        replanning_scores = timed(
+            samples,
+            "replanning_scores8",
+            lambda: kernel.replanning_scores_progressive_budgeted(
+                snapshot, hard, 4, 8, 0.35, args.budget_ms
+            ),
+        )
+        boolean8 = timed(
+            samples,
+            "boolean8",
+            lambda: kernel.delivery_segment_viability_progressive(
+                snapshot, hard, 4, 8, 8, 0.35, args.budget_ms
+            ),
+        )
         base = timed(
             samples,
             "progressive8",
@@ -431,6 +498,18 @@ def main() -> int:
             name: sorted(set(values)) for name, values in results.items()
         },
         "preferred": {
+            "replanning_viable_h8": [
+                action.name for action, score in replanning_viability.items()
+                if score > 0
+            ],
+            "replanning_robust_h8": [
+                action.name for action, score in replanning_scores[0].items()
+                if score == max(replanning_scores[0].values())
+            ],
+            "boolean_h8": [
+                action.name for action, score in boolean8[1].items()
+                if score > 0
+            ],
             "h8": [
                 action.name for action, score in base[1].items()
                 if score == max(base[1].values())

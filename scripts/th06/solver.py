@@ -51,6 +51,13 @@ POLICY_DEADLINE_GUARD_MS = 0.5
 # Exact terminal layers poll their deadline in batches; leave room for the
 # final poll overshoot as well as the ordinary publication handoff.
 TERMINAL_DEADLINE_GUARD_MS = 1.5
+# A constrained decision still has to finish the non-optional Hard authority
+# before a terminal kernel may spend the physical same-frame work window.
+# Keep the internal guard outside that window; budgets below this floor cannot
+# actually bound the mandatory work and suppress every ordinary p8 rung.
+MINIMUM_CONSTRAINED_BUDGET_MS = (
+    SAME_FRAME_DECISION_BUDGET_MS + TERMINAL_DEADLINE_GUARD_MS
+)
 BASE_RECOVERY_CONFIRMATIONS = 2
 PUBLICATION_RECOVERY_FRACTION = 0.02
 
@@ -733,7 +740,14 @@ class EffortController:
 
     def observe_publication(self, stale: bool) -> None:
         if stale:
-            self.publication_scale = max(0.25, self.publication_scale * 0.5)
+            minimum_scale = min(
+                1.0,
+                MINIMUM_CONSTRAINED_BUDGET_MS / self.decision_budget_ms,
+            )
+            self.publication_scale = max(
+                minimum_scale,
+                self.publication_scale * 0.5,
+            )
             self.last_limit = HARD_SAFETY_HORIZON
             self.base_recovery_confirmations = 0
             self.base_recovery_last_frame = None
@@ -1460,8 +1474,37 @@ class Solver:
         full_publication_budget = (
             self.effort.full_publication_budget_available()
         )
+        terminal_progressive_native = (
+            getattr(
+                type(self.kernel),
+                "segment_terminal_counts_progressive",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        repeated_pickup_native = (
+            getattr(
+                type(self.kernel),
+                "delivery_segment_viability_progressive",
+                None,
+            )
+            if self.kernel is not None
+            else None
+        )
+        # The production kernel can complete the same exact p8 membership
+        # and terminal pair used by the ordinary ladder directly on the
+        # Hard-reserved projection.  Under a constrained publication budget,
+        # do that cheap pair first instead of spending the residual on the
+        # separate two-delivery robustness counter.  Budget adaptation then
+        # changes depth only, not the base ranking semantics.
+        exact_base_pair_first = bool(
+            not full_publication_budget
+            and terminal_progressive_native is not None
+            and repeated_pickup_native is not None
+        )
 
-        if len(hard) > 1:
+        if len(hard) > 1 and not exact_base_pair_first:
             # This is the ordinary first continuation rung, not a predicted
             # scene depth.  With the full publication budget, publish the
             # cheap complete delivery-viability predicate first and leave the
@@ -1547,6 +1590,9 @@ class Solver:
                     local_terminal_rank_pending = not robustness_complete
 
         elapsed_ms = (self.clock() - started) * 1000.0
+        local_base_pair_pending = (
+            local_terminal_rank_pending or exact_base_pair_first
+        )
         constrained_next_rung_affordable = False
         if (
             not full_publication_budget
@@ -1572,7 +1618,8 @@ class Solver:
             )
         if (
             (
-                full_publication_budget
+                exact_base_pair_first
+                or full_publication_budget
                 or constrained_next_rung_affordable
             )
             and (
@@ -1581,6 +1628,7 @@ class Solver:
                 # h12 probe measures a previously unseen cost.  Otherwise an
                 # extrapolated p8 estimate can suppress that rung forever.
                 or policy_horizon >= BASE_POLICY_HORIZON
+                or local_base_pair_pending
             )
             and len(planning_candidates) > 1
             and self.effort.budget_ms() - elapsed_ms
@@ -1594,7 +1642,7 @@ class Solver:
             # when the exact p8 pair has a unique, sub-millisecond correction.
             nominal_minimum_horizon = (
                 BASE_POLICY_HORIZON
-                if local_terminal_rank_pending
+                if local_base_pair_pending
                 else next(
                     (
                         horizon for horizon in TURN_CAPABLE_POLICY_HORIZONS
@@ -1603,27 +1651,9 @@ class Solver:
                     BASE_POLICY_HORIZON,
                 )
             )
-            terminal_progressive_native = (
-                getattr(
-                    type(self.kernel),
-                    "segment_terminal_counts_progressive",
-                    None,
-                )
-                if self.kernel is not None
-                else None
-            )
             progressive_terminal_ready = bool(
                 terminal_progressive_native is not None
                 and len(planning_candidates) > 1
-            )
-            repeated_pickup_native = (
-                getattr(
-                    type(self.kernel),
-                    "delivery_segment_viability_progressive",
-                    None,
-                )
-                if self.kernel is not None
-                else None
             )
             next_exact_horizon = next(
                 (
@@ -1658,7 +1688,7 @@ class Solver:
             # cache hit completes the missing local rank but says nothing about
             # the cost of starting a nominal ECL projection beyond p8; keep the
             # last real soft-projection measurement authoritative.
-            if not local_terminal_rank_pending:
+            if not local_base_pair_pending:
                 self.effort.observe_projection(
                     snapshot,
                     soft_prepare_horizon,
@@ -1931,7 +1961,7 @@ class Solver:
                     None,
                 )
                 local_extension_affordable = (
-                    not local_terminal_rank_pending
+                    not local_base_pair_pending
                     or self.effort.projection_ms_per_work is None
                     or (
                         next_promotion_horizon is not None
@@ -1954,7 +1984,7 @@ class Solver:
                     # completed.  A limit above p8 is the ordinary generic
                     # budget admission for that next rung.
                     and (
-                        not local_terminal_rank_pending
+                        not local_base_pair_pending
                         or limit > soft_prepare_horizon
                     )
                     and local_extension_affordable
