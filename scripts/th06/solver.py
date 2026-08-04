@@ -13,6 +13,7 @@ import os
 import time
 
 from .hazards.lasers import unknown_motion_may_reach_player
+from .guidance import terminal_guidance_scores
 from .kernels.safety import NativeSafetyKernel
 from .model import (
     ACTIONS,
@@ -216,6 +217,53 @@ class Solver:
             return frozenset()
         return frozenset(action for action, score in scores.items() if score == best)
 
+    def _count_clearance_preferred(
+        self,
+        snapshot: Snapshot,
+        hard,
+        horizon: int,
+        budget_ms: float,
+    ) -> frozenset[Action] | None:
+        if horizon <= HARD_SAFETY_HORIZON:
+            return frozenset(candidate.action for candidate in hard)
+        native = (
+            getattr(type(self.kernel), "terminal_guidance_budgeted", None)
+            if self.kernel is not None
+            else None
+        )
+        if native is not None:
+            if budget_ms <= 0.0:
+                return None
+            guidance = native(
+                self.kernel,
+                snapshot,
+                hard,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+            if guidance is None:
+                return None
+        else:
+            guidance = terminal_guidance_scores(
+                snapshot,
+                hard,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                continuation_actions=CONTROL_ACTIONS,
+            )
+        scores = {
+            action: (value.terminal_count, value.free_clearance)
+            for action, value in guidance.items()
+        }
+        best = max(scores.values(), default=None)
+        if best is None or best[0] <= 0:
+            return frozenset()
+        return frozenset(
+            action for action, score in scores.items() if score == best
+        )
+
     def decide(
         self,
         snapshot: Snapshot,
@@ -325,6 +373,17 @@ class Solver:
                 preferred = policy
             else:
                 proposal_source = "policy-timeout-hold"
+        elif intent.algorithm == "count-clearance":
+            elapsed_ms = (self.clock() - started) * 1000.0
+            budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS
+            policy = self._count_clearance_preferred(
+                snapshot, hard, intent.horizon, budget_ms
+            )
+            if policy is not None:
+                completed_horizon = intent.horizon
+                preferred = policy
+            else:
+                proposal_source = "count-clearance-timeout-hold"
         elif intent.algorithm == "constant-frontier":
             constant = self._certify_selected(
                 snapshot,

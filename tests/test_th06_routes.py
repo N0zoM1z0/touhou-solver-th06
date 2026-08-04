@@ -5,8 +5,9 @@ from types import SimpleNamespace
 
 from th06.barrage_lab.assets import load_stage_timeline
 from th06.model import BUTTON_FOCUS, ItemState, PlayerAttackState, Snapshot
+from th06.routes.base import RouteIntent, RouteKey
 from th06.routes.phase import boss_phase_id, ecl_subroutine_index
-from th06.routes.registry import default_routes, snapshot_route_key
+from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
     AIMED_STREAM,
     FIRST_BODY_STREAM,
@@ -231,7 +232,7 @@ class RoutePhaseTests(unittest.TestCase):
         )
 
     def test_stage1_main_boss_opens_only_dialogue_gated_sub10_entry(self):
-        subroutines = tuple(0x1000 + index * 0x100 for index in range(12))
+        subroutines = tuple(0x1000 + index * 0x100 for index in range(16))
         boss = SimpleNamespace(
             is_boss=True,
             boss_id=0,
@@ -269,12 +270,48 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5281,
             spawners=(boss,),
         ))
-        self.assertEqual(first_nonspell.algorithm, "uncovered")
-        self.assertEqual(first_nonspell.policy_state, "uncovered")
+        self.assertEqual(first_nonspell.algorithm, "count-clearance")
+        self.assertEqual(first_nonspell.policy_state, "first-nonspell-entry")
+        self.assertEqual(first_nonspell.horizon, 8)
+        self.assertIsNone(first_nonspell.target)
         self.assertEqual(
             first_nonspell.phase_id,
             "boss:0:sub11:life_cb0:timer_cb0:nonspell",
         )
+
+        boss.ecl_time = 100
+        call_boundary = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5281,
+            spawners=(boss,),
+        ))
+        self.assertEqual(call_boundary.policy_state, "first-nonspell-entry")
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[12] + 0x10
+        )
+        boss.ecl_time = 12
+        aimed_fans = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(aimed_fans.algorithm, "count-clearance")
+        self.assertEqual(
+            aimed_fans.policy_state,
+            "first-nonspell-aimed-fans",
+        )
+        self.assertEqual(aimed_fans.horizon, 8)
+        self.assertIsNone(aimed_fans.target)
+
+        boss.ecl_time = 180
+        branch_boundary = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(branch_boundary.algorithm, "uncovered")
+        self.assertEqual(branch_boundary.policy_state, "uncovered")
 
     def test_stage1_midboss_uses_stable_sub8_identity_after_insertion(self):
         subroutines = tuple(0x1000 + index * 0x100 for index in range(10))
@@ -687,6 +724,35 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(decision.policy_state, "horizontal-band")
         self.assertEqual(decision.effort_horizon, 6)
         self.assertEqual(decision.proposal_source, "constant-frontier")
+
+    def test_common_solver_runs_phase_selected_count_clearance_inside_hard(self):
+        class CountClearancePack:
+            key = RouteKey(2, 0, 0, 4)
+            route_id = "count-clearance-test"
+
+            @staticmethod
+            def intent(_snapshot):
+                return RouteIntent(
+                    "test:phase",
+                    "count-clearance",
+                    "count-clearance",
+                    8,
+                    None,
+                    4,
+                )
+
+        decision = Solver(
+            decision_budget_ms=100.0,
+            routes=RouteRegistry((CountClearancePack(),)),
+        ).decide(snapshot())
+        hard_actions = {candidate.action for candidate in decision.safe_actions}
+
+        self.assertEqual(decision.reason, "ok")
+        self.assertIn(decision.action, hard_actions)
+        self.assertEqual(decision.route_id, "count-clearance-test")
+        self.assertEqual(decision.policy_state, "count-clearance")
+        self.assertEqual(decision.effort_horizon, 8)
+        self.assertEqual(decision.proposal_source, "count-clearance")
 
     def test_missing_route_is_fail_visible_even_when_hard_exists(self):
         decision = Solver().decide(snapshot(stage=3))

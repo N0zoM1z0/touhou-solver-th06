@@ -884,6 +884,37 @@ authoring its first nonspell interval. Offline work should stop where damage
 can first change callback timing; do not treat the current empty screen as the
 whole nonspell.
 
+That audit now selects the first main-boss nonspell candidate. Sub11 enables
+damage/collision, installs life 7000 and Hard callbacks 22/22, then calls sub12
+at local t100. Sub12 starts a 60-tick random-in-bounds move and emits seven Hard
+aimed-fan groups at t12--t60, totaling 200 bullets. At t180 it consumes the RNG
+branch that may call sub13 or sub14 before always calling sub15; that transition
+and all later pattern states remain uncovered.
+
+The exact f5350 battle world compares only through the t180 boundary. Plain h8
+policy-volume survived 7/8 delivery seeds; h8 `count-clearance`, which ranks
+deduplicated terminal volume before terminal hazard clearance, survived 8/8
+with 20.16--28.03 minimum clearance. A wider screen kept it alive on 64/64
+complete 278-update RNG/Power-30-or-32/delivery worlds. Hard-safe warmup then
+derived 32/32 complete worlds spanning 23 enemy-combat, 32 player-attack, and
+32 RNG states; another 128/128 measured 64-update delivery worlds survived.
+
+Production `Solver.decide` on the resulting trajectory completed 278 authored
+queries at 2.105 ms median, 2.562 ms p90, 3.578 ms p99, and 3.679 ms maximum,
+with no policy timeout. The following two snapshots stopped as designed after
+the unauthored t180 branch. The online h8 projection includes source-future
+births inside its short window, but future aimed origins are nominal; the
+stateful outer sweep is what conditions each subsequent ECL aim, player shot,
+boss damage, and RNG transition on the actual candidate path.
+
+Only sub11 through t100 and sub12 through t179 are now candidate-authored.
+Run ordinary RNG/default fail-close. Promotion requires crossing every aimed
+fan without HIT, Bomb, timeout, stale authority loss, or earlier fail-close,
+then stopping alive at the first stable sub12 t180 or sub13/sub14/sub15 source
+identity. Require adjacent physical parity for the t100 CALL, random movement,
+all births/motion, player attack, boss damage, and RNG before extending the
+branch.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

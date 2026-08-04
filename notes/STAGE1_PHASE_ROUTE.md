@@ -1065,3 +1065,71 @@ combat state on all 185 supported pairs; 53 message-wait pairs remain
 explicitly unsupported by the stateful timeline VM. Across the complete CSV,
 there is no dead player state and neither native nor desired input ever carries
 Bomb bit `0x02`. The sole authority stop is the intended f5350 sub11 boundary.
+
+## main-boss first nonspell candidate
+
+The installed Stage 1 ECL and authoritative `EclManager::RunEcl` semantics give
+the following bounded source contract:
+
+- sub11 time zero enables damage and collision, sets life 7000, and installs
+  Hard life/timer callbacks 22/22;
+- sub11 local t100 performs an unconditional CALL to sub12;
+- sub12 time zero selects a source random-in-bounds direction, speed 3, and a
+  60-tick movement duration;
+- sub12 emits opcode-67 aimed fans at local t12, t20, t28, t36, t44, t52, and
+  t60. Their first counts are 1, 2, 2, 3, 3, 4, and 5, each with ten secondary
+  lanes, for 200 bullets before rank-defined count/speed adjustment;
+- sub12 local t180 draws a three-way integer, conditionally calls sub13 or
+  sub14 for values zero/one, and then unconditionally calls sub15.
+
+The route stops before that t180 branch. Callback 22 is also a distinct spell
+transition, so candidate damage and boss life remain part of every offline
+world rather than being replaced by a fixed phase duration.
+
+The captured timeline is parked on opcode 12 waiting for boss removal. For
+this bounded offline comparison only, the root is shaped with an empty,
+complete timeline because source guarantees the wait cannot advance while the
+boss slot is occupied. This does not change online timeline semantics and is
+invalid after boss retirement or a callback that changes that invariant.
+
+On eight exact f5350 delivery seeds through the t180 boundary, target-free
+h6/h8/h12 policy-volume survived 6/8, 7/8, and 8/8 respectively. H12 cost
+roughly twice h8 and is not an online candidate. At h8, the measured local
+metrics were:
+
+- policy-volume: 7/8;
+- constant-frontier: 6/8;
+- replanning-count: 8/8 but 26.321 seconds for the eight offline runs;
+- constant-reserve-count: 8/8 with weaker clearance;
+- count-clearance: 8/8, 20.16--28.03 minimum clearance, and 6.938 seconds.
+
+`count-clearance` first maximizes deduplicated terminal-state count, then uses
+the best terminal hazard clearance only inside that strongest count. It is a
+soft phase primitive: the common fresh Hard-4 set remains the only action
+authority. Its native projection contains currently live hazards plus nominal
+timeline/ECL births in the eight-frame window. Future aimed births inside one
+query still use the current player location; candidate-conditioned aim comes
+from the stateful battle loop re-running source ECL after each candidate and
+delivery transition.
+
+The promotion screen broadens the exact-root result in two ways. First, eight
+source RNG states, both Power 30 and the authoritative Power-32 Rank-4 boundary,
+and four delivery schedules produced 64/64 complete 278-update survivals; the
+worst minimum clearance was 2.660. Second, Hard-safe source stepping derived
+32/32 worlds through 2,476 warmup updates and 420 births. Those roots contain
+23 unique enemy-combat states, 32 player-attack states, and 32 RNG states; all
+128 subsequent 64-update delivery worlds survived, with worst clearance
+18.189.
+
+The actual Windows production dispatch was measured on 280 consecutive states.
+It completed all 278 authored decisions with no timeout at 2.105 ms median,
+2.562 ms p90, 3.578 ms p99, and 3.679 ms maximum. The last two states are the
+intentional post-t180 `phase-unavailable` boundary. Linux and Windows/native
+baseline suites both pass 296 tests; Linux skips the 25 Windows-only checks.
+
+The physical candidate therefore authors only sub11 `ecl_time <= 100` as
+`first-nonspell-entry` and sub12 `ecl_time < 180` as
+`first-nonspell-aimed-fans`, both target-free h8 count-clearance. A default
+fail-close run must stop at the first stable t180 branch identity. Promotion
+also requires exact adjacent parity for sub11's CALL, sub12 movement and all
+fan births, Reimu-A shots, boss damage/life, bullets, and RNG.

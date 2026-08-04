@@ -278,7 +278,8 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
         snapshot.player_attack and snapshot.player_attack.spell_active
     )
     phase_id = boss_phase_id(boss, spell_active)
-    if ecl_subroutine_index(boss) == 10 and not spell_active:
+    subroutine = ecl_subroutine_index(boss)
+    if subroutine == 10 and not spell_active:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="dialogue-gated-entry",
@@ -292,6 +293,35 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "entry movement, and contains no hostile birth opcode; "
                 "message 0 still proves 48 priority-9 waits before the "
                 "timeline interrupt enters unaudited sub11"
+            ),
+        )
+    if subroutine == 11 and not spell_active and boss.ecl_time <= 100:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-entry",
+            algorithm="count-clearance",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f5350 sub11 root; source installs life/timer "
+                "callbacks 22, enables collision and damage, then calls "
+                "sub12 at local t100; exact stateful delivery sweeps select "
+                "terminal-count then clearance at h8"
+            ),
+        )
+    if subroutine == 12 and not spell_active and boss.ecl_time < 180:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-aimed-fans",
+            algorithm="count-clearance",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "installed sub12 local t12-t60 Hard aimed fan groups; exact "
+                "candidate-conditioned battle sweeps cover player attack, "
+                "boss damage, ECL movement, RNG, and delivery through t179"
             ),
         )
     return uncovered(

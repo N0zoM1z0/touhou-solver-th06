@@ -29,6 +29,8 @@ class RouteIntent:
 
     ``policy-volume`` asks the common runtime primitive to compare bounded
     source-shaped local continuations at the route-selected horizon.
+    ``count-clearance`` ranks those continuations first by deduplicated
+    terminal volume and then by their best terminal hazard clearance.
     ``constant-frontier`` keeps the subset that survives one unchanged-action
     segment at that horizon. A later phase may instead provide already
     compiled ``preferred_actions`` or use ``target-only``. No field can add an
@@ -47,6 +49,7 @@ class RouteIntent:
     def __post_init__(self) -> None:
         if self.algorithm not in (
             "policy-volume",
+            "count-clearance",
             "constant-frontier",
             "target-only",
             "uncovered",

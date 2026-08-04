@@ -62,8 +62,9 @@ state, and source-relative instruction identity.
 
 ## How to iterate
 
-Work one route and one source phase at a time. The current pilot is Hard /
-Reimu-A / Stage 4.
+Work one route and one source phase at a time. The active route is Hard /
+Reimu-A / Stage 1. Stage 4 remains preserved at its f2200 counterexample and
+must not be changed opportunistically during a Stage 1 phase iteration.
 
 For each iteration:
 
