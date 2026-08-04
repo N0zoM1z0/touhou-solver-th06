@@ -1,8 +1,8 @@
 # TH06 Solver Strategy
 
 This is a compact research strategy, not an architecture specification or a
-history ledger. `AGENTS.md` owns the working rules; `START_HERE.md` owns the
-volatile checkpoint.
+history ledger. `AGENTS.md` owns the working rules; `HANDOFF.md` owns the
+volatile checkpoint, and `START_HERE.md` is the short entry point.
 
 ## Objective
 
@@ -211,4 +211,3 @@ An optimization is promoted only when semantics match, focused tests pass,
 Windows timing improves, and physical evidence shows it helps the real
 iteration boundary. Keep confirmed measurements in
 `OPTIMIZATION_STRATEGY.md`.
-
