@@ -1365,3 +1365,38 @@ The exact sub13 root is player `(124.956, 412.184)`, Power 26, Rank 24, boss
 Sub13 is now the next independent source phase. Its movement, attack schedule,
 dispatch and possible callback boundary must be audited before selecting a
 policy; it does not inherit the policy of the sub15 caller.
+
+## main-boss sub13 candidate
+
+Installed sub13 first executes `MOVERANDINBOUND`, speed 3, and a 60-tick move.
+It then executes opcode 69, authoritative `BULLETCIRCLEAIMED`, at local t60,
+t68, t76, t84, t92, t100, and t108. The Hard-mask arguments produce groups of
+24, 32, 24, 32, 48, 32, and 48 bullets, for 240 source births. Because opcode
+69 computes `AngleToPlayer` when each pattern is spawned, every stateful branch
+retains candidate-conditioned aim rather than freezing the physical root's
+angles. Local t228 draws an integer in `[0,3)`: values zero/one CALL sub12/sub14
+and value two falls through to CALL sub15. None of those callees RET. Life
+callback 22 may still publish an earlier stable phase.
+
+The exact f5782 comparison covers the complete phase and input-pickup world.
+Count-clearance h8 stops on one of eight delivery branches, so sub12's policy
+cannot be copied. Constant-frontier-count h8 reaches a stable source
+destination on 8/8 branches with 2.879 worst minimum clearance. The primitive
+first keeps only actions safe under an unchanged h8 continuation, then ranks
+that reserve by deduplicated reachable-state count; it cannot add an action to
+Hard-4.
+
+Hard-safe stateful warmup derived 35 complete sub13 worlds from 64 requested
+cases through 3,755 updates and 4,432 source births. They span 28 enemy-combat,
+35 player-attack, and 25 RNG states. Constant-frontier-count h8 reaches
+sub12/sub14/sub15 on 70/70 two-delivery measurements, with 5.540 mean and 0.494
+worst minimum clearance. H9 and h10 also reach 70/70 but add no survival;
+policy-volume h6 and h8 stop on two and one of the same 70 cases.
+
+The route therefore authors all stable nonspell sub13 identity as target-free
+constant-frontier-count h8. Sixteen complete exact-entry runs through the real
+production `Solver` reach a stable destination 16/16. Across 2,789 fresh
+decisions, solve time is 2.783/3.505/5.603/6.829 ms median/p90/p99/maximum,
+with zero decisions over 12.5 ms and no timeout. The destination routes remain
+independent and common Hard-4 authority is unchanged. The next experiment is
+an ordinary-RNG default fail-close Stage 1 run.

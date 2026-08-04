@@ -389,7 +389,13 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(sibling.algorithm, "uncovered")
+        self.assertEqual(sibling.algorithm, "constant-frontier-count")
+        self.assertEqual(
+            sibling.policy_state,
+            "first-nonspell-seven-aimed-circles",
+        )
+        self.assertEqual(sibling.horizon, 8)
+        self.assertIsNone(sibling.target)
 
     def test_stage1_midboss_uses_stable_sub8_identity_after_insertion(self):
         subroutines = tuple(0x1000 + index * 0x100 for index in range(10))

@@ -375,6 +375,23 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "sub12, or sub15; no callee returns to the caller"
             ),
         )
+    if subroutine == 13 and not spell_active:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-seven-aimed-circles",
+            algorithm="constant-frontier-count",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f5782 sub13 root; source makes one 60-tick "
+                "random-in-bounds move, emits seven Hard aimed-circle "
+                "groups at local t60-t108 (240 births), then dispatches "
+                "at t228; h8 reaches a stable sub12/sub14/sub15 "
+                "destination in 8/8 exact-entry and 70/70 varied "
+                "candidate-conditioned delivery worlds"
+            ),
+        )
     if subroutine == 15 and not spell_active:
         return RouteIntent(
             phase_id=phase_id,

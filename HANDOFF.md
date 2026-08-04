@@ -1186,3 +1186,33 @@ Audit sub13 independently from installed ECL and authoritative interpreter
 semantics. Do not copy sub12/sub14/sub15 policy merely because sub13 is one of
 their RNG destinations; first identify its movement, complete attack schedule,
 branch/callback boundary, then pressure-test the smallest source-clock state.
+
+That audit now selects a bounded sub13 candidate. Installed sub13 performs one
+random-in-bounds direction choice at local t0, moves at speed 3 for 60 ticks,
+then executes seven opcode-69 `BULLETCIRCLEAIMED` groups at t60, 68, 76, 84,
+92, 100, and 108. The Hard-mask groups contain 24, 32, 24, 32, 48, 32, and
+48 bullets respectively (240 total); each birth aims from its then-current
+boss position at the candidate-conditioned player position. At t228 a
+three-way RNG value CALLs sub12/sub14 or falls through to sub15. Those callees
+do not RET, while life callback 22 remains an independently stable boundary.
+
+Exact f5782 delivery sweeps reject copying sub12's count-clearance policy:
+count-clearance h8 stops on one of eight branches. Target-free
+constant-frontier-count h8 reaches a stable t228 destination on 8/8 exact
+branches with 2.879 worst minimum clearance. Stateful Hard-safe warmup then
+derived 35 complete sub13 worlds from 64 requests through 3,755 updates and
+4,432 source births, spanning 28 enemy-combat, 35 player-attack, and 25 RNG
+states. H8 reaches a source destination on 70/70 measured delivery worlds;
+h9/h10 add no survival. Policy-volume h6 and h8 stop on two and one of those
+same 70 worlds respectively, so the frontier constraint is material rather
+than cosmetic.
+
+The route now authors stable nonspell sub13 as target-free
+constant-frontier-count h8. On sixteen complete exact-entry production-Solver
+worlds it reaches sub12/sub14/sub15 16/16. Its 2,789 fresh decisions measure
+2.783 ms median, 3.505 ms p90, 5.603 ms p99, and 6.829 ms maximum, with zero
+over 12.5 ms and no timeout. Common Hard-4, candidate combat/RNG semantics,
+and every destination's independent route remain unchanged. Run ordinary
+RNG/default fail-close next; promotion requires crossing all seven aimed
+groups and stopping or continuing only at an independently covered stable
+destination, with no HIT, Bomb, timeout, or earlier authority loss.
