@@ -309,10 +309,23 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                     "heading and 120-tick movement lead to the t331 rewind"
                 ),
             )
+        if boss.ecl_time == 331:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="cycle-rewind",
+                algorithm="policy-volume",
+                horizon=4,
+                target=None,
+                commitment_frames=1,
+                provenance=(
+                    "physical local-t331 root; source opcode 2 rewinds to "
+                    "t120 and recreates the audited pattern/laser cycle"
+                ),
+            )
         return uncovered(
             phase_id,
-            "Stage 1 sub9 spell at or after the local-t331 cycle rewind "
-            "transition has not been authored",
+            "Stage 1 sub9 spell reached an ECL clock beyond the source "
+            "t331 cycle rewind",
         )
     return uncovered(
         phase_id,

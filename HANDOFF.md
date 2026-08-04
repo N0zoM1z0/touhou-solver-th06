@@ -577,6 +577,19 @@ Require a physical adjacent boundary before reusing the already promoted
 `laser-pattern-start`; do not generalize over later cycles or the eventual
 spell-end callback.
 
+That smallest offline audit is complete. Source opcode 2 rewinds t331 to t120
+and the interpreter continues in the same update through the already modeled
+Hard pattern/interval/two-laser setup. From exact f3822, target-free h4/h6 are
+identical across eight four-update branches and survive 8/8 with 27.43 minimum
+clearance. Only exact `ecl_time == 331` is authored as h4 `cycle-rewind`, with
+one-frame commitment; clocks above 331 remain fail-visible.
+
+Run ordinary RNG/default fail-close. The retained history must contain the
+physical t331 rewind and exact adjacent parity for ECL dispatch, interval RNG,
+laser allocations/timers, bullets, combat, and player state. Stop at the next
+genuinely uncovered source phase (expected eventual sub6 spell end or an
+unsupported later callback), not at an invented absolute frame.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

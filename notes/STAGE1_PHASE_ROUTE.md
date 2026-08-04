@@ -611,3 +611,25 @@ steps, 252 births, 263 removals, 2,132 player-shot steps, all 182 retained
 laser transitions (152 with ECL mutation), and both source laser removals with
 zero error. The next exact root is local t331; only its rewind/update into the
 already authored local-t120 state should be exposed next.
+
+## sub9 cycle-rewind candidate
+
+At exact local t331, opcode 2 jumps the ECL context to local t120. The source
+interpreter continues within the same update, so the Hard-only 42-way pattern
+configuration, delayed interval, and two fixed-angle laser allocations are
+recreated before the next published snapshot. This is one source-clock state,
+not a new movement policy; the following `<150` state is already the promoted
+`laser-pattern-start` implementation.
+
+An exact f3822 battle-world sweep compared target-free h4/h6 across eight
+four-update delivery branches. Both survived 8/8, selected the same first
+action, issued no additional command over the short window, and retained
+27.43 minimum clearance. There is no measured benefit to carrying the h6
+movement cost across this one-update transition. Only `ecl_time == 331` is
+therefore authored as target-free h4 `cycle-rewind` with a one-frame
+commitment. Any observed clock above 331 remains explicit `phase-unavailable`.
+
+Physical promotion must include the adjacent t331-to-t120 rewind in retained
+history and match opcode-2 dispatch, interval/RNG state, new laser slots and
+timers, bullets, combat, and player state before this transition is considered
+closed. Later spell-end entry remains independently uncovered.
