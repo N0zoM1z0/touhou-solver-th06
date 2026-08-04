@@ -24,6 +24,8 @@ from .model import (
     MessageInstruction,
     PLAYER_ALIVE,
     PLAYER_INVULNERABLE,
+    PlayerAttackState,
+    PlayerShot,
     Snapshot,
     StageTimelineInstruction,
 )
@@ -70,11 +72,38 @@ GAME_STAGE_OFFSET = 0x1A34
 GAME_RANK_OFFSET = 0x1A70
 GAME_CURRENT_POWER_OFFSET = 0x1810
 GAME_CHARACTER_OFFSET = 0x181D
+GAME_SHOT_TYPE_OFFSET = 0x181E
 PLAYER_POSITION_OFFSET = 0x440
 PLAYER_HITBOX_TOP_LEFT_OFFSET = 0x458
 PLAYER_HITBOX_BOTTOM_RIGHT_OFFSET = 0x464
+PLAYER_ORBS_POSITION_OFFSET = 0x4A0
 PLAYER_STATE_OFFSET = 0x9E0
+PLAYER_ORB_STATE_OFFSET = 0x9E2
+PLAYER_FOCUS_OFFSET = 0x9E3
+PLAYER_FOCUS_TIMER_OFFSET = 0x9E8
 PLAYER_SPEEDS_OFFSET = 0x9F4
+PLAYER_LAST_ENEMY_HIT_OFFSET = 0xA1C
+PLAYER_BULLETS_OFFSET = 0xA28
+PLAYER_BULLET_COUNT = 80
+PLAYER_BULLET_STRIDE = 0x158
+PLAYER_BULLET_POSITION_OFFSET = 0x110
+PLAYER_BULLET_SIZE_OFFSET = 0x11C
+PLAYER_BULLET_VELOCITY_OFFSET = 0x128
+PLAYER_BULLET_SIDEWAYS_OFFSET = 0x130
+PLAYER_BULLET_HOMING_SPEED_OFFSET = 0x138
+PLAYER_BULLET_TIMER_OFFSET = 0x140
+PLAYER_BULLET_DAMAGE_OFFSET = 0x14C
+PLAYER_BULLET_STATE_OFFSET = 0x14E
+PLAYER_BULLET_TYPE_OFFSET = 0x150
+PLAYER_BULLET_LASER_INDEX_OFFSET = 0x152
+PLAYER_BULLET_SPAWN_POSITION_OFFSET = 0x154
+PLAYER_FIRE_TIMER_OFFSET = 0x75A8
+PLAYER_BOMB_ACTIVE_OFFSET = 0x75C8
+
+ANM_VM_TIMER_OFFSET = 0x30
+ANM_VM_SCRIPT_OFFSET = 0xB4
+ANM_VM_SPRITE_OFFSET = 0xC0
+ANM_LOADED_SPRITE_HEIGHT_OFFSET = 0x2C
 
 BULLET_COUNT = 640
 BULLET_STRIDE = 0x5C4
@@ -167,6 +196,7 @@ ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
 ENEMY_TIMELINE_INSTRUCTION_OFFSET = 0xEE5DC
 ENEMY_TIMELINE_TIMER_OFFSET = 0xEE5E0
 ENEMY_BOSSES_OFFSET = 0xEE598
+ENEMY_SPELL_ACTIVE_OFFSET = 0xEE5C8
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
@@ -212,6 +242,202 @@ class _SnapshotPhaseIncomplete(RuntimeError):
         )
         self.game_frame = game_frame
         self.bullet_time = bullet_time
+
+
+def _read_sprite_dimensions(
+    process: "NativeProcess",
+    pointers: set[int],
+) -> dict[int, tuple[float, float]]:
+    """Read immutable ``AnmLoadedSprite`` width/height for live VMs."""
+    dimensions = {}
+    for pointer in sorted(pointers):
+        if not 0x10000 <= pointer < 0x80000000:
+            raise RuntimeError(f"invalid active sprite pointer 0x{pointer:08X}")
+        height, width = struct.unpack(
+            "<ff",
+            process.read(
+                pointer + ANM_LOADED_SPRITE_HEIGHT_OFFSET,
+                8,
+            ),
+        )
+        if (
+            not math.isfinite(width)
+            or not math.isfinite(height)
+            or not 0.0 < width <= 4096.0
+            or not 0.0 < height <= 4096.0
+        ):
+            raise RuntimeError(
+                f"invalid active sprite geometry at 0x{pointer:08X}"
+            )
+        dimensions[pointer] = (width, height)
+    return dimensions
+
+
+def _decode_player_attack(
+    player: bytes,
+    sprite_dimensions: dict[int, tuple[float, float]],
+    *,
+    shot_type: int,
+    spell_active: bool,
+) -> PlayerAttackState:
+    """Decode the authoritative ``Player`` attack tail copied this epoch."""
+    relative = lambda absolute: absolute - PLAYER_POSITION_OFFSET
+    shots = []
+    for slot in range(PLAYER_BULLET_COUNT):
+        base = relative(PLAYER_BULLETS_OFFSET) + slot * PLAYER_BULLET_STRIDE
+        state = struct.unpack_from(
+            "<h", player, base + PLAYER_BULLET_STATE_OFFSET
+        )[0]
+        if state == 0:
+            continue
+        bullet_type = struct.unpack_from(
+            "<h", player, base + PLAYER_BULLET_TYPE_OFFSET
+        )[0]
+        sprite_pointer = struct.unpack_from(
+            "<I", player, base + ANM_VM_SPRITE_OFFSET
+        )[0]
+        try:
+            sprite_width, sprite_height = sprite_dimensions[sprite_pointer]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"player bullet slot {slot} has an unresolved sprite"
+            ) from exc
+        x, y = struct.unpack_from(
+            "<ff", player, base + PLAYER_BULLET_POSITION_OFFSET
+        )
+        size_x, size_y = struct.unpack_from(
+            "<ff", player, base + PLAYER_BULLET_SIZE_OFFSET
+        )
+        vx, vy = struct.unpack_from(
+            "<ff", player, base + PLAYER_BULLET_VELOCITY_OFFSET
+        )
+        sideways_motion = struct.unpack_from(
+            "<f", player, base + PLAYER_BULLET_SIDEWAYS_OFFSET
+        )[0]
+        homing_speed = struct.unpack_from(
+            "<f", player, base + PLAYER_BULLET_HOMING_SPEED_OFFSET
+        )[0]
+        timer_previous, timer_subframe, timer = struct.unpack_from(
+            "<ifi", player, base + PLAYER_BULLET_TIMER_OFFSET
+        )
+        anm_previous, anm_subframe, anm_timer = struct.unpack_from(
+            "<ifi", player, base + ANM_VM_TIMER_OFFSET
+        )
+        damage, _state, _type, laser_index, spawn_position = struct.unpack_from(
+            "<hhhhh", player, base + PLAYER_BULLET_DAMAGE_OFFSET
+        )
+        anm_script = struct.unpack_from(
+            "<h", player, base + ANM_VM_SCRIPT_OFFSET
+        )[0]
+        numbers = (
+            x,
+            y,
+            size_x,
+            size_y,
+            vx,
+            vy,
+            sideways_motion,
+            homing_speed,
+            timer_subframe,
+            anm_subframe,
+            sprite_width,
+            sprite_height,
+        )
+        if (
+            state not in (1, 2)
+            or bullet_type not in (0, 1, 2, 3)
+            or not all(math.isfinite(value) for value in numbers)
+            or not 0.0 < size_x <= 4096.0
+            or not 0.0 < size_y <= 4096.0
+            or not -32768 <= damage <= 32767
+            or not -1_000_000 <= timer_previous <= 1_000_000
+            or not -1_000_000 <= timer <= 1_000_000
+            or not -1_000_000 <= anm_previous <= 1_000_000
+            or not -1_000_000 <= anm_timer <= 1_000_000
+            or not -1 <= anm_script < 0x1000
+        ):
+            raise RuntimeError(f"invalid player bullet state at slot {slot}")
+        shots.append(PlayerShot(
+            slot=slot,
+            x=x,
+            y=y,
+            half_width=size_x / 2.0,
+            half_height=size_y / 2.0,
+            vx=vx,
+            vy=vy,
+            homing_speed=homing_speed,
+            timer_previous=timer_previous,
+            timer=timer,
+            timer_float=timer + timer_subframe,
+            damage=damage,
+            state=state,
+            bullet_type=bullet_type,
+            anm_script=anm_script,
+            anm_timer=anm_timer,
+            anm_timer_float=anm_timer + anm_subframe,
+            sprite_half_width=sprite_width / 2.0,
+            sprite_half_height=sprite_height / 2.0,
+            sideways_motion=sideways_motion,
+            laser_index=laser_index,
+            spawn_position_index=spawn_position,
+        ))
+
+    last_hit_x, last_hit_y = struct.unpack_from(
+        "<ff", player, relative(PLAYER_LAST_ENEMY_HIT_OFFSET)
+    )
+    orb_positions = tuple(
+        struct.unpack_from(
+            "<ff",
+            player,
+            relative(PLAYER_ORBS_POSITION_OFFSET) + index * 12,
+        )
+        for index in range(2)
+    )
+    focus_previous, focus_subframe, focus_timer = struct.unpack_from(
+        "<ifi", player, relative(PLAYER_FOCUS_TIMER_OFFSET)
+    )
+    fire_previous, fire_subframe, fire_timer = struct.unpack_from(
+        "<ifi", player, relative(PLAYER_FIRE_TIMER_OFFSET)
+    )
+    orb_state = player[relative(PLAYER_ORB_STATE_OFFSET)]
+    is_focus = bool(player[relative(PLAYER_FOCUS_OFFSET)])
+    bomb_active = bool(struct.unpack_from(
+        "<I", player, relative(PLAYER_BOMB_ACTIVE_OFFSET)
+    )[0])
+    attack_numbers = (
+        last_hit_x,
+        last_hit_y,
+        focus_subframe,
+        fire_subframe,
+        *(coordinate for pair in orb_positions for coordinate in pair),
+    )
+    if (
+        not all(math.isfinite(value) for value in attack_numbers)
+        or orb_state not in range(5)
+        or shot_type not in (0, 1)
+        or not -1_000_000 <= focus_previous <= 1_000_000
+        or not -1_000_000 <= focus_timer <= 1_000_000
+        or not -1_000_000 <= fire_previous <= 1_000_000
+        or not -1_000_000 <= fire_timer <= 1_000_000
+    ):
+        raise RuntimeError("invalid player attack state")
+    return PlayerAttackState(
+        shots=tuple(shots),
+        last_enemy_hit_x=last_hit_x,
+        last_enemy_hit_y=last_hit_y,
+        orb_state=orb_state,
+        is_focus=is_focus,
+        focus_timer_previous=focus_previous,
+        focus_timer=focus_timer,
+        focus_timer_float=focus_timer + focus_subframe,
+        fire_timer_previous=fire_previous,
+        fire_timer=fire_timer,
+        fire_timer_float=fire_timer + fire_subframe,
+        orb_positions=orb_positions,
+        shot_type=shot_type,
+        bomb_active=bomb_active,
+        spell_active=spell_active,
+    )
 
 
 def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
@@ -1154,11 +1380,13 @@ def _read_snapshot_once(
     current_power = struct.unpack(
         "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
     )[0]
-    character = process.read(
-        ADDR_GAME_MANAGER + GAME_CHARACTER_OFFSET, 1
-    )[0]
+    character, shot_type = process.read(
+        ADDR_GAME_MANAGER + GAME_CHARACTER_OFFSET, 2
+    )
     if character not in (0, 1):
         raise RuntimeError(f"invalid player character {character}")
+    if shot_type not in (0, 1):
+        raise RuntimeError(f"invalid player shot type {shot_type}")
     gui_impl = struct.unpack("<I", process.read(ADDR_GUI + 4, 4))[0]
     if gui_impl and not 0x10000 <= gui_impl < 0x80000000:
         raise RuntimeError(f"invalid GuiImpl pointer 0x{gui_impl:08X}")
@@ -1198,7 +1426,10 @@ def _read_snapshot_once(
         message_frames_elapsed = 0
         message_skippable = False
 
-    player = process.read(ADDR_PLAYER + PLAYER_POSITION_OFFSET, PLAYER_SPEEDS_OFFSET + 16 - PLAYER_POSITION_OFFSET)
+    player = process.read(
+        ADDR_PLAYER + PLAYER_POSITION_OFFSET,
+        PLAYER_BOMB_ACTIVE_OFFSET + 4 - PLAYER_POSITION_OFFSET,
+    )
     relative = lambda absolute: absolute - PLAYER_POSITION_OFFSET
     x, y = struct.unpack_from("<ff", player, relative(PLAYER_POSITION_OFFSET))
     hit_left, hit_top = struct.unpack_from("<ff", player, relative(PLAYER_HITBOX_TOP_LEFT_OFFSET))
@@ -1225,6 +1456,48 @@ def _read_snapshot_once(
     )
     if player_state in (PLAYER_ALIVE, PLAYER_INVULNERABLE) and not active_geometry:
         in_menu = True
+
+    player_sprite_pointers = {
+        struct.unpack_from(
+            "<I",
+            player,
+            relative(PLAYER_BULLETS_OFFSET)
+            + slot * PLAYER_BULLET_STRIDE
+            + ANM_VM_SPRITE_OFFSET,
+        )[0]
+        for slot in range(PLAYER_BULLET_COUNT)
+        if struct.unpack_from(
+            "<h",
+            player,
+            relative(PLAYER_BULLETS_OFFSET)
+            + slot * PLAYER_BULLET_STRIDE
+            + PLAYER_BULLET_STATE_OFFSET,
+        )[0]
+    }
+    enemy_sprite_pointers = {
+        struct.unpack_from(
+            "<I",
+            enemy_pool,
+            slot * ENEMY_STRIDE + ANM_VM_SPRITE_OFFSET,
+        )[0]
+        for slot in range(ENEMY_COUNT)
+        if enemy_pool[slot * ENEMY_STRIDE + ENEMY_FLAGS_OFFSET] & 0x80
+    }
+    sprite_dimensions = _read_sprite_dimensions(
+        process,
+        player_sprite_pointers | enemy_sprite_pointers,
+    )
+    spell_active = bool(struct.unpack_from(
+        "<i",
+        native_pools,
+        manager_relative(ENEMY_SPELL_ACTIVE_OFFSET),
+    )[0])
+    player_attack = _decode_player_attack(
+        player,
+        sprite_dimensions,
+        shot_type=shot_type,
+        spell_active=spell_active,
+    )
 
     # Both timers are initialized to zero for a stage. At the supported 1x
     # rate GameManager increments at priority 4, while BulletManager advances
@@ -1745,6 +2018,12 @@ def _read_snapshot_once(
                 f"incoherent boss pointer at enemy slot {index}"
             )
 
+        enemy_sprite_pointer = struct.unpack_from(
+            "<I", enemy_pool, base + ANM_VM_SPRITE_OFFSET
+        )[0]
+        enemy_sprite_width, enemy_sprite_height = (
+            sprite_dimensions[enemy_sprite_pointer]
+        )
         spawners.append(EnemySpawner(
             index,
             *motion,
@@ -1800,6 +2079,8 @@ def _read_snapshot_once(
             tuple(interrupts),
             run_interrupt,
             bool(flags1 & 0x04),
+            enemy_sprite_width / 2.0,
+            enemy_sprite_height / 2.0,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
@@ -1814,6 +2095,7 @@ def _read_snapshot_once(
         process.ecl_subroutines, timeline_ecl_program,
         character, timeline_message_delays,
         timeline_current_message_waits,
+        player_attack,
     )
 
 

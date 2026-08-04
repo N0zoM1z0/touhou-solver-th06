@@ -13,6 +13,8 @@ from ..model import (
     EnemySpawner,
     EclInstruction,
     Laser,
+    PlayerAttackState,
+    PlayerShot,
     Snapshot,
     StageTimelineInstruction,
 )
@@ -95,6 +97,20 @@ def decode_snapshot(raw: dict) -> Snapshot:
         "timeline_boss_subs",
     ):
         values[field] = tuple(values.get(field, ()))
+    attack = values.get("player_attack")
+    if attack is not None:
+        values["player_attack"] = PlayerAttackState(
+            **{
+                **attack,
+                "shots": tuple(
+                    PlayerShot(**shot) for shot in attack.get("shots", ())
+                ),
+                "orb_positions": tuple(
+                    tuple(position)
+                    for position in attack.get("orb_positions", ())
+                ),
+            }
+        )
     return Snapshot(**values)
 
 

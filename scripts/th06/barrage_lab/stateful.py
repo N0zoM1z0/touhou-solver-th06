@@ -28,6 +28,8 @@ from ..model import (
     Bullet,
     BulletPattern,
     EnemyBody,
+    PlayerAttackState,
+    PlayerShot,
     SafeAction,
     Snapshot,
     action_from_input,
@@ -246,6 +248,103 @@ def step_bullet(
             timer_float=0.0,
         ),
         player_position,
+    )
+
+
+def step_reimu_a_player_shot(
+    shot: PlayerShot,
+    attack: PlayerAttackState,
+) -> PlayerShot | None:
+    """Advance one captured Reimu-A shot through ``UpdatePlayerBullets``.
+
+    Collision is intentionally not guessed here: EnemyManager applies it
+    later in the same update.  Position parity therefore remains testable on
+    a shot that changes from FIRED to COLLIDED in the adjacent snapshot.
+    """
+    if shot.bullet_type not in (0, 1):
+        raise UnsupportedStatefulModel(
+            f"player shot slot {shot.slot} has unsupported type "
+            f"{shot.bullet_type}"
+        )
+    if shot.state not in (1, 2):
+        raise UnsupportedStatefulModel(
+            f"player shot slot {shot.slot} has unsupported state {shot.state}"
+        )
+    # player00.anm scripts 64/65 and 96/97 are source asset IDs plus the
+    # authoritative 0x400 player offset. Fired scripts exit at 10000; their
+    # collision scripts exit at 30.
+    expected_scripts = (0x440, 0x441) if shot.state == 1 else (0x460, 0x461)
+    if shot.anm_script not in expected_scripts:
+        raise UnsupportedStatefulModel(
+            f"player shot slot {shot.slot} has unsupported ANM script "
+            f"0x{shot.anm_script:x}"
+        )
+
+    vx = _f32(shot.vx)
+    vy = _f32(shot.vy)
+    homing_speed = _f32(shot.homing_speed)
+    if shot.bullet_type == 1 and shot.state == 1:
+        if (
+            attack.last_enemy_hit_x > -100.0
+            and shot.timer < 40
+            and shot.timer != shot.timer_previous
+        ):
+            target_x = _f32(attack.last_enemy_hit_x - shot.x)
+            target_y = _f32(attack.last_enemy_hit_y - shot.y)
+            denominator = _f32(homing_speed / 4.0)
+            if denominator == 0.0:
+                raise UnsupportedStatefulModel(
+                    f"player shot slot {shot.slot} has zero homing divisor"
+                )
+            scale = _f32(math.hypot(target_x, target_y) / denominator)
+            if scale < 1.0:
+                scale = 1.0
+            target_x = _f32(_f32(target_x / scale) + vx)
+            target_y = _f32(_f32(target_y / scale) + vy)
+            length = math.hypot(target_x, target_y)
+            if length == 0.0:
+                raise UnsupportedStatefulModel(
+                    f"player shot slot {shot.slot} has zero homing vector"
+                )
+            homing_speed = _f32(min(length, 10.0))
+            if homing_speed < 1.0:
+                homing_speed = 1.0
+            vx = _f32(target_x * homing_speed / length)
+            vy = _f32(target_y * homing_speed / length)
+        elif homing_speed < 10.0:
+            homing_speed = _f32(homing_speed + _f32(0.33333333))
+            length = math.hypot(vx, vy)
+            if length == 0.0:
+                raise UnsupportedStatefulModel(
+                    f"player shot slot {shot.slot} has zero velocity"
+                )
+            vx = _f32(vx * homing_speed / length)
+            vy = _f32(vy * homing_speed / length)
+
+    x = _f32(_f32(shot.x) + vx)
+    y = _f32(_f32(shot.y) + vy)
+    if (
+        x < -shot.sprite_half_width
+        or x > 384.0 + shot.sprite_half_width
+        or y < -shot.sprite_half_height
+        or y > 448.0 + shot.sprite_half_height
+    ):
+        return None
+    anm_exit = 10000 if shot.state == 1 else 30
+    if shot.anm_timer >= anm_exit:
+        return None
+    return replace(
+        shot,
+        x=x,
+        y=y,
+        vx=vx,
+        vy=vy,
+        homing_speed=homing_speed,
+        timer_previous=shot.timer,
+        timer=shot.timer + 1,
+        timer_float=_f32(shot.timer_float + 1.0),
+        anm_timer=shot.anm_timer + 1,
+        anm_timer_float=_f32(shot.anm_timer_float + 1.0),
     )
 
 
@@ -1289,6 +1388,15 @@ class PhysicalParity:
     unsupported_bullet_steps: int
     births: int
     removals: int
+    player_shot_steps: int = 0
+    exact_player_shot_steps: int = 0
+    unsupported_player_shot_steps: int = 0
+    maximum_player_shot_error: float = 0.0
+    player_shot_births: int = 0
+    player_shot_removals: int = 0
+    enemy_slot_births: int = 0
+    enemy_slot_removals: int = 0
+    enemy_life_changes: int = 0
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -1304,6 +1412,15 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     removals = 0
     maximum_player_error = 0.0
     maximum_bullet_error = 0.0
+    player_shot_steps = 0
+    exact_player_shot_steps = 0
+    unsupported_player_shot_steps = 0
+    maximum_player_shot_error = 0.0
+    player_shot_births = 0
+    player_shot_removals = 0
+    enemy_slot_births = 0
+    enemy_slot_removals = 0
+    enemy_life_changes = 0
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -1314,6 +1431,45 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         player_error = math.hypot(expected_x - right.x, expected_y - right.y)
         maximum_player_error = max(maximum_player_error, player_error)
         exact_player_steps += player_error <= 1e-4
+
+        if left.player_attack is not None and right.player_attack is not None:
+            before_shots = {
+                shot.slot: shot for shot in left.player_attack.shots
+            }
+            after_shots = {
+                shot.slot: shot for shot in right.player_attack.shots
+            }
+            player_shot_births += len(after_shots.keys() - before_shots.keys())
+            player_shot_removals += len(before_shots.keys() - after_shots.keys())
+            for slot in before_shots.keys() & after_shots.keys():
+                try:
+                    expected_shot = step_reimu_a_player_shot(
+                        before_shots[slot], left.player_attack
+                    )
+                except UnsupportedStatefulModel:
+                    unsupported_player_shot_steps += 1
+                    continue
+                if expected_shot is None:
+                    continue
+                player_shot_steps += 1
+                observed_shot = after_shots[slot]
+                shot_error = math.hypot(
+                    expected_shot.x - observed_shot.x,
+                    expected_shot.y - observed_shot.y,
+                )
+                maximum_player_shot_error = max(
+                    maximum_player_shot_error, shot_error
+                )
+                exact_player_shot_steps += shot_error <= 1e-4
+
+        left_emitters = {item.slot: item for item in left.spawners}
+        right_emitters = {item.slot: item for item in right.spawners}
+        enemy_slot_births += len(right_emitters.keys() - left_emitters.keys())
+        enemy_slot_removals += len(left_emitters.keys() - right_emitters.keys())
+        enemy_life_changes += sum(
+            left_emitters[slot].life != right_emitters[slot].life
+            for slot in left_emitters.keys() & right_emitters.keys()
+        )
 
         left_by_slot = {bullet.slot: bullet for bullet in left.bullets}
         right_by_slot = {bullet.slot: bullet for bullet in right.bullets}
@@ -1348,6 +1504,15 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         unsupported_bullet_steps,
         births,
         removals,
+        player_shot_steps,
+        exact_player_shot_steps,
+        unsupported_player_shot_steps,
+        maximum_player_shot_error,
+        player_shot_births,
+        player_shot_removals,
+        enemy_slot_births,
+        enemy_slot_removals,
+        enemy_life_changes,
     )
 
 

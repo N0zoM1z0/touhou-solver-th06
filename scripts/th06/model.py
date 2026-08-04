@@ -101,6 +101,55 @@ class Laser:
 
 
 @dataclass(frozen=True)
+class PlayerShot:
+    """One occupied source ``PlayerBullet`` slot at the frame boundary."""
+
+    slot: int
+    x: float
+    y: float
+    half_width: float
+    half_height: float
+    vx: float
+    vy: float
+    homing_speed: float
+    timer_previous: int
+    timer: int
+    timer_float: float
+    damage: int
+    state: int
+    bullet_type: int
+    anm_script: int
+    anm_timer: int
+    anm_timer_float: float
+    sprite_half_width: float
+    sprite_half_height: float
+    sideways_motion: float = 0.0
+    laser_index: int = 0
+    spawn_position_index: int = 0
+
+
+@dataclass(frozen=True)
+class PlayerAttackState:
+    """Player-owned attack state needed for exact future damage."""
+
+    shots: tuple[PlayerShot, ...]
+    last_enemy_hit_x: float
+    last_enemy_hit_y: float
+    orb_state: int
+    is_focus: bool
+    focus_timer_previous: int
+    focus_timer: int
+    focus_timer_float: float
+    fire_timer_previous: int
+    fire_timer: int
+    fire_timer_float: float
+    orb_positions: tuple[tuple[float, float], tuple[float, float]]
+    shot_type: int
+    bomb_active: bool
+    spell_active: bool
+
+
+@dataclass(frozen=True)
 class EnemyBody:
     x: float
     y: float
@@ -262,6 +311,8 @@ class EnemySpawner:
     interrupts: tuple[int, ...] = (-1,) * 8
     run_interrupt: int = -1
     has_been_in_bounds: bool = False
+    sprite_half_width: float = 0.0
+    sprite_half_height: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -306,6 +357,7 @@ class Snapshot:
     character: int = 0
     timeline_message_delays: tuple[tuple[int, int], ...] = ()
     timeline_current_message_waits: int = 0
+    player_attack: PlayerAttackState | None = None
 
 
 @dataclass(frozen=True)
