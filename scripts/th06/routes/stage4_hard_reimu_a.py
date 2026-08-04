@@ -23,13 +23,16 @@ def state(
     state_id: str,
     horizon: int,
     provenance: str,
+    *,
+    algorithm: str = "policy-volume",
+    target: tuple[float, float] | None = BOTTOM_CENTER,
 ) -> PolicyState:
     return PolicyState(
         start_time=start_time,
         state_id=state_id,
-        algorithm="policy-volume",
+        algorithm=algorithm,
         horizon=horizon,
-        target=BOTTOM_CENTER,
+        target=target,
         provenance=provenance,
     )
 
@@ -108,7 +111,9 @@ TIMELINE_PHASES = (
             2458,
             "horizontal-band",
             6,
-            "historical Stage 4 horizontal-band h6 publication/escape CEs",
+            "20/20 delivery-seed constant-frontier survival on physical roots",
+            algorithm="constant-frontier",
+            target=None,
         ),
     ),
     phase(

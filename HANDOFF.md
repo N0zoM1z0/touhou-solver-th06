@@ -44,7 +44,9 @@ audited against the installed Stage 4 ECL timeline. Each section now owns an
 isolated state machine (`parent-entry`, `child-circle`, `horizontal-band`,
 `tail`, and similar source states). A state owns its local primitive, horizon,
 target, commitment, and provenance; only the selected phase machine executes.
-The current machines use the retained local policy-volume primitive. Boss ECL
+Most current machines use the retained local policy-volume primitive. The
+t2388 `horizontal-band` state deliberately uses a target-free h6 constant
+frontier, recovered and measured as a separate local primitive. Boss ECL
 phases are intentionally uncovered.
 
 The historical Stage 4 clear solver was inspected in a detached worktree. Its
@@ -98,10 +100,10 @@ Retained algorithm tests cover source physics, Hard and delivery semantics,
 future world behavior, native/reference parity, and local primitives that a
 phase may deliberately select.
 
-Current checks after the state-machine extraction:
+Current checks after the horizontal-band primitive extraction:
 
-- Linux: 273 tests passed, 25 skipped;
-- Windows/native: 273 tests passed, no skips/failures;
+- Linux: 275 tests passed, 25 skipped;
+- Windows/native: 275 tests passed, no skips/failures;
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
@@ -137,6 +139,25 @@ for four roots versus 0.265 seconds for the static queries, confirming that
 they belong offline. Only the t1878 sub3 state is now h6; the source transition
 to sub2 at t2108 remains h12 and awaits its own evidence.
 
+The next ordinary-RNG default fail-close run crossed both t1878/sub3 and
+t2108/sub2, then stopped alive without a HIT or Bomb at f2649 in
+`t2388/horizontal-band`. The consequential behavior came earlier: near y=380
+the recursive h6 policy oscillated vertically, then selected a downward
+sequence into the bottom strip. At f2648 it still had four Hard-safe actions;
+the empty Hard set at f2649 was downstream. Physical adjacent-frame parity on
+the retained history was exact for all 221 player/combat/RNG pairs and all
+30,258 fired-bullet plus 8,868 spawning-bullet transitions.
+
+Installed source shows t2388 creating sub11 at `(96,-32)` and `(288,-32)`,
+then t2412 creating sub13 at `(-32,96)` and `(416,96)`. Both children emit a
+fixed, non-aimed circle at local ECL t70 and reverse movement at t78, so this
+phase does not require candidate-conditioned aim. Exact 64-frame replay on
+five physical roots kept both h6 policy-volume and target-free h6
+constant-frontier alive, but the constant frontier used 4.2 mean commands
+versus 10.0. Across 20 paired delivery seeds, policy-volume survived 18/20;
+constant-frontier survived 20/20, won the two differing seeds, and never lost.
+The offline result is not a clear; it selects the next physical falsifier.
+
 ## Immediate experiment
 
 Run exactly:
@@ -146,7 +167,7 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t1878 sub3 h6 correction:
+Expected outcomes after the t2388 constant-frontier correction:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id`, `phase_id`, and `policy_state`; or

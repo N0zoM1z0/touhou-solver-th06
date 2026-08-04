@@ -48,6 +48,7 @@ from ..safety import certify_actions
 from ..safety import DELIVERY_DELAYS
 from ..viability import (
     delivery_segment_viability_scores,
+    nominal_policy_scores,
     replanning_scores as source_replanning_scores,
 )
 from ..guidance import terminal_reachability_counts
@@ -69,6 +70,8 @@ SOURCE_DYNAMIC_FLAGS = 0xDF1
 SOURCE_EXACT_DYNAMIC_FLAGS = 0x0F1
 TERMINAL_METRICS = (
     "count",
+    "policy-volume",
+    "constant-frontier",
     "count-vector",
     "local-count-vector",
     "replanning-count",
@@ -2041,7 +2044,35 @@ class ExactTerminalPolicy:
             )
             for name in hard.actions
         )
-        if self.horizon == 4:
+        if self.metric == "constant-frontier":
+            constant = certify_linear_source(
+                snapshot,
+                self.horizon,
+                actions=tuple(candidate.action for candidate in candidates),
+            ).actions
+            preferred = frozenset(
+                candidate.action for candidate in candidates
+                if candidate.action.name in constant
+            )
+        elif self.metric == "policy-volume":
+            if self.horizon == 4:
+                preferred = frozenset(
+                    candidate.action for candidate in candidates
+                )
+            else:
+                scores = nominal_policy_scores(
+                    snapshot,
+                    candidates,
+                    4,
+                    self.horizon,
+                    continuation_actions=CONTROL_ACTIONS,
+                )
+                best = max(scores.values(), default=0)
+                preferred = frozenset(
+                    action for action, score in scores.items()
+                    if best > 0 and score == best
+                )
+        elif self.horizon == 4:
             preferred = frozenset()
         elif self.metric in ("count-vector", "local-count-vector"):
             rungs = _terminal_rungs(self.horizon)
@@ -2332,6 +2363,34 @@ class NativeTerminalPolicy:
                 action for action, score in scores.items()
                 if best > 0 and score == best
             )
+        elif self.metric == "constant-frontier":
+            constant = self.kernel.certify_selected(
+                snapshot,
+                self.horizon,
+                tuple(candidate.action for candidate in hard),
+                collision_margin=0.35,
+            )
+            preferred = frozenset(
+                candidate.action for candidate in constant
+            )
+        elif self.metric == "policy-volume":
+            if self.horizon == 4:
+                preferred = frozenset(
+                    candidate.action for candidate in hard
+                )
+            else:
+                scores = self.kernel.nominal_policy_counts(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    collision_margin=0.35,
+                )
+                best = max(scores.values(), default=0)
+                preferred = frozenset(
+                    action for action, score in scores.items()
+                    if best > 0 and score == best
+                )
         elif self.horizon == 4:
             preferred = frozenset()
         elif self.metric in ("count-vector", "local-count-vector"):

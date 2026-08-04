@@ -78,6 +78,12 @@ PYTHONPATH=scripts python3 scripts/replay_th06_stateful.py \
   --seeds 500 --frames 240 --birth-events 4
 ```
 
+For a captured physical battle world, `--metric policy-volume` replays the
+current bounded recursive primitive and `--metric constant-frontier` replays
+the unchanged-action frontier recovered from the historical clear. These are
+phase-policy experiments only; neither can change Hard eligibility or count as
+a physical result.
+
 Generic source-shaped barrage stress remains useful for shared primitives:
 
 ```bash

@@ -187,3 +187,40 @@ an online primitive.
 The falsifier changes only `sub3-aimed-stream` to h6. At timeline t2108 the
 source switches to sub2, so a separate `sub2-aimed-stream` state retains h12
 until physical/offline evidence supports a change.
+
+## Horizontal-band primitive correction
+
+The next ordinary-RNG default fail-close run crossed the corrected t1878
+sub3 state and the separate t2108 sub2 state. It stopped alive without a HIT
+or Bomb at f2649 in `t2388/horizontal-band`. The terminal empty Hard set was
+again an effect: at f2648 there were still four Hard-safe actions. Earlier,
+the recursive h6 policy repeatedly reversed vertical direction near y=380,
+then committed downward into the lower strip. This identifies unstable local
+proposal continuity, not missing Hard authority, as the first falsifiable
+cause.
+
+The installed timeline creates two sub11 enemies at t2388 from the top and
+two sub13 enemies at t2412 from the sides. Authoritative ECL for both children
+emits a fixed non-aimed circle at local t70 and reverses movement at t78.
+Candidate-conditioned aim therefore cannot explain this counterexample.
+Physical adjacent-frame replay retained exact player, combat, RNG, enemy,
+player-shot, fired-bullet, and spawning-bullet parity for all 221 retained
+pairs, including 30,258 fired-bullet and 8,868 spawning-bullet transitions.
+
+The historical Stage 4 clear did not use the current recursive
+`policy-volume` behavior in this band. Its useful primitive retained only
+Hard-4 actions whose unchanged-action path also survived to h6, often keeping
+the already held corridor until it ceased to exist. Barrage lab now exposes
+both exact `policy-volume` and `constant-frontier` metrics so the production
+primitive and this legacy local primitive can be compared without restoring
+the old global classifier.
+
+On five retained physical roots, both h6 policies survived 64 frames, while
+constant-frontier used 4.2 mean commands versus policy-volume's 10.0. On 20
+paired delivery seeds, policy-volume survived 18/20 and constant-frontier
+20/20; the latter won the only two differing seeds and lost none. Its smaller
+minimum-clearance proxy is an explicit tradeoff, and the delivery model does
+not reproduce all compute/publication timing, so the result remains soft.
+Only `t2388/horizontal-band` now selects target-free h6
+`constant-frontier`; common Hard-4 authority and all other phase states are
+unchanged. The next default physical run is the falsifier.

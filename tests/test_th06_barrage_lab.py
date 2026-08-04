@@ -1055,6 +1055,64 @@ class BarrageLabTests(unittest.TestCase):
                 continuation="frame",
             )
 
+    def test_stateful_policy_volume_replays_the_production_primitive(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+
+        def policy_scores(_snapshot, candidates, *args, **kwargs):
+            self.assertEqual(args, (4, 8))
+            self.assertEqual(kwargs["continuation_actions"], CONTROL_ACTIONS)
+            return {
+                candidate.action: int(candidate.action == right)
+                for candidate in candidates
+            }
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.nominal_policy_scores",
+            side_effect=policy_scores,
+        ) as scores:
+            chosen = ExactTerminalPolicy(
+                8, metric="policy-volume"
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+        scores.assert_called_once()
+
+    def test_stateful_constant_frontier_replays_the_legacy_dense_primitive(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        hard = mock.Mock(
+            actions=tuple(action.name for action in CONTROL_ACTIONS),
+            terminal_positions=tuple(
+                (action.name, snapshot.x, snapshot.y)
+                for action in CONTROL_ACTIONS
+            ),
+        )
+        constant = mock.Mock(actions=(right.name,))
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.certify_linear_source",
+            side_effect=(hard, constant),
+        ) as certify:
+            chosen = ExactTerminalPolicy(
+                6, metric="constant-frontier"
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+        self.assertEqual(certify.call_args_list[1].args[1], 6)
+
     def test_local_count_vector_keeps_the_earliest_complete_rung_primary(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         snapshot = replace(

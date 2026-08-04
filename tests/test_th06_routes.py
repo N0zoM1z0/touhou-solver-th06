@@ -131,8 +131,11 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(horizontal.state(2457).horizon, 8)
         self.assertEqual(horizontal.state(2458).state_id, "horizontal-band")
         self.assertEqual(horizontal.state(2458).horizon, 6)
+        self.assertEqual(horizontal.state(2458).algorithm, "constant-frontier")
+        self.assertIsNone(horizontal.state(2458).target)
         self.assertEqual(following.state(2712).state_id, "dense-aimed-stream")
         self.assertEqual(following.state(2712).horizon, 6)
+        self.assertEqual(following.state(2712).algorithm, "policy-volume")
 
     def test_t1878_sub3_causal_boundary_does_not_leak_into_sub2(self):
         stream = timeline_phase(1878)
@@ -220,6 +223,7 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(decision.phase_id, "timeline:t2388:subs11-13")
         self.assertEqual(decision.policy_state, "horizontal-band")
         self.assertEqual(decision.effort_horizon, 6)
+        self.assertEqual(decision.proposal_source, "constant-frontier")
 
     def test_missing_route_is_fail_visible_even_when_hard_exists(self):
         decision = Solver().decide(snapshot(stage=3))

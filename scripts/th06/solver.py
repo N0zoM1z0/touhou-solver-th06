@@ -325,6 +325,16 @@ class Solver:
                 preferred = policy
             else:
                 proposal_source = "policy-timeout-hold"
+        elif intent.algorithm == "constant-frontier":
+            constant = self._certify_selected(
+                snapshot,
+                intent.horizon,
+                tuple(hard_actions),
+            )
+            completed_horizon = intent.horizon
+            preferred = frozenset(
+                candidate.action for candidate in constant
+            )
 
         if preferred and intent.target is not None:
             targeted = preferred_target_actions(hard, preferred, intent.target)

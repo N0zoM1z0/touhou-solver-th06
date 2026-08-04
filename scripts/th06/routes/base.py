@@ -28,9 +28,11 @@ class RouteIntent:
     """One short soft request evaluated only inside a fresh Hard set.
 
     ``policy-volume`` asks the common runtime primitive to compare bounded
-    source-shaped local continuations at the route-selected horizon.  A later
-    phase may instead provide already compiled ``preferred_actions`` or use
-    ``target-only``.  No field can add an action to Hard.
+    source-shaped local continuations at the route-selected horizon.
+    ``constant-frontier`` keeps the subset that survives one unchanged-action
+    segment at that horizon. A later phase may instead provide already
+    compiled ``preferred_actions`` or use ``target-only``. No field can add an
+    action to Hard.
     """
 
     phase_id: str
@@ -43,7 +45,12 @@ class RouteIntent:
     provenance: str = ""
 
     def __post_init__(self) -> None:
-        if self.algorithm not in ("policy-volume", "target-only", "uncovered"):
+        if self.algorithm not in (
+            "policy-volume",
+            "constant-frontier",
+            "target-only",
+            "uncovered",
+        ):
             raise ValueError(f"unsupported route algorithm {self.algorithm!r}")
         if self.horizon < 4:
             raise ValueError("route horizon cannot be shorter than Hard-4")
