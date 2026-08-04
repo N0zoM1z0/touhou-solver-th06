@@ -983,3 +983,25 @@ from f5048, f5052, and f5054 survives 32/32 seeds for 64 updates per root.
 Across all 255 retained resource snapshots, the production budgeted h8 rung
 completes 255/255 with no policy timeout. This remains an offline candidate
 until a default fail-close run reaches t5278 and the first sub10 root.
+
+The next ordinary-RNG default fail-close run physically promoted both the h8
+resource repair and the dialogue bridge. Resource h8 published 584 fresh
+decisions from f4499 through f5277 and raised Power from 18 to 32. Twenty-three
+stale decisions retained only already certified input and all recovered fresh
+Hard; there was no HIT, Bomb, authority loss, or timeout. Mean resource solve
+time was 9.262 ms, p90 17.671 ms, and maximum 48.698 ms. These timings justify
+keeping h8 rather than the survival-equivalent deeper offline rungs.
+
+At f5278 the dialogue route started from fresh Hard. Message 0 became active
+at f5279, Ctrl skip remained asserted through f5285, and the timeline remained
+at t5279 for the predicted wait interval. F5286 published boss slot 0 as sub10
+local t2 and the route stopped before issuing an unaudited boss action. The
+message is still active at this root and the next timeline t5280 MSGWAIT has 48
+proved remaining updates. Adjacent replay matches all 255 player transitions;
+the 15 supported combat transitions are exact for enemy, player attack, RNG,
+item, and Power state. Inputs were released and the exact PID stopped.
+
+Power 32 is a newly reached Reimu-A shot rank, so the earlier Power-16--31
+offline attack table is no longer sufficient. The next phase audit must join
+the sub10 entry ECL, the still-active message/timeline wait, and the Power-32
+player attack state before opening any boss movement policy.

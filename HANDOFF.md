@@ -826,6 +826,20 @@ completes h8 on all 255 retained resource snapshots with no policy timeout.
 Run default fail-close again; dialogue and sub10 are still deliberately bounded
 exactly as above and have not yet been physically promoted.
 
+That run promoted the repair and bridge. Resource h8 published 584 fresh
+decisions, raised Power 18->32, and crossed 23 certified stale retries without
+authority loss. Message 0 became active at f5279 with Ctrl skip, held timeline
+t5279 through f5285, and released the predicted same-update insertion at f5286.
+The route then stopped cleanly on `boss:0:sub10` local t2 with no HIT or Bomb;
+inputs were released and exact PID 60580 stopped.
+
+The f5286 root still has an active message and 48 proved waits at the t5280
+timeline MSGWAIT. It also reaches Power 32, beyond the compiled Power-16--31
+Reimu-A attack band used in the preceding offline work. Audit and compile that
+shot rank together with the sub10 entry ECL before authoring the first boss
+movement interval. Do not treat the still-active dialogue as a quiet boss
+root, and do not extend through the first source attack speculatively.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
