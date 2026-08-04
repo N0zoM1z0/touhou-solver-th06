@@ -1278,3 +1278,24 @@ new solver branch. Its compact route contract is
 
 The integrated checkpoint passes 304 Linux tests with 25 native-only skips and
 all 304 Windows/native tests.
+
+The following ordinary-RNG, default fail-close run physically promotes both
+changes. It crossed f1488, t1600, the midboss and spell, every later authored
+timeline state, sub12, and both sub14 attacks. It stopped alive exactly at
+f6010 on stable `boss:0:sub15:life_cb22:timer_cb22:nonspell` local t1 because
+that phase remains uncovered. The complete CSV contains no player-dead state,
+Bomb bit, timeout, or earlier authority stop. Inputs were released, exact PID
+62008 was stopped, and no game, agent, or offline worker remained.
+
+The retained f5742--f6010 window has 242 adjacent physical pairs. All player
+steps, 25,100 mature-bullet steps, 2,478 spawning steps, 130 hostile births,
+111 Reimu-A shot births, 5,049 shot steps, and 20 boss-life transitions match.
+The ordinary combat rung is unsupported only because the stage timeline is
+parked on its source boss-removal wait. Removing that impossible-to-advance
+wait for this live-boss phase yields 242/242 exact combat enemy, player-shot,
+RNG, graze, Rank, pending-effect, item, and Power transitions with no
+unsupported state. This shaping ends when the boss retires.
+
+The exact sub15 root is `(27.657, 408.348)`, Power 32, Rank 25, boss life 2758,
+56 residual bullets, RNG seed 47821/generation 7022. Audit sub15 independently;
+do not inherit sub12 or sub14 policy.

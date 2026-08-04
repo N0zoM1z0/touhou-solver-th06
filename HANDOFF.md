@@ -1122,3 +1122,21 @@ input, stop the exact PID, and check for leftover game/agent/high-CPU workers.
 
 This integrated checkpoint passes 304 Linux tests with 25 native-only skips
 and all 304 Windows/native tests.
+
+The next ordinary-RNG/default fail-close run physically promoted the f1488
+lease fix and t1401 tail. It crossed f1488, t1600, the midboss/spell, the later
+timeline, sub12, and both sub14 attacks, then stopped alive exactly at f6010 on
+stable uncovered sub15 local t1. There is no dead state, Bomb, timeout, or
+earlier authority stop in the complete CSV. Exact PID 62008 was stopped, all
+input was released, and no game/agent/offline worker remained.
+
+The retained f5742--f6010 history has exact parity for all 242 adjacent player
+steps, 25,100 mature-bullet steps, 2,478 spawning steps, 130 hostile births,
+111 Reimu-A shot births, 5,049 shot steps, and 20 boss-life changes. Removing
+only the source-impossible live-boss timeline wait makes all 242 combat enemy,
+shot, RNG, graze, Rank, effect, item, and Power transitions exact with no
+unsupported state. Do not use that shaping after boss retirement.
+
+The next root is f6010 at `(27.657,408.348)`, Power 32, Rank 25, boss life 2758,
+56 residual bullets, RNG seed 47821/generation 7022. Audit and solve sub15 as a
+new source state; do not inherit the sub12/sub14 route policy.
