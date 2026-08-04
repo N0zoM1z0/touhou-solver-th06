@@ -93,7 +93,8 @@ TERMINAL_METRICS = (
 _SPAWN_DIVISOR = {2: 2.0, 3: 2.5, 4: 3.0}
 _SPAWN_FINAL_TIMER = {2: 9, 3: 15, 4: 31}
 
-# Authoritative ``g_CharacterPowerBulletDataReimuARank1``, Rank2, and Rank9.
+# Authoritative ``g_CharacterPowerBulletDataReimuARank1`` through Rank3, and
+# Rank9.
 # These are immutable source data, not route rules. Higher intermediate power
 # ranks still fail closed until a route reaches them and their tables receive
 # physical parity.
@@ -104,6 +105,12 @@ _REIMU_A_RANK1_SHOTS = (
 )
 _REIMU_A_RANK2_SHOTS = (
     (5, 0, 0.0, 0.0, 12.0, 12.0, -90.0, 12.0, 48, 0, 0, 0x440),
+    (30, 0, 0.0, 0.0, 12.0, 12.0, -120.0, 10.0, 14, 1, 1, 0x441),
+    (30, 0, 0.0, 0.0, 12.0, 12.0, -60.0, 10.0, 14, 2, 1, 0x441),
+)
+_REIMU_A_RANK3_SHOTS = (
+    (5, 0, -4.0, 0.0, 12.0, 12.0, -91.0, 12.0, 30, 0, 0, 0x440),
+    (5, 0, 4.0, 0.0, 12.0, 12.0, -89.0, 12.0, 30, 0, 0, 0x440),
     (30, 0, 0.0, 0.0, 12.0, 12.0, -120.0, 10.0, 14, 1, 1, 0x441),
     (30, 0, 0.0, 0.0, 12.0, 12.0, -60.0, 10.0, 14, 2, 1, 0x441),
 )
@@ -517,11 +524,13 @@ def step_reimu_a_player_attack(
         shot_table = _REIMU_A_RANK1_SHOTS
     elif current_power < 16:
         shot_table = _REIMU_A_RANK2_SHOTS
+    elif current_power < 32:
+        shot_table = _REIMU_A_RANK3_SHOTS
     elif current_power >= 128:
         shot_table = _REIMU_A_RANK9_SHOTS
     else:
         raise UnsupportedStatefulModel(
-            "Reimu-A power ranks 3 through 8 are not compiled"
+            "Reimu-A power ranks 4 through 8 are not compiled"
         )
     if attack.bomb_active:
         raise UnsupportedStatefulModel("bomb-active player attack is not modeled")

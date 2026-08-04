@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from th06.barrage_lab.assets import load_stage_timeline
-from th06.model import BUTTON_FOCUS, PlayerAttackState, Snapshot
+from th06.model import BUTTON_FOCUS, ItemState, PlayerAttackState, Snapshot
 from th06.routes.phase import boss_phase_id, ecl_subroutine_index
 from th06.routes.registry import default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
@@ -418,14 +418,46 @@ class RoutePhaseTests(unittest.TestCase):
         )
 
         boss.ecl_time = 1
+        items = (
+            ItemState(223, -2.5, 110.5, 0.0, -2.17, 0.0, 0.0, 0, 1, 1.0, 2, 0),
+            ItemState(224, 20.0, 183.0, 0.0, -2.17, 0.0, 0.0, 0, 1, 1.0, 0, 0),
+        )
         spell_end_tail = HardReimuAStage1().intent(snapshot(
             stage=1,
             timeline_time=3500,
             spawners=(boss,),
             player_attack=replace(player_attack(), spell_active=False),
+            item_states=items,
         ))
-        self.assertEqual(spell_end_tail.algorithm, "uncovered")
-        self.assertEqual(spell_end_tail.policy_state, "uncovered")
+        self.assertEqual(spell_end_tail.algorithm, "target-only")
+        self.assertEqual(spell_end_tail.policy_state, "power-collection-tail")
+        self.assertEqual(spell_end_tail.horizon, 4)
+        self.assertEqual(spell_end_tail.target, (8.0, 110.5))
+
+        boss.ecl_time = 2
+        nearest_small = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            x=90.0,
+            y=200.0,
+            timeline_time=3501,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=False),
+            item_states=(
+                replace(items[1], slot=224, x=20.0, y=180.0),
+                replace(items[1], slot=225, x=92.0, y=212.0),
+            ),
+        ))
+        self.assertEqual(nearest_small.target, (92.0, 212.0))
+
+        boss.ecl_time = 160
+        despawn_boundary = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3659,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=False),
+        ))
+        self.assertEqual(despawn_boundary.algorithm, "uncovered")
+        self.assertEqual(despawn_boundary.policy_state, "uncovered")
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

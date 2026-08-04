@@ -29,6 +29,33 @@ def source_destination_alignment(snapshot: Snapshot, boss) -> tuple[float, float
     )
 
 
+def power_item_alignment(snapshot: Snapshot) -> tuple[float, float]:
+    """Prefer live Power value during the source-defined nonlethal tail."""
+    big_power = tuple(
+        item for item in snapshot.item_states if item.item_type in (2, 4)
+    )
+    if big_power:
+        item = min(big_power, key=lambda candidate: candidate.slot)
+    else:
+        small_power = tuple(
+            item for item in snapshot.item_states if item.item_type == 0
+        )
+        if not small_power:
+            return BOTTOM_CENTER
+        item = min(
+            small_power,
+            key=lambda candidate: (
+                (candidate.x - snapshot.x) ** 2
+                + (candidate.y - snapshot.y) ** 2,
+                candidate.slot,
+            ),
+        )
+    return (
+        min(max(item.x, MOVEMENT_LEFT), MOVEMENT_RIGHT),
+        min(max(item.y, 16.0), 432.0),
+    )
+
+
 SETUP = TimelineStateMachine(
     "timeline:t0:setup",
     (
@@ -360,6 +387,25 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "physical f3499 post-death-callback root; source opcode 94 "
                 "converts every occupied bullet and both active lasers "
                 "before their same-update manager pass"
+            ),
+        )
+    if (
+        ecl_subroutine_index(boss) == 6
+        and not spell_active
+        and 1 <= boss.ecl_time < 160
+    ):
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="power-collection-tail",
+            algorithm="target-only",
+            horizon=4,
+            target=power_item_alignment(snapshot),
+            commitment_frames=4,
+            provenance=(
+                "physical f3980 SpellEnd root; source sub6 has no hostile "
+                "births before its local-t160 despawn, and sixteen exact "
+                "delivery branches collect the live Big Power plus three "
+                "Small Power items while common Hard-4 remains unchanged"
             ),
         )
     return uncovered(
