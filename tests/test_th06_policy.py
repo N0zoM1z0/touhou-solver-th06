@@ -2059,6 +2059,37 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[0] for call in kernel.calls],
         )
 
+    def test_incomplete_local_robustness_preserves_viable_input(self):
+        clock = ManualClock()
+        kernel = DeliveryReplanningKernel(
+            clock,
+            self.hard,
+            delivery_scores={
+                candidate.action: 1 for candidate in self.hard
+            },
+            delivery_robustness_complete=False,
+            terminal_scores_by_horizon={},
+            scores_by_horizon={},
+        )
+        solver = self.solver(kernel, clock)
+        solver.effort.publication_scale = 0.5
+        solver.effort.choose_limit = (
+            lambda *_args: HARD_SAFETY_HORIZON
+        )
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, self.hard[0].action)
+        self.assertEqual(decision.effort_horizon, BASE_POLICY_HORIZON)
+        self.assertIn(
+            "delivery_replanning",
+            [call[0] for call in kernel.calls],
+        )
+        self.assertNotIn(
+            "prepare",
+            [call[0] for call in kernel.calls],
+        )
+
     def test_constrained_budget_uses_measured_residual_for_next_rung(self):
         clock = ManualClock()
         local_winner = self.hard[0]

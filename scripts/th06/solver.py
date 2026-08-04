@@ -1500,7 +1500,7 @@ class Solver:
                 self.clock() - replanning_started
             ) * 1000.0
             if replanning_result is not None:
-                replanning, _robustness_complete = replanning_result
+                replanning, robustness_complete = replanning_result
                 self.effort.observe_policy(
                     snapshot,
                     len(hard),
@@ -1517,18 +1517,37 @@ class Solver:
                         in replanning.items()
                         if score > 0
                     )
-                    delivery_preferred = frozenset(
-                        action for action, score
-                        in replanning.items()
-                        if score == replanning_best
-                    )
+                    if robustness_complete:
+                        delivery_preferred = frozenset(
+                            action for action, score
+                            in replanning.items()
+                            if score == replanning_best
+                        )
+                    else:
+                        # An interrupted robustness scan has completed only
+                        # the Boolean membership gate.  Do not present every
+                        # survivor as equally ranked fresh evidence and let a
+                        # soft attack/position proposal manufacture a route
+                        # switch.  Preserve publication continuity when the
+                        # observed input remains viable; if it does not, all
+                        # surviving actions remain available for soft choice.
+                        observed_action = action_from_input(
+                            snapshot.input_mask
+                        )
+                        delivery_preferred = (
+                            frozenset((observed_action,))
+                            if observed_action in delivery_viable
+                            else delivery_viable
+                        )
                     planning_candidates = tuple(
                         candidate for candidate in hard
                         if candidate.action in delivery_viable
                     )
                     policy_preferred = delivery_preferred
                     policy_horizon = BASE_POLICY_HORIZON
-                    policy_scores = replanning
+                    policy_scores = (
+                        replanning if robustness_complete else None
+                    )
                     terminal_completed = True
 
         elapsed_ms = (self.clock() - started) * 1000.0
