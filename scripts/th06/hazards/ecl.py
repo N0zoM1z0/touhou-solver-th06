@@ -920,6 +920,7 @@ def _forecast_ecl_births_single(
     allow_enemy_create_audit: bool = True,
     record_enemy_kill_all: bool = False,
     laser_world=None,
+    spawn_inline: bool = False,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -1106,22 +1107,27 @@ def _forecast_ecl_births_single(
 
     for frame_index, player in enumerate(player_positions):
         variable_player = player if allow_player_variables else None
-        if velocity_uncertainty > 0.0:
-            position_uncertainty += velocity_uncertainty
-            if timed_move_radius > 0.0 and movement_mode == 2:
-                timed_move_progress = timed_move_next_progress
-        else:
-            enemy_x += -velocity_x if spawner.invert_x else velocity_x
-            enemy_y += velocity_y
-            enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
+        if not spawn_inline:
+            if velocity_uncertainty > 0.0:
+                position_uncertainty += velocity_uncertainty
+                if timed_move_radius > 0.0 and movement_mode == 2:
+                    timed_move_progress = timed_move_next_progress
+            else:
+                enemy_x += -velocity_x if spawner.invert_x else velocity_x
+                enemy_y += velocity_y
+                enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
         center_in_bounds = (
             0.0 <= enemy_x <= 384.0 and 0.0 <= enemy_y <= 448.0
         )
-        if not has_been_in_bounds and center_in_bounds:
+        if not spawn_inline and not has_been_in_bounds and center_in_bounds:
             # Any source sprite rectangle contains its center, so this proves
             # IsInBounds even before its ANM-derived extent is available.
             has_been_in_bounds = True
-        if spawner.sprite_half_width > 0.0 and spawner.sprite_half_height > 0.0:
+        if (
+            not spawn_inline
+            and spawner.sprite_half_width > 0.0
+            and spawner.sprite_half_height > 0.0
+        ):
             sprite_in_bounds = not (
                 enemy_x + spawner.sprite_half_width < 0.0
                 or enemy_x - spawner.sprite_half_width > 384.0
@@ -1144,7 +1150,7 @@ def _forecast_ecl_births_single(
                     item_births=tuple(tuple(frame) for frame in item_births),
                     enemy_kill_all=tuple(enemy_kill_all),
                 )
-        if interactable and not invisible and life <= 0:
+        if not spawn_inline and interactable and not invisible and life <= 0:
             # EnemyManager handles an exact non-positive life value after
             # RunEcl in the preceding update.  Unlike life_lower_bound, this
             # is not a possible player-damage time: ENEMYLIFESET can make the
@@ -1192,7 +1198,8 @@ def _forecast_ecl_births_single(
                 death_callback_sub = -1
             life_lower_bound = life
         if (
-            life_callback_threshold >= 0
+            not spawn_inline
+            and life_callback_threshold >= 0
             and life_lower_bound < life_callback_threshold
         ):
             return EclForecast(
@@ -1200,14 +1207,19 @@ def _forecast_ecl_births_single(
                 frame_index,
                 "player damage can reach an active life callback",
             )
-        if death_callback_sub >= 0 and life_lower_bound <= 0:
+        if (
+            not spawn_inline
+            and death_callback_sub >= 0
+            and life_lower_bound <= 0
+        ):
             return EclForecast(
                 tuple(map(tuple, births)),
                 frame_index,
                 "player damage can reach an active death callback",
             )
         if (
-            timer_callback_threshold >= 0
+            not spawn_inline
+            and timer_callback_threshold >= 0
             and boss_timer >= timer_callback_threshold
         ):
             if not 0 <= timer_callback_sub < len(spawner.ecl_subroutines):
@@ -2975,7 +2987,8 @@ def _forecast_ecl_births_single(
         enemy = uncertain_enemy()
 
         if (
-            interactable
+            not spawn_inline
+            and interactable
             and collidable
             and not invisible
             and hitbox_half_width > 0.0
@@ -3027,7 +3040,7 @@ def _forecast_ecl_births_single(
                     interval_timer_high = min(interval_timer_high, interval - 1)
                 interval_timer = interval_timer_low
                 interval_subframe = 0.0
-        if interactable and model_player_damage:
+        if not spawn_inline and interactable and model_player_damage:
             # EnemyManager caps player-shot damage at 70 per update. A
             # collidable non-boss can additionally lose 10 from kill-box
             # contact. This lower bound decides only whether an asynchronous
@@ -3039,10 +3052,11 @@ def _forecast_ecl_births_single(
         while time_subframe >= 1.0:
             current_time += 1
             time_subframe -= 1.0
-        boss_timer_subframe += frame_multiplier
-        while boss_timer_subframe >= 1.0:
-            boss_timer += 1
-            boss_timer_subframe -= 1.0
+        if not spawn_inline:
+            boss_timer_subframe += frame_multiplier
+            while boss_timer_subframe >= 1.0:
+                boss_timer += 1
+                boss_timer_subframe -= 1.0
         if stop_after_frame:
             return EclForecast(
                 tuple(map(tuple, births)), frame_index + 1, stop_after_frame
@@ -3639,8 +3653,29 @@ def forecast_ecl_births(
     model_player_damage: bool = True,
     record_enemy_kill_all: bool = False,
     laser_world=None,
+    spawn_inline: bool = False,
 ) -> EclForecast:
     """Forecast one emitter and preserve every bounded hard uncertainty."""
+    if spawn_inline:
+        if len(player_positions) != 1:
+            raise ValueError("SpawnEnemy inline ECL is exactly one source call")
+        return _forecast_ecl_births_single(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            rng,
+            allow_player_variables,
+            radial_births,
+            abstract_rng,
+            enemy_kill_all_is_noop,
+            model_player_damage=model_player_damage,
+            record_enemy_kill_all=record_enemy_kill_all,
+            laser_world=laser_world,
+            spawn_inline=True,
+        )
     if record_enemy_kill_all:
         if abstract_rng or model_player_damage or rng is None:
             raise ValueError(

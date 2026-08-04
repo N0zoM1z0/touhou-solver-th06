@@ -323,6 +323,22 @@ is an alive stop on stable `boss:0:sub8:life_cb9:timer_cb7:nonspell` identity
 at the next snapshot; `timeline:t2009:sub8-midboss-missing` is the explicit
 failure if source publication does not match the model.
 
+The ordinary-RNG run validated that identity handoff. Its f2008 transition
+used a still-fresh one-frame input lease; at f2009 the exact sub8 boss identity
+appeared and the route stopped alive with all 18 Hard-safe actions at
+`(192.343,382.569)`, Power 5, no bullets. No HIT, Bomb, or earlier authority
+loss occurred. The adjacent transition exposed one future-world ordering bug:
+SpawnEnemy's time-zero RunEcl was incorrectly receiving manager bounds and a
+boss-timer tick. Inline ECL is now separate from the ordinary same-frame slot
+pass; all 255 retained enemy/combat transitions match exactly and a focused
+offscreen-boss regression fixes ECL time 2/boss timer 1/bounds false.
+
+Use the exact f2009 boss root for the next offline comparison. Author only the
+source-local entry state through local t159 (before the first aimed circle at
+local t160), unless the complete causal sweep proves a slightly larger state
+boundary. Keep the local-t160 attack and later movement/attack states
+independently fail-visible.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

@@ -386,6 +386,75 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertEqual((child.slot, child.ecl_time), (0, 5))
         self.assertEqual(direct.continuation.elapsed_frames, 7)
 
+    def test_timeline_spawn_inline_ecl_skips_manager_bounds_and_boss_tick(self):
+        move = EclInstruction(
+            0x1000,
+            0,
+            43,
+            24,
+            0xFF,
+            struct.pack(
+                "<ihhBBBBfff", 0, 43, 24, 0, 0xFF, 0, 0,
+                192.0, -32.0, 0.0,
+            ).hex(),
+        )
+        boss = EclInstruction(
+            0x1018,
+            0,
+            101,
+            16,
+            0xFF,
+            struct.pack(
+                "<ihhBBBBi", 0, 101, 16, 0, 0xFF, 0, 0, 0
+            ).hex(),
+        )
+        waiting = EclInstruction(
+            0x1028,
+            60,
+            0,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", 60, 0, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        transition = StageTimelineInstruction(
+            0x3000,
+            100,
+            0,
+            0,
+            28,
+            struct.pack(
+                "<hhhhfffhhI", 100, 0, 0, 28,
+                0.0, 0.0, 0.0, 6000, -2, 0,
+            ).hex(),
+        )
+        state = snapshot(
+            100,
+            timeline_time=100,
+            timeline_instructions=(transition,),
+            ecl_subroutines=(0x1000,),
+            timeline_ecl_program=(move, boss, waiting),
+            rng_seed=0x1234,
+            rng_generation=9,
+        )
+
+        forecast = forecast_world_births(
+            state,
+            ((192.0, 380.0),),
+            rng_mode="nominal",
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertIsNotNone(forecast.continuation)
+        child = forecast.continuation.emitters[0]
+        # SpawnEnemy calls RunEcl at t0 before the manager slot pass. That
+        # inline call advances ECL time but performs no bounds test and no
+        # boss-timer tick. The ordinary same-frame slot pass supplies each
+        # of those manager operations exactly once.
+        self.assertEqual((child.x, child.y), (192.0, -32.0))
+        self.assertFalse(child.has_been_in_bounds)
+        self.assertEqual(child.ecl_time, 2)
+        self.assertEqual(child.boss_timer, 1)
+
     def test_nominal_extension_aligns_empty_partial_tail_body_frames(self):
         state = snapshot(100)
         prefix = forecast_world_births(

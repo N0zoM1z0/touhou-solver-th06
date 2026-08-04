@@ -459,10 +459,10 @@ def _forecast_hard_timeline_births(
             ),
         )
 
-        # SpawnEnemy executes time-zero ECL inline. The manager then starts its
-        # slot loop at zero, so every timeline child receives one ordinary
-        # update in the same source frame. The template's initial movement is
-        # zero, making the first forecast step equivalent to the inline call.
+        # SpawnEnemy executes time-zero ECL inline without the manager's
+        # movement, bounds, callback, body/damage, or boss-timer work. The
+        # manager then starts its slot loop at zero, so every timeline child
+        # receives one ordinary update in the same source frame.
         laser_world = HardLaserWorld(snapshot.lasers)
         inline = forecast_ecl_births(
             child,
@@ -479,6 +479,7 @@ def _forecast_hard_timeline_births(
             enemy_kill_all_is_noop=False,
             model_player_damage=False,
             laser_world=laser_world,
+            spawn_inline=True,
         )
         if inline.covered_frames < 1:
             return WorldBirthForecast(
@@ -882,6 +883,7 @@ def _forecast_nominal_from_state(
                 model_player_damage=False,
                 record_enemy_kill_all=combat is not None,
                 laser_world=combat,
+                spawn_inline=True,
             )
             if inline.covered_frames < 1:
                 return WorldBirthForecast(

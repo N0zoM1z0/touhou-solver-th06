@@ -216,3 +216,24 @@ transition. At the following snapshot the route must either expose stable
 `boss:0:sub8:life_cb9:timer_cb7:nonspell` identity or fail visibly as
 `timeline:t2009:sub8-midboss-missing`; it must not continue on an anonymous
 timeline policy.
+
+The ordinary-RNG default fail-close run validated the handoff. At f2008 the
+already published `down` command still had a fresh one-frame Hard certificate,
+so the input-lease path crossed the insertion rather than evaluating the route
+proposal. At f2009 the source slot appeared with life 6000 and the exact stable
+identity `boss:0:sub8:life_cb9:timer_cb7:nonspell`; the route then stopped with
+all 18 Hard-safe actions, no HIT, Bomb, or prior authority loss. The captured
+entry is `(192.343,382.569)`, Power 5, no bullets. The transition therefore
+promotes timeline-to-boss identity publication, while the target-only bridge
+remains only offline-certified for runs whose input lease expires at f2008.
+
+Adjacent battle replay found the newborn life, position, ECL time, callbacks,
+and RNG exact, but initially set `has_been_in_bounds` one call too early and
+also advanced the boss timer twice. `SpawnEnemy` calls time-zero `RunEcl`
+inline before the manager slot loop; that call advances ECL but performs no
+movement, bounds test, callbacks, body/damage pass, or boss-timer tick. The
+future world now models that source call separately from the ordinary
+same-frame slot update. A focused source regression checks an offscreen
+time-zero boss move: ECL time becomes 2, boss timer 1, and the bounds flag
+remains false. The retained f2008--f2009 transition and all 255 adjacent enemy
+steps now match exactly with no unsupported combat state.
