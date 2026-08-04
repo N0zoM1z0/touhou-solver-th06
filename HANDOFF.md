@@ -217,17 +217,23 @@ alive without HIT or Bomb at f1782 in the independent `t1514/sub10` tail, so
 it did not physically promote the t2712 change. The terminal had ten
 repairable actions; earlier f1778/f1780 still had 18/17 Hard-safe actions but
 published stale results. Tail h8 queries produced 29 stale retries in 62
-completed queries. Adjacent replay matched all 177 player/combat transitions,
-25,204 fired-bullet steps, and 1,360 spawning-bullet steps.
+completed queries. An offline screen selected target-free h8 as the next
+falsifier, but the subsequent physical run rejected it.
 
-On sixteen exact roots, target-free and bottom-target h6/h8 all survived 64
-frames, but target-free h8 used 5.13 mean commands versus 23.75. A 64-case
-Hard-safe warmup produced 63 viable 96-frame worlds, covering 29 enemy-combat,
-63 player-attack, and 34 RNG states. h8 survived 63/63 with either policy;
-target-free used 9.81 mean commands versus 34.73 and raised mean minimum
-clearance from 6.80 to 8.17. h6 lost one world in each policy, so the tail
-keeps h8 and removes only its soft target. The t1514 parent/child states remain
-targeted and independent.
+That target-free ordinary-RNG run stopped alive without HIT or Bomb at f1714.
+From f1655 onward every fresh tail decision selected `up`, moving from y379.86
+to y262.44; f1709 still had 18 Hard-safe actions, f1712 had three, and f1714
+had no repairable action. Adjacent replay matched all 210 player/combat
+transitions, 25,033 fired-bullet steps, and 1,158 spawning-bullet steps.
+
+Targeted h6/h7/h8 survived 12/12 exact 64-frame roots. A new 63-world warmup
+corpus covered 44 enemy-combat, 60 player-attack, and 47 RNG states through
+1,051 updates and 5,488 source births; all three horizons survived 64/64
+96-frame delivery seeds. Sixty native production queries measured h7 at 8.46
+ms median, 10.17 ms p90, and 11.24 ms maximum versus h8 at 9.71/12.12/17.54
+ms. The current physical candidate therefore restores the bottom waypoint
+and uses h7 only in the t1649 tail. Parent-entry/child-circle remain targeted
+h8 and common Hard-4 authority is unchanged.
 
 ## Immediate experiment
 
@@ -238,7 +244,7 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t1514 tail target-churn, t2108 h8, t2388
+Expected outcomes after the t1514 targeted-h7 tail, t2108 h8, t2388
 constant-frontier, and t2712 sub5 target-loop corrections:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact

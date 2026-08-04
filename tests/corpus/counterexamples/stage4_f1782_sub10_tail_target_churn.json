@@ -10,8 +10,8 @@
     "rng": "ordinary"
   },
   "runner": "stage4_phase_policy",
-  "contract": "Only the source-defined t1514 sub10 tail removes its soft bottom target; it retains policy-volume h8 and common Hard-4 eligibility. The parent-entry and child-circle states remain independently targeted.",
-  "summary": "The default fail-close run stopped alive without HIT or Bomb at f1782 with ten repairable actions. The terminal empty Hard set was downstream: h8 tail queries had a 29/62 stale-retry rate, while f1778 and f1780 still exposed 18 and 17 Hard-safe actions. Physical adjacent replay matched all 177 player/combat transitions, 25,204 fired-bullet steps, and 1,360 spawning-bullet steps. On sixteen exact roots, target-free and bottom-target h6/h8 all survived 64 frames, but target-free h8 used 5.13 mean commands versus 23.75. A 64-case Hard-safe warmup generated 63 viable battle worlds through 1,056 updates and 2,752 source births, covering 29 enemy-combat, 63 player-attack, and 34 RNG states. At h8 both policies survived 63/63 for 96 frames, while target-free used 9.81 mean commands versus 34.73 and raised mean minimum clearance from 6.80 to 8.17. h6 lost one world under each policy, so the falsifier keeps h8 and removes only the tail target.",
+  "contract": "The source-defined t1514 sub10 tail keeps its soft bottom waypoint but uses policy-volume h7; the parent-entry and child-circle states remain independently targeted h8 and common Hard-4 eligibility is unchanged.",
+  "summary": "The default fail-close run stopped alive without HIT or Bomb at f1782 with ten repairable actions. The terminal empty Hard set was downstream: h8 tail queries had a 29/62 stale-retry rate, while f1778 and f1780 still exposed 18 and 17 Hard-safe actions. An initial target-free h8 offline falsifier reduced commands, but the next ordinary-RNG physical run disproved it at f1714 by repeatedly selecting up into a true unrepairable dead end. On the new physical roots, targeted h6/h7/h8 all survived 12/12 exact 64-frame cases and 64/64 high-pressure 96-frame delivery cases. Sixty repeated production-native queries measured h7 at 8.46 ms median, 10.17 ms p90, and 11.24 ms maximum versus h8 at 9.71, 12.12, and 17.54 ms. This selects targeted h7 as the smallest physically publishable candidate; target-free h8 is retained only as a rejected checkpoint.",
   "input": {
     "timeline_time": 1649
   },
@@ -19,7 +19,7 @@
     "phase_id": "timeline:t1514:sub10",
     "policy_state": "tail",
     "algorithm": "policy-volume",
-    "horizon": 8,
-    "target": null
+    "horizon": 7,
+    "target": [192.0, 380.0]
   }
 }

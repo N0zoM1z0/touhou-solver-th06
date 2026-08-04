@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "stage4-f1714-sub10-tail-target-free-drift",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 4,
+    "decision_frame": 1655,
+    "failure_frame": 1714,
+    "rng": "ordinary"
+  },
+  "runner": "stage4_phase_policy",
+  "contract": "The source-defined t1514 sub10 tail retains its bottom waypoint and uses the measured publishable h7 rung; the preceding states and common Hard-4 authority are unchanged.",
+  "summary": "The first physical test of target-free h8 stopped alive without HIT or Bomb at f1714. The target-free policy selected up on every fresh tail decision after f1655, moving from y379.86 to y262.44; at f1709 eighteen Hard actions remained, at f1712 three remained, and the f1714 terminal had zero repairable actions. This disproved the target-free candidate rather than target ranking generally. Adjacent replay matched all 210 player/combat transitions, 25,033 fired-bullet steps, and 1,158 spawning-bullet steps. Targeted h6/h7/h8 survived all twelve exact roots for 64 frames. A 64-case warmup generated 63 complete worlds through 1,051 updates and 5,488 source births, covering 44 enemy-combat, 60 player-attack, and 47 RNG states; all three horizons survived 64/64 96-frame delivery cases. h7 retained that coverage while 60 production-native queries measured 8.46 ms median, 10.17 ms p90, and 11.24 ms maximum, below h8's 9.71/12.12/17.54 ms tail. The phase-local candidate is therefore targeted h7, not target-free h8 or the previously lossy h6 corpus result.",
+  "input": {
+    "timeline_time": 1655
+  },
+  "expect": {
+    "phase_id": "timeline:t1514:sub10",
+    "policy_state": "tail",
+    "algorithm": "policy-volume",
+    "horizon": 7,
+    "target": [192.0, 380.0]
+  }
+}

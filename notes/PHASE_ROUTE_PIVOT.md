@@ -347,6 +347,39 @@ states; 63 worlds retained fresh authority for the 96-frame sweep. h8 survived
 63/63 under both policies, but target-free h8 used 9.81 mean commands versus
 34.73 and raised mean minimum clearance from 6.80 to 8.17. h6 was not promoted:
 it lost one world under each policy, whereas h8 lost none. The smallest
-falsifier therefore keeps the tail at policy-volume h8, removes only its soft
-target, and leaves common Hard-4 eligibility and the preceding two states
-unchanged.
+falsifier therefore kept the tail at policy-volume h8 and removed only its
+soft target for the next physical test. That candidate was not a promotion;
+the following run disproved it.
+
+## t1514 target-free rejection and h7 publication rung
+
+The ordinary-RNG default fail-close test of target-free h8 stopped alive
+without a HIT or Bomb at f1714 in the same source tail. This time the terminal
+had no repairable action, but the consequential decision was still earlier:
+from f1655 onward every fresh policy result selected `up`, moving from
+y379.86 to y262.44 with only one tail input transition. f1709 still had all
+18 Hard-safe actions, f1712 had three, and f1714 had none. Target removal had
+therefore converted the earlier high-command route into an unbounded
+continuation-volume drift and was physically rejected.
+
+Adjacent replay of the new artifact matched all 210 player and combat-world
+transitions, 25,033 fired-bullet steps, and 1,158 spawning-bullet steps. It
+also matched enemy damage/retirement, player shots, RNG, graze, item, and power
+transitions without an unsupported step. On twelve exact physical roots,
+targeted h6, h7, and h8 each survived all twelve 64-frame cases.
+
+The high-pressure corpus derived 63 complete worlds through 1,051 varied
+Hard-safe warmup updates and 5,488 source-valid births. It covered 44 unique
+enemy-combat states, 60 player-attack states, and 47 RNG states. All three
+targeted horizons survived all 64 delivery seeds for 96 frames; h7 used 32.52
+mean commands versus h8's 32.88, with mean minimum clearance 18.92 versus
+20.21. This does not make h7 physically equivalent to h8 by itself, but it
+removes the survival objection to measuring the cheaper rung.
+
+Sixty repeated calls per horizon through production's native
+`nominal_policy_counts_budgeted` measured h7 at 8.46 ms median, 10.17 ms p90,
+and 11.24 ms maximum. h8 measured 9.71, 12.12, and 17.54 ms on the same roots;
+the old online trace independently measured 18.96 ms median and 24.13 ms
+maximum across its tail decisions. The next falsifier therefore restores the
+bottom waypoint and changes only the t1649 tail from h8 to h7. Parent-entry
+and child-circle remain targeted h8; common Hard-4 eligibility is unchanged.
