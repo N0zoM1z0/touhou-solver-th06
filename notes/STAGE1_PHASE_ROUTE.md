@@ -281,3 +281,29 @@ frames, with no unsupported combat world step. The next offline root is the
 exact local-t160 boundary; it must model the player-conditioned 16-by-5 circle
 and stop again before the later local-t414 attack state unless physical/source
 evidence justifies a smaller boundary.
+
+## sub8 first-circle candidate
+
+The exact local-t160 root can execute the Hard opcode-69 transition without
+unsupported state. A complete 254-update sweep stops on local t414 before the
+next attack instruction. Target-free h4, h6, and h8 all survived all eight
+delivery seeds. h8 used 50.75 mean commands with 8.32 mean minimum clearance;
+h6 used 55.00 with 7.08. h4 happened to preserve the incoming `right` lease
+with no new command and 31.80 clearance, but that result aliased every delivery
+seed to the same streaming path.
+
+A higher-pressure corpus therefore derived 32 complete battle worlds by 1,072
+varied Hard-safe updates from the physical root. It exercised 2,560 source
+births, seven enemy-combat states, 32 player-attack states, and seven RNG
+states while staying before local t414. On 96-frame delivery tests, h4 retained
+31/32 worlds and lost one to lease authority. Target-free h6 and h8 both
+retained 32/32; h8 had 9.23 mean minimum clearance versus h6's 7.37, at 9.78
+versus 9.53 mean commands. The targeted variants generated substantially more
+commands, and targeted h6 had already lost three exact-root delivery seeds.
+
+The smallest physical falsifier is therefore target-free policy-volume h8 for
+`160 <= ecl_time < 414`, named `first-circle-movement`. This is a state-local
+algorithm selection, not a stage/frame condition in common Hard: aim, player
+attack, enemy damage, movement, RNG, and bullet births remain candidate-
+conditioned source transitions. At local t414 the same stable boss phase
+returns `phase-unavailable` before the second aimed circle.

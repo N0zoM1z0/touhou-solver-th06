@@ -179,13 +179,13 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
         boss,
         bool(snapshot.player_attack and snapshot.player_attack.spell_active),
     )
-    if (
+    is_sub8_nonspell = (
         ecl_subroutine_index(boss) == 8
         and not (
             snapshot.player_attack and snapshot.player_attack.spell_active
         )
-        and boss.ecl_time < 160
-    ):
+    )
+    if is_sub8_nonspell and boss.ecl_time < 160:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="entry-movement",
@@ -198,9 +198,23 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "and the first Hard aimed circle is local t160"
             ),
         )
+    if is_sub8_nonspell and boss.ecl_time < 414:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-circle-movement",
+            algorithm="policy-volume",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical local-t160 root; complete candidate-conditioned "
+                "battle sweeps cover the Hard 16x5 aimed circle and the "
+                "following source movement through local t413"
+            ),
+        )
     return uncovered(
         phase_id,
-        "Stage 1 midboss source state at or after the local-t160 aimed "
+        "Stage 1 midboss source state at or after the local-t414 aimed "
         "circle has not been authored",
     )
 

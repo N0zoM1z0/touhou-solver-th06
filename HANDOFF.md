@@ -362,12 +362,23 @@ Power transitions and all 1,886 player-shot steps, including 56 exact births
 across the Power 4-to-9 window, with no unsupported combat state. This
 physically promotes only `entry-movement`.
 
-Use the exact local-t160 root for the next offline comparison. Model the
-source 16-by-5 player-aimed circle in the complete candidate-conditioned
-battle world and compare the smallest publishable phase-local policies. Keep
-the later local-t414/t444 attack state independently fail-visible unless the
-source transition evidence requires an earlier boundary. Physical promotion
-still requires an ordinary-RNG default fail-close run and adjacent parity.
+The complete candidate-conditioned sweep now authors only
+`160 <= ecl_time < 414` as target-free policy-volume h8 state
+`first-circle-movement`. On the exact root h4/h6/h8 all survived eight
+254-update delivery seeds, but h4 aliased every seed to its incoming `right`
+lease. A 32-world high-pressure corpus derived by 1,072 Hard-safe warmup
+updates exercised 2,560 source births, seven enemy-combat states, 32 player-
+attack states, and seven RNG states. h4 lost one world to lease authority;
+target-free h6/h8 survived 32/32, with h8 raising mean minimum clearance from
+7.37 to 9.23 for 0.25 additional mean commands. Target-free also removed the
+large command churn seen with the bottom waypoint.
+
+Run an ordinary-RNG default fail-close physical falsifier. Expected success is
+an alive `phase-unavailable` stop at exact local t414 under the same stable
+sub8 identity, before the second aimed circle. Require adjacent parity for the
+first 16-by-5 circle, boss movement, player attack, damage/life, RNG, and
+bullet transitions. Do not author local t414/t444 until that evidence is
+exact.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
