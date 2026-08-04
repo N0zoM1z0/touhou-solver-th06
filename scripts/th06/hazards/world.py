@@ -5,16 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from ..model import Bullet, EnemySpawner, Snapshot
+from ..model import Bullet, EnemySpawner, Snapshot, StageTimelineInstruction
 from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import forecast_ecl_births, source_enemy_template
 from .rng import RngState
 from .timeline import (
     TimelineBossInterrupt,
+    TimelineEnemySpawn,
     decode_boss_interrupt,
     decode_enemy_spawn,
-    first_world_transition,
     scheduled_timeline,
 )
 
@@ -42,6 +42,7 @@ class WorldForecastContinuation:
     rng_seed: int
     rng_generation: int
     framewise: bool
+    elapsed_frames: int = 0
 
 
 class _NominalRngConsumed(Exception):
@@ -53,36 +54,6 @@ class _NoRngState(RngState):
 
     def u16(self) -> int:
         raise _NominalRngConsumed
-
-
-def _limit_for_uninserted_timeline(
-    snapshot: Snapshot,
-    forecast: WorldBirthForecast,
-) -> WorldBirthForecast:
-    transition = first_world_transition(
-        snapshot.timeline_instructions,
-        snapshot.timeline_time,
-        len(forecast.births),
-        stage=snapshot.stage,
-        difficulty=snapshot.difficulty,
-        character=snapshot.character,
-        message_delays=snapshot.timeline_message_delays,
-        current_message_waits=snapshot.timeline_current_message_waits,
-    )
-    if transition is None:
-        return forecast
-    lead, instruction = transition
-    if forecast.covered_frames <= lead:
-        return forecast
-    return WorldBirthForecast(
-        forecast.births,
-        forecast.hazards,
-        lead,
-        "uninserted stage timeline world transition "
-        f"opcode {instruction.opcode} at 0x{instruction.address:08x}",
-        forecast.body_hazards,
-        None,
-    )
 
 
 def _project_hazards(
@@ -437,8 +408,44 @@ def _forecast_nominal_without_shared_rng(
             rng.seed,
             rng.generation_count,
             True,
+            len(player_positions),
         ),
     )
+
+
+def _nominal_timeline_transitions(
+    snapshot: Snapshot,
+    start_lead: int,
+    horizon: int,
+) -> tuple[tuple[int, StageTimelineInstruction], ...]:
+    """Return source world writes inside one nominal continuation slice."""
+    end_lead = start_lead + horizon
+    return tuple(
+        (lead, instruction)
+        for lead, instruction in scheduled_timeline(
+            snapshot.timeline_instructions,
+            snapshot.timeline_time,
+            stage=snapshot.stage,
+            difficulty=snapshot.difficulty,
+            character=snapshot.character,
+            message_delays=snapshot.timeline_message_delays,
+            current_message_waits=snapshot.timeline_current_message_waits,
+        )
+        if start_lead <= lead < end_lead
+        and instruction.opcode in (*range(8), 10)
+    )
+
+
+def _timeline_random_position(
+    spawn: TimelineEnemySpawn,
+    rng: RngState,
+) -> tuple[float, float]:
+    """Consume RunEclTimeline's x/y/z RNG in exact source order."""
+    x = rng.f32_in_range(384.0) if spawn.random_x else spawn.x
+    y = rng.f32_in_range(448.0) if spawn.random_y else spawn.y
+    if spawn.random_z:
+        rng.f32_in_range(800.0)
+    return x, y
 
 
 def _forecast_nominal_from_state(
@@ -448,11 +455,17 @@ def _forecast_nominal_from_state(
     rng: RngState,
     *,
     framewise: bool,
+    start_lead: int = 0,
 ) -> WorldBirthForecast:
     births: list[list[Bullet]] = [[] for _ in player_positions]
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    timeline_transitions = _nominal_timeline_transitions(
+        snapshot, start_lead, len(player_positions)
+    )
+    if timeline_transitions:
+        framewise = True
     if not framewise:
         if not emitters:
             return WorldBirthForecast(
@@ -461,7 +474,8 @@ def _forecast_nominal_from_state(
                 len(player_positions),
                 body_hazards=tuple(tuple(frame) for frame in bodies),
                 continuation=WorldForecastContinuation(
-                    (), rng.seed, rng.generation_count, False
+                    (), rng.seed, rng.generation_count, False,
+                    start_lead + len(player_positions),
                 ),
             )
         if len(emitters) != 1:
@@ -505,6 +519,7 @@ def _forecast_nominal_from_state(
                 rng.seed,
                 rng.generation_count,
                 False,
+                start_lead + len(player_positions),
             )
             if (
                 forecast.covered_frames == len(player_positions)
@@ -524,11 +539,18 @@ def _forecast_nominal_from_state(
             continuation,
         )
 
-    batched = _forecast_nominal_without_shared_rng(
-        snapshot, player_positions, emitters, rng
-    )
-    if batched is not None:
-        return batched
+    if not timeline_transitions:
+        batched = _forecast_nominal_without_shared_rng(
+            snapshot, player_positions, emitters, rng
+        )
+        if batched is not None:
+            return replace(
+                batched,
+                continuation=replace(
+                    batched.continuation,
+                    elapsed_frames=start_lead + len(player_positions),
+                ),
+            )
 
     if (
         any(
@@ -544,7 +566,130 @@ def _forecast_nominal_from_state(
             "nominal enemy slot occupancy is incomplete",
         )
     slots = {emitter.slot: emitter for emitter in emitters}
+    timeline_by_lead: dict[int, list] = {}
+    for lead, instruction in timeline_transitions:
+        timeline_by_lead.setdefault(lead, []).append(instruction)
     for frame_index, player in enumerate(player_positions):
+        source_lead = start_lead + frame_index
+        for instruction in timeline_by_lead.get(source_lead, ()):
+            if instruction.opcode == 10:
+                event = decode_boss_interrupt(instruction)
+                matching = [
+                    slot for slot, emitter in slots.items()
+                    if event is not None and emitter.boss_id == event.boss_id
+                ]
+                if event is None or len(matching) != 1:
+                    return WorldBirthForecast(
+                        tuple(tuple(frame) for frame in births),
+                        _project_hazards(births, False),
+                        frame_index,
+                        "nominal timeline boss interrupt target is unresolved "
+                        f"at 0x{instruction.address:08x}",
+                        tuple(tuple(frame) for frame in bodies),
+                    )
+                slot = matching[0]
+                slots[slot] = replace(
+                    slots[slot], run_interrupt=event.interrupt_id
+                )
+                continue
+
+            # RunEclTimeline suppresses enemy records while a boss is live.
+            if any(emitter.is_boss for emitter in slots.values()):
+                continue
+            spawn = decode_enemy_spawn(instruction)
+            if spawn is None:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    "invalid nominal stage timeline enemy spawn record "
+                    f"at 0x{instruction.address:08x}",
+                    tuple(tuple(frame) for frame in bodies),
+                )
+            free_slot = next(
+                (
+                    slot for slot in range(SOURCE_ENEMY_SLOT_COUNT)
+                    if slot not in slots
+                ),
+                None,
+            )
+            if free_slot is None:
+                # SpawnEnemy returns without initializing another occupied
+                # slot when the 255-entry source pool is full.
+                continue
+            x, y = _timeline_random_position(spawn, rng)
+            child = source_enemy_template(
+                snapshot.timeline_ecl_program,
+                snapshot.ecl_subroutines,
+                spawn.sub_id,
+                x,
+                y,
+                spawn.life if spawn.life is not None else -1,
+            )
+            if child is None:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    "nominal timeline enemy ECL graph is unavailable "
+                    f"for sub {spawn.sub_id}",
+                    tuple(tuple(frame) for frame in bodies),
+                )
+            child = replace(child, slot=free_slot)
+            inline = forecast_ecl_births(
+                child,
+                (player,),
+                snapshot.difficulty,
+                snapshot.rank,
+                snapshot.bullet_sizes,
+                snapshot.frame_multiplier,
+                rng,
+                allow_player_variables=True,
+                radial_births=False,
+                model_player_damage=False,
+            )
+            if inline.covered_frames < 1:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    f"nominal timeline emitter {spawn.sub_id}: "
+                    f"{inline.reason}",
+                    tuple(tuple(frame) for frame in bodies),
+                )
+            births[frame_index].extend(inline.births[0])
+            if inline.body_hazards:
+                bodies[frame_index].extend(inline.body_hazards[0])
+            if inline.created_emitters:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index,
+                    "timeline newborn creates a nested enemy inline before "
+                    "nominal slot insertion is resolved",
+                    tuple(tuple(frame) for frame in bodies),
+                )
+            if inline.next_spawner is not None:
+                slots[free_slot] = replace(
+                    inline.next_spawner,
+                    slot=free_slot,
+                    invert_x=spawn.invert_x,
+                    life=(
+                        spawn.life
+                        if spawn.life is not None
+                        else inline.next_spawner.life
+                    ),
+                )
+            elif not inline.finished:
+                return WorldBirthForecast(
+                    tuple(tuple(frame) for frame in births),
+                    _project_hazards(births, False),
+                    frame_index + 1,
+                    f"nominal timeline emitter {spawn.sub_id}: "
+                    f"{inline.reason}",
+                    tuple(tuple(frame) for frame in bodies),
+                )
+
         for slot in range(SOURCE_ENEMY_SLOT_COUNT):
             emitter = slots.get(slot)
             if emitter is None:
@@ -622,6 +767,7 @@ def _forecast_nominal_from_state(
             rng.seed,
             rng.generation_count,
             True,
+            start_lead + len(player_positions),
         ),
     )
 
@@ -646,6 +792,7 @@ def extend_nominal_world_births(
             continuation.rng_generation,
         ),
         framewise=continuation.framewise,
+        start_lead=continuation.elapsed_frames,
     )
     births = prefix.births + tail.births
     bodies = prefix.body_hazards + tail.body_hazards
@@ -739,19 +886,16 @@ def forecast_world_births(
             reason,
             tuple(tuple(frame) for frame in bodies),
         )
-    return _limit_for_uninserted_timeline(
+    return _forecast_nominal_from_state(
         snapshot,
-        _forecast_nominal_from_state(
-            snapshot,
-            player_positions,
-            emitters,
-            RngState(snapshot.rng_seed, snapshot.rng_generation),
-            framewise=(
-                len(emitters) != 1
-                or any(
-                    _program_can_create_enemy(emitter)
-                    for emitter in emitters
-                )
-            ),
+        player_positions,
+        emitters,
+        RngState(snapshot.rng_seed, snapshot.rng_generation),
+        framewise=(
+            len(emitters) != 1
+            or any(
+                _program_can_create_enemy(emitter)
+                for emitter in emitters
+            )
         ),
     )

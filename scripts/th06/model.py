@@ -261,6 +261,7 @@ class EnemySpawner:
     boss_id: int = -1
     interrupts: tuple[int, ...] = (-1,) * 8
     run_interrupt: int = -1
+    has_been_in_bounds: bool = False
 
 
 @dataclass(frozen=True)

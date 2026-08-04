@@ -38,6 +38,7 @@ from th06.barrage_lab.stateful import (
     run_closed_loop,
     step_bullet,
     step_closed_world,
+    step_nominal_battle_world,
     step_fired_bullet,
     sweep_initial_snapshot,
     _terminal_metric,
@@ -48,6 +49,10 @@ from th06.barrage_lab.stateful import (
     _terminal_rungs,
 )
 from th06.hazards.bullets import hazard_box
+from th06.hazards.world import (
+    WorldBirthForecast,
+    WorldForecastContinuation,
+)
 from th06.model import CONTROL_ACTIONS, Bullet, EclInstruction
 
 
@@ -234,6 +239,10 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual((first.frame, first.x), (100, 80.0))
         self.assertEqual((second.frame, second.x), (101, 304.0))
         self.assertEqual(first.bullets, worlds[0].bullets)
+        battle = sweep_initial_snapshot(
+            (opcode,), 0, physical_battle_worlds=worlds
+        )
+        self.assertIs(battle, worlds[0])
         with self.assertRaises(ValueError):
             sweep_initial_snapshot(
                 (opcode,),
@@ -243,6 +252,43 @@ class BarrageLabTests(unittest.TestCase):
                 }),),
                 physical_initial_worlds=worlds,
             )
+
+    def test_nominal_battle_step_keeps_source_world_births_and_rng(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        case = generate_barrage_case((opcode,), 7, target_bullets=1)
+        start = replace(
+            case.snapshot,
+            bullets=(),
+            input_mask=0x05,
+            timeline_instructions=(),
+            timeline_complete=True,
+        )
+        newborn = replace(case.snapshot.bullets[0], slot=-1)
+        empty = ((),)
+        forecast = WorldBirthForecast(
+            births=((newborn,),),
+            hazards=empty,
+            covered_frames=1,
+            body_hazards=empty,
+            continuation=WorldForecastContinuation(
+                (), 0x4567, 99, True, 1
+            ),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.forecast_world_births",
+            return_value=forecast,
+        ):
+            following = step_nominal_battle_world(start, right)
+
+        self.assertEqual(following.frame, start.frame + 1)
+        self.assertEqual(following.x, start.x + start.focus_speed)
+        self.assertEqual((following.rng_seed, following.rng_generation), (0x4567, 99))
+        self.assertEqual(len(following.bullets), 1)
+        self.assertEqual(following.bullets[0].slot, 0)
 
     def test_runtime_decoder_restores_hashable_future_ecl_program(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

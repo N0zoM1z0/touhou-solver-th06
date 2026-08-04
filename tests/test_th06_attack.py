@@ -87,6 +87,7 @@ class TimelineAttackTests(unittest.TestCase):
         self.assertEqual(spawn.life, 200)
         self.assertTrue(spawn.invert_x)
         self.assertFalse(spawn.random_x)
+        self.assertFalse(spawn.random_z)
 
     def test_random_timeline_coordinate_is_not_made_nominal(self):
         instruction = timeline_spawn(
@@ -101,6 +102,7 @@ class TimelineAttackTests(unittest.TestCase):
         spawn = decode_enemy_spawn(instruction)
         self.assertTrue(spawn.random_x)
         self.assertFalse(spawn.random_y)
+        self.assertFalse(spawn.random_z)
 
     def test_low_life_emitter_is_prepositioned_before_nearer_high_life_one(self):
         state = snapshot(timeline_instructions=(

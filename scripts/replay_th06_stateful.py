@@ -56,6 +56,20 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--physical-battle-world", action="store_true",
+        help=(
+            "retain captured bullets, emitters, bodies, RNG, and timeline; "
+            "requires --native and --birth-events 0"
+        ),
+    )
+    parser.add_argument(
+        "--initial-frames",
+        help=(
+            "comma-separated captured frames used as physical initial "
+            "worlds (defaults to the retained history)"
+        ),
+    )
+    parser.add_argument(
         "--birth-events", type=int, default=3,
         help="source-valid synthetic ECL volleys scheduled per sequence",
     )
@@ -104,8 +118,38 @@ def main() -> int:
         raise ValueError("seeds and frames must be positive")
     if args.corpus_density_scale <= 0.0:
         raise ValueError("corpus density scale must be positive")
+    if args.physical_initial_world and args.physical_battle_world:
+        raise ValueError("choose one physical initial-world mode")
+    if args.physical_battle_world and (
+        not args.native or args.birth_events != 0
+    ):
+        raise ValueError(
+            "physical battle replay requires --native --birth-events 0"
+        )
+    if args.physical_battle_world and (
+        args.shrink or args.shrink_comparison is not None
+    ):
+        raise ValueError(
+            "battle-world shrinking is not implemented; select fixed frames"
+        )
 
     history = load_failure_history(args.artifact)
+    if args.initial_frames:
+        if not (args.physical_initial_world or args.physical_battle_world):
+            raise ValueError("--initial-frames requires a physical world mode")
+        requested = tuple(
+            int(value) for value in args.initial_frames.split(",")
+        )
+        by_frame = {snapshot.frame: snapshot for snapshot in history}
+        missing = set(requested) - set(by_frame)
+        if not requested or missing:
+            raise ValueError(
+                f"physical initial frames missing from artifact: "
+                f"{sorted(missing)}"
+            )
+        selected_history = tuple(by_frame[frame] for frame in requested)
+    else:
+        selected_history = history
     output = {
         "artifact": str(args.artifact),
         "physical_step_parity": asdict(physical_step_parity(history)),
@@ -130,13 +174,18 @@ def main() -> int:
         raw_history = raw.get("snapshot_history") or (raw["snapshot"],)
         templates = (
             ()
-            if args.physical_initial_world
+            if args.physical_initial_world or args.physical_battle_world
             else tuple(
                 runtime_barrage_template(item, args.corpus_density_scale)
                 for item in raw_history
             )
         )
-        physical_worlds = history if args.physical_initial_world else ()
+        physical_worlds = (
+            selected_history if args.physical_initial_world else ()
+        )
+        battle_worlds = (
+            selected_history if args.physical_battle_world else ()
+        )
         catalogue = load_ecl_bullet_catalogue(args.archive)
         comparisons = {}
         summaries = {}
@@ -166,6 +215,7 @@ def main() -> int:
                 horizons=horizons,
                 runtime_templates=templates,
                 physical_initial_worlds=physical_worlds,
+                physical_battle_worlds=battle_worlds,
                 policy_factory=policy_factory,
                 birth_events_per_case=args.birth_events,
                 barrage_family=args.barrage_family,
@@ -383,12 +433,16 @@ def main() -> int:
         output["continuation"] = args.continuation
         output["barrage_family"] = args.barrage_family
         output["initial_world"] = (
-            "physical-bullet-ablation"
+            "physical-battle-nominal"
+            if args.physical_battle_world
+            else "physical-bullet-ablation"
             if args.physical_initial_world
             else "source-generated"
         )
         output["runtime_worlds"] = len(
-            physical_worlds if physical_worlds else templates
+            battle_worlds
+            if battle_worlds
+            else physical_worlds if physical_worlds else templates
         )
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(

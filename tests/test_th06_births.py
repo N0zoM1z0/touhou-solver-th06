@@ -234,6 +234,81 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertEqual([len(frame) for frame in forecast.births], [1, 0, 0, 0])
         self.assertTrue(forecast.body_hazards[0])
 
+        nominal = forecast_world_births(
+            snapshot(
+                100,
+                bullet_sizes=((3.0, 3.0),),
+                timeline_time=100,
+                timeline_instructions=(transition,),
+                ecl_subroutines=(0x1000,),
+                timeline_ecl_program=(bullet, sentinel),
+            ),
+            ((100.0, 400.0),) * 4,
+            rng_mode="nominal",
+        )
+        self.assertEqual(nominal.covered_frames, 4, nominal.reason)
+        self.assertEqual(
+            [len(frame) for frame in nominal.births], [1, 0, 0, 0]
+        )
+        self.assertIsNotNone(nominal.continuation)
+        self.assertEqual(nominal.continuation.elapsed_frames, 4)
+
+    def test_nominal_timeline_spawn_extension_matches_direct_slot_loop(self):
+        waiting = EclInstruction(
+            0x1000,
+            10000,
+            1,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", 10000, 1, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        transition = StageTimelineInstruction(
+            0x3000,
+            103,
+            0,
+            1,
+            28,
+            struct.pack(
+                "<hhhhfffhhI",
+                103,
+                0,
+                1,
+                28,
+                32.0,
+                -44.0,
+                0.0,
+                -1,
+                -1,
+                0,
+            ).hex(),
+        )
+        state = snapshot(
+            100,
+            timeline_time=100,
+            timeline_instructions=(transition,),
+            ecl_subroutines=(0x1000,),
+            timeline_ecl_program=(waiting,),
+            rng_seed=0x1234,
+            rng_generation=9,
+        )
+        positions = ((100.0, 400.0),) * 7
+        direct = forecast_world_births(
+            state, positions, rng_mode="nominal"
+        )
+        prefix = forecast_world_births(
+            state, positions[:2], rng_mode="nominal"
+        )
+        extended = extend_nominal_world_births(
+            state, prefix, positions[2:]
+        )
+
+        self.assertEqual(extended, direct)
+        self.assertEqual(direct.covered_frames, 7, direct.reason)
+        self.assertEqual(len(direct.continuation.emitters), 1)
+        child = direct.continuation.emitters[0]
+        self.assertEqual((child.slot, child.ecl_time), (0, 5))
+        self.assertEqual(direct.continuation.elapsed_frames, 7)
+
     def test_world_stops_before_timeline_boss_interrupt(self):
         transition = StageTimelineInstruction(
             0x3010,

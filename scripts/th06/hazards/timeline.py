@@ -84,6 +84,7 @@ class TimelineEnemySpawn:
     invert_x: bool
     random_x: bool
     random_y: bool
+    random_z: bool
 
 
 @dataclass(frozen=True)
@@ -166,8 +167,8 @@ def decode_enemy_spawn(
     raw = bytes.fromhex(instruction.raw_hex)
     if len(raw) < 20:
         return None
-    x, y, _z = struct.unpack_from("<fff", raw, 8)
-    if not math.isfinite(x) or not math.isfinite(y):
+    x, y, z = struct.unpack_from("<fff", raw, 8)
+    if not math.isfinite(x) or not math.isfinite(y) or not math.isfinite(z):
         return None
     explicit = instruction.opcode % 2 == 0
     life = struct.unpack_from("<h", raw, 20)[0] if explicit and len(raw) >= 22 else None
@@ -182,4 +183,5 @@ def decode_enemy_spawn(
         bool(instruction.opcode & 0x02),
         random_position and x <= -990.0,
         random_position and y <= -990.0,
+        random_position and z <= -990.0,
     )

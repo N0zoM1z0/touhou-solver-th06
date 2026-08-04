@@ -27,12 +27,14 @@ from ..model import (
     Action,
     Bullet,
     BulletPattern,
+    EnemyBody,
     SafeAction,
     Snapshot,
     action_from_input,
 )
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
+from ..safety import certify_actions
 from ..viability import (
     delivery_segment_viability_scores,
     replanning_scores as source_replanning_scores,
@@ -40,6 +42,7 @@ from ..viability import (
 from ..guidance import terminal_reachability_counts
 from ..hazards.geometry import signed_clearance
 from ..hazards.births import spawn_pattern
+from ..hazards.world import forecast_world_births
 from ..hazards.rng import RngState
 from .oracle import (
     _step_player,
@@ -297,9 +300,129 @@ def step_closed_world(
     )
 
 
+def _body_from_emitter(emitter) -> EnemyBody | None:
+    """Recover the captured lethal body view of one continued emitter."""
+    if not (
+        emitter.has_been_in_bounds
+        and emitter.interactable
+        and emitter.collidable
+        and not emitter.invisible
+    ):
+        return None
+    return EnemyBody(
+        emitter.x,
+        emitter.y,
+        emitter.hitbox_half_width,
+        emitter.hitbox_half_height,
+        emitter.velocity_x,
+        emitter.velocity_y,
+        emitter.angle,
+        emitter.angular_velocity,
+        emitter.speed,
+        emitter.acceleration,
+        emitter.movement_mode,
+        emitter.movement_ease,
+        emitter.invert_x,
+        emitter.move_interp_x,
+        emitter.move_interp_y,
+        emitter.move_start_x,
+        emitter.move_start_y,
+        emitter.move_timer,
+        emitter.move_timer_float,
+        emitter.move_start_time,
+    )
+
+
+def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
+    """Advance bullets, live ECL emitters, and simple stage timeline state.
+
+    This is the source-shaped offline battle rung.  It deliberately rejects
+    lasers, despawning bullets, and an active message/boss timeline wait.
+    Player-shot damage and sprite-bound enemy retirement are not yet modeled,
+    so this rung is an exploratory nominal corpus—not Hard authority.
+    """
+    if snapshot.frame_multiplier != 1.0:
+        raise UnsupportedStatefulModel("only frame multiplier one is modeled")
+    if snapshot.lasers:
+        raise UnsupportedStatefulModel(
+            "nominal battle replay does not yet step live lasers"
+        )
+    if snapshot.despawning_bullets:
+        raise UnsupportedStatefulModel(
+            "nominal battle replay does not yet step despawning bullets"
+        )
+    if any(
+        instruction.time <= snapshot.timeline_time
+        and instruction.opcode in (9, 12)
+        for instruction in snapshot.timeline_instructions
+    ):
+        raise UnsupportedStatefulModel(
+            "nominal battle replay needs resolved timeline wait state"
+        )
+
+    x, y = _step_player(snapshot, snapshot.x, snapshot.y, held)
+    query = replace(
+        snapshot,
+        x=x,
+        y=y,
+        input_mask=action_mask(held),
+    )
+    forecast = forecast_world_births(
+        query,
+        ((x, y),),
+        rng_mode="nominal",
+    )
+    if forecast.covered_frames < 1 or forecast.continuation is None:
+        raise UnsupportedStatefulModel(
+            forecast.reason or "nominal battle world has no continuation"
+        )
+
+    bullets = list(snapshot.bullets)
+    used_slots = {bullet.slot for bullet in bullets if bullet.slot >= 0}
+    if len(used_slots) != len(bullets):
+        raise UnsupportedStatefulModel("bullet slots must be unique and known")
+    free_slots = (slot for slot in range(640) if slot not in used_slots)
+    for bullet in forecast.births[0]:
+        slot = next(free_slots, None)
+        if slot is None:
+            break
+        bullets.append(replace(bullet, slot=slot))
+    bullets = [step_bullet(bullet, (x, y)) for bullet in bullets]
+
+    emitters = forecast.continuation.emitters
+    bodies = tuple(
+        body for body in map(_body_from_emitter, emitters)
+        if body is not None
+    )
+    # The compact timeline corpus excludes waits, so every record at the
+    # current timer has executed before EnemyManager ticks the timer once.
+    remaining_timeline = tuple(
+        instruction for instruction in snapshot.timeline_instructions
+        if instruction.time > snapshot.timeline_time
+    )
+    return replace(
+        snapshot,
+        frame=snapshot.frame + 1,
+        timeline_time=snapshot.timeline_time + 1,
+        timeline_time_float=snapshot.timeline_time_float + 1.0,
+        timeline_instructions=remaining_timeline,
+        timeline_complete=(
+            snapshot.timeline_complete or not remaining_timeline
+        ),
+        x=x,
+        y=y,
+        input_mask=action_mask(held),
+        bullets=tuple(bullets),
+        spawners=emitters,
+        enemies=bodies,
+        rng_seed=forecast.continuation.rng_seed,
+        rng_generation=forecast.continuation.rng_generation,
+    )
+
+
 def collides_now(snapshot: Snapshot) -> bool:
     """Check the source kill boxes at the already-updated current frame."""
-    return any(
+    bullet_collision = any(
         _within_margin(
             snapshot.x,
             snapshot.y,
@@ -315,6 +438,24 @@ def collides_now(snapshot: Snapshot) -> bool:
         )
         for bullet in snapshot.bullets
         if bullet.state == 1
+    )
+    if bullet_collision:
+        return True
+    return any(
+        _within_margin(
+            snapshot.x,
+            snapshot.y,
+            snapshot.half_width,
+            snapshot.half_height,
+            (
+                enemy.x - enemy.half_width,
+                enemy.y - enemy.half_height,
+                enemy.x + enemy.half_width,
+                enemy.y + enemy.half_height,
+            ),
+            0.0,
+        )
+        for enemy in snapshot.enemies
     )
 
 
@@ -947,6 +1088,7 @@ def run_closed_loop(
     frames: int,
     delivery_seed: int,
     birth_schedule=(),
+    battle_world: bool = False,
 ) -> ClosedLoopResult:
     """Run solver decisions through bounded pickup and source bullet updates."""
     if frames <= 0:
@@ -970,6 +1112,11 @@ def run_closed_loop(
         )
         for update in {event.update for event in birth_schedule}
     }
+    if battle_world and birth_schedule:
+        raise ValueError(
+            "battle-world replay uses captured ECL/timeline births, not a "
+            "synthetic birth schedule"
+        )
 
     for update in range(frames):
         minimum_clearance = min(
@@ -997,9 +1144,18 @@ def run_closed_loop(
             # fresh four-frame delivery window. Focused commands share the
             # source's focused action batch exactly as production does.
             leased_actions = ACTIONS if pending.focused else (pending,)
-            if pending.name not in certify_linear_source(
-                state, 1, actions=leased_actions
-            ).actions:
+            lease_safe = (
+                tuple(
+                    item.action.name for item in certify_actions(
+                        state, 1, actions=leased_actions
+                    )
+                )
+                if battle_world
+                else certify_linear_source(
+                    state, 1, actions=leased_actions
+                ).actions
+            )
+            if pending.name not in lease_safe:
                 outcome = "lease-authority-stop"
                 break
 
@@ -1016,10 +1172,14 @@ def run_closed_loop(
                 pending_delay -= 1
         action_trace.append(step_action.name)
         before_slots = {bullet.slot for bullet in state.bullets}
-        state = step_closed_world(
-            state,
-            step_action,
-            births_by_update.get(update, ()),
+        state = (
+            step_nominal_battle_world(state, step_action)
+            if battle_world
+            else step_closed_world(
+                state,
+                step_action,
+                births_by_update.get(update, ()),
+            )
         )
         minimum_clearance = min(
             minimum_clearance, current_bullet_clearance(state)
@@ -1192,21 +1352,29 @@ def sweep_initial_snapshot(
     *,
     runtime_templates=(),
     physical_initial_worlds=(),
+    physical_battle_worlds=(),
     barrage_family: str = "mixed",
 ) -> Snapshot:
     """Choose the exact initial state used by a reproducible sweep seed."""
     from .generator import generate_barrage_case
 
-    if runtime_templates and physical_initial_worlds:
+    supplied_worlds = sum(bool(values) for values in (
+        runtime_templates,
+        physical_initial_worlds,
+        physical_battle_worlds,
+    ))
+    if supplied_worlds > 1:
         raise ValueError(
-            "generated runtime templates and physical initial worlds are "
-            "exclusive"
+            "generated templates, bullet ablations, and physical battle "
+            "worlds are exclusive"
         )
     index = seed * 1_315_423_911
     if physical_initial_worlds:
         return closed_bullet_world(
             physical_initial_worlds[index % len(physical_initial_worlds)]
         )
+    if physical_battle_worlds:
+        return physical_battle_worlds[index % len(physical_battle_worlds)]
     return generate_barrage_case(
         catalogue,
         seed,
@@ -1387,6 +1555,7 @@ def run_stateful_sweep(
     horizons: tuple[int, ...],
     runtime_templates=(),
     physical_initial_worlds=(),
+    physical_battle_worlds=(),
     policy_factory=ExactTerminalPolicy,
     birth_events_per_case: int = 0,
     barrage_family: str = "mixed",
@@ -1398,10 +1567,19 @@ def run_stateful_sweep(
         raise ValueError("stateful sweep dimensions must be positive")
     if tuple(sorted(set(horizons))) != horizons or horizons[0] < 4:
         raise ValueError("stateful horizons must be unique, sorted, and >= 4")
-    if runtime_templates and physical_initial_worlds:
+    supplied_worlds = sum(bool(values) for values in (
+        runtime_templates,
+        physical_initial_worlds,
+        physical_battle_worlds,
+    ))
+    if supplied_worlds > 1:
         raise ValueError(
-            "generated runtime templates and physical initial worlds are "
-            "exclusive"
+            "generated templates, bullet ablations, and physical battle "
+            "worlds are exclusive"
+        )
+    if physical_battle_worlds and birth_events_per_case:
+        raise ValueError(
+            "physical battle worlds already obtain births from ECL/timeline"
         )
 
     outcomes = {horizon: Counter() for horizon in horizons}
@@ -1420,24 +1598,31 @@ def run_stateful_sweep(
             seed,
             runtime_templates=runtime_templates,
             physical_initial_worlds=physical_initial_worlds,
+            physical_battle_worlds=physical_battle_worlds,
             barrage_family=barrage_family,
         )
         # A generated seed that is already touching a kill box is not a
         # decision problem.  The four-frame certifier starts at the next
         # update, so it cannot be used as a substitute for this current-frame
         # source collision gate.
-        if (
-            collides_now(snapshot)
-            or not certify_linear_source(snapshot, 4).actions
-        ):
+        initially_safe = (
+            certify_actions(snapshot, 4, actions=CONTROL_ACTIONS)
+            if physical_battle_worlds
+            else certify_linear_source(snapshot, 4).actions
+        )
+        if collides_now(snapshot) or not initially_safe:
             continue
-        birth_schedule = generate_barrage_births(
-            catalogue,
-            seed,
-            snapshot,
-            frames=frames,
-            events=birth_events_per_case,
-            barrage_family=barrage_family,
+        birth_schedule = (
+            ()
+            if physical_battle_worlds
+            else generate_barrage_births(
+                catalogue,
+                seed,
+                snapshot,
+                frames=frames,
+                events=birth_events_per_case,
+                barrage_family=barrage_family,
+            )
         )
         viable_cases += 1
         results = {}
@@ -1448,6 +1633,7 @@ def run_stateful_sweep(
                 frames=frames,
                 delivery_seed=seed,
                 birth_schedule=birth_schedule,
+                battle_world=bool(physical_battle_worlds),
             )
             results[horizon] = result
             outcomes[horizon][result.outcome] += 1
