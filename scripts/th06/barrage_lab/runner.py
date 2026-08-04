@@ -482,6 +482,7 @@ def run_sweep(
     placement: str = "interior",
     runtime_templates: tuple[RuntimeBarrageTemplate, ...] = (),
     extra_certifiers: tuple[tuple[str, Certifier], ...] = (),
+    barrage_family: str = "mixed",
 ) -> tuple[SweepSummary, SweepMismatch | None]:
     certifiers = (("python", python_action_names),) + extra_certifiers
     total_bullets = 0
@@ -502,6 +503,7 @@ def run_sweep(
                 ]
                 if runtime_templates else None
             ),
+            barrage_family=barrage_family,
         )
         total_bullets += len(case.snapshot.bullets)
         expected = certify_linear_source(case.snapshot, horizon).actions
@@ -545,6 +547,7 @@ def run_planner_sweep(
     ),
     extra_planners: tuple[tuple[str, Planner], ...] = (),
     one_candidate: bool = False,
+    barrage_family: str = "mixed",
 ) -> tuple[PlannerSweepSummary, PlannerMismatch | None]:
     """Differentially test production planners on source-valid barrages."""
     planners = base_planners + extra_planners
@@ -571,6 +574,7 @@ def run_planner_sweep(
                 ]
                 if runtime_templates else None
             ),
+            barrage_family=barrage_family,
         )
         total_bullets += len(case.snapshot.bullets)
         candidate_names = certify_linear_source(

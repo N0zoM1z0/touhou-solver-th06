@@ -11,6 +11,7 @@ from pathlib import Path
 
 from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.generator import (
+    BARRAGE_FAMILIES,
     eligible_opcodes,
     runtime_barrage_template,
 )
@@ -31,6 +32,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path, help="path to the installed TH06 ST.DAT")
     parser.add_argument("--seeds", type=int, default=100)
+    parser.add_argument(
+        "--barrage-family", choices=BARRAGE_FAMILIES, default="mixed",
+        help="source-geometry family to compose into each dense case",
+    )
     parser.add_argument(
         "--corpus", type=Path,
         help="condition generated cases on an online failure artifact",
@@ -133,6 +138,7 @@ def main() -> int:
             extra_planners=extras,
             one_candidate=args.guidance,
             runtime_templates=runtime_templates,
+            barrage_family=args.barrage_family,
         )
     else:
         extras = (
@@ -144,6 +150,7 @@ def main() -> int:
             placement=args.placement,
             extra_certifiers=extras,
             runtime_templates=runtime_templates,
+            barrage_family=args.barrage_family,
         )
     temporal_summary = None
     temporal_mismatch = None
@@ -160,6 +167,7 @@ def main() -> int:
             "hard-certification"
         ),
         "placement": args.placement,
+        "barrage_family": args.barrage_family,
         "catalogue_opcodes": len(catalogue),
         "exact_hard_opcodes": len(eligible_opcodes(catalogue)),
         "runtime_templates": len(runtime_templates),

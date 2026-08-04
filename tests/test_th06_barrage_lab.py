@@ -9,8 +9,10 @@ from th06.barrage_lab.assets import (
 )
 from th06.barrage_lab.corpus import decode_snapshot
 from th06.barrage_lab.generator import (
+    BARRAGE_FAMILIES,
     generate_barrage_births,
     generate_barrage_case,
+    horizontal_band_count,
     runtime_barrage_template,
     stress_player_position,
 )
@@ -35,6 +37,7 @@ from th06.barrage_lab.stateful import (
     step_bullet,
     step_closed_world,
     step_fired_bullet,
+    sweep_initial_snapshot,
     _terminal_metric,
     _terminal_action_metric,
     _authority_filtered_preferred,
@@ -133,6 +136,85 @@ def pbg3_bytes(name, payload):
 
 
 class BarrageLabTests(unittest.TestCase):
+    def test_horizontal_band_family_builds_mature_layered_source_fans(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+
+        first = generate_barrage_case(
+            (opcode,),
+            17,
+            target_bullets=192,
+            player_position=(166.0, 427.0),
+            barrage_family="horizontal-bands",
+        )
+        second = generate_barrage_case(
+            (opcode,),
+            17,
+            target_bullets=192,
+            player_position=(166.0, 427.0),
+            barrage_family="horizontal-bands",
+        )
+
+        self.assertIn(first.family, BARRAGE_FAMILIES)
+        self.assertEqual(first, second)
+        self.assertEqual(len(first.snapshot.bullets), 192)
+        self.assertGreaterEqual(
+            horizontal_band_count(first.snapshot.bullets), 4
+        )
+        self.assertTrue(all(
+            bullet.state == 1 and bullet.timer >= 32
+            for bullet in first.snapshot.bullets
+        ))
+
+    def test_horizontal_births_keep_aimed_fan_source_geometry(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = generate_barrage_case(
+            (opcode,), 3, target_bullets=8
+        ).snapshot
+
+        births = generate_barrage_births(
+            (opcode,),
+            11,
+            snapshot,
+            frames=12,
+            events=3,
+            barrage_family="horizontal-bands",
+        )
+
+        self.assertEqual(len(births), 3)
+        self.assertTrue(all(event.pattern.aim_mode == 0 for event in births))
+        self.assertTrue(all(event.pattern.count1 >= 3 for event in births))
+        self.assertTrue(all(-24.0 <= event.origin[1] <= 144.0 for event in births))
+
+    def test_stateful_sweep_can_start_from_multiple_physical_bullet_worlds(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        base = generate_barrage_case(
+            (opcode,), 5, target_bullets=8
+        ).snapshot
+        worlds = (
+            replace(base, frame=100, x=80.0),
+            replace(base, frame=101, x=304.0),
+        )
+
+        first = sweep_initial_snapshot(
+            (opcode,), 0, physical_initial_worlds=worlds
+        )
+        second = sweep_initial_snapshot(
+            (opcode,), 1, physical_initial_worlds=worlds
+        )
+
+        self.assertEqual((first.frame, first.x), (100, 80.0))
+        self.assertEqual((second.frame, second.x), (101, 304.0))
+        self.assertEqual(first.bullets, worlds[0].bullets)
+        with self.assertRaises(ValueError):
+            sweep_initial_snapshot(
+                (opcode,),
+                0,
+                runtime_templates=(runtime_barrage_template({
+                    "x": 80.0, "y": 200.0, "bullets": (),
+                }),),
+                physical_initial_worlds=worlds,
+            )
+
     def test_runtime_decoder_restores_hashable_future_ecl_program(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         state = generate_barrage_case((opcode,), 7, target_bullets=1).snapshot

@@ -33,6 +33,7 @@ SOURCE_PLAYER_LEFT = 8.0
 SOURCE_PLAYER_RIGHT = 376.0
 SOURCE_PLAYER_TOP = 16.0
 SOURCE_PLAYER_BOTTOM = 432.0
+BARRAGE_FAMILIES = ("mixed", "horizontal-bands")
 
 
 def stress_player_position(
@@ -198,6 +199,7 @@ class BarrageCase:
     target_bullets: int
     snapshot: Snapshot
     sources: tuple[tuple[str, int, int], ...]
+    family: str = "mixed"
 
 
 @dataclass(frozen=True)
@@ -272,6 +274,109 @@ def eligible_opcodes(
     return tuple(result)
 
 
+def family_opcodes(
+    catalogue: tuple[EclBulletOpcode, ...],
+    difficulty: int,
+    barrage_family: str,
+) -> tuple[EclBulletOpcode, ...]:
+    """Select opcodes by source-defined geometry, never by scene identity."""
+    candidates = eligible_opcodes(catalogue, difficulty)
+    if barrage_family == "mixed":
+        return candidates
+    if barrage_family != "horizontal-bands":
+        raise ValueError(f"unknown barrage family {barrage_family!r}")
+
+    # A mature aimed fan is the source primitive behind the observed bands:
+    # bullets share an emission time, span several lateral angles, and arrive
+    # at a similar vertical distance.  Requiring a downward-facing central
+    # ray avoids selecting a named ECL route while retaining source physics.
+    return tuple(
+        opcode for opcode in candidates
+        if (
+            opcode.aim_mode == 0
+            and opcode.count1 >= 3
+            and abs(math.remainder(opcode.angle1, math.tau)) <= math.pi / 2.0
+        )
+    )
+
+
+def horizontal_band_count(
+    bullets: tuple[Bullet, ...],
+    *,
+    height: float = 20.0,
+    minimum_members: int = 4,
+    minimum_span: float = 48.0,
+) -> int:
+    """Count disjoint mature lateral strips for corpus diagnostics.
+
+    This is only a generator/fuzz coverage measure.  It never participates in
+    Hard eligibility or online action ranking.
+    """
+    remaining = sorted(
+        (
+            bullet for bullet in bullets
+            if bullet.state == 1 and bullet.vy > 0.0
+        ),
+        key=lambda bullet: bullet.y,
+    )
+    bands = 0
+    while len(remaining) >= minimum_members:
+        best_start = -1
+        best_end = -1
+        best_span = -1.0
+        end = 0
+        for start, first in enumerate(remaining):
+            end = max(end, start)
+            while (
+                end < len(remaining)
+                and remaining[end].y - first.y <= height
+            ):
+                end += 1
+            window = remaining[start:end]
+            if len(window) < minimum_members:
+                continue
+            span = max(item.x for item in window) - min(
+                item.x for item in window
+            )
+            if span > best_span:
+                best_start, best_end, best_span = start, end, span
+        if best_start < 0 or best_span < minimum_span:
+            break
+        bands += 1
+        del remaining[best_start:best_end]
+    return bands
+
+
+def _horizontal_band_geometry(
+    chooser: random.Random,
+    pattern: BulletPattern,
+    player_x: float,
+    player_y: float,
+) -> tuple[tuple[float, float], tuple[float, float], int]:
+    """Place and mature one source fan so its arc crosses the playfield."""
+    origin = (
+        _f32(chooser.uniform(-16.0, 400.0)),
+        _f32(chooser.uniform(-24.0, 144.0)),
+    )
+    crossing_y = min(
+        472.0,
+        max(112.0, player_y + chooser.uniform(-112.0, 80.0)),
+    )
+    aim = (
+        _f32(min(424.0, max(-40.0, player_x + chooser.uniform(-72.0, 72.0)))),
+        _f32(max(origin[1] + 64.0, crossing_y)),
+    )
+    central_angle = math.atan2(
+        aim[1] - origin[1], aim[0] - origin[0]
+    ) + pattern.angle1
+    vertical_speed = abs(math.sin(central_angle)) * max(
+        0.3, (pattern.speed1 + pattern.speed2) / 2.0
+    )
+    age = round((crossing_y - origin[1]) / max(0.3, vertical_speed))
+    age = max(32, min(224, age + chooser.randrange(-12, 13)))
+    return origin, aim, age
+
+
 def generate_barrage_case(
     catalogue: tuple[EclBulletOpcode, ...],
     seed: int,
@@ -280,9 +385,10 @@ def generate_barrage_case(
     target_bullets: int | None = None,
     player_position: tuple[float, float] | None = None,
     runtime_template: RuntimeBarrageTemplate | None = None,
+    barrage_family: str = "mixed",
 ) -> BarrageCase:
     """Compose time-shifted real volleys under the source's 640-slot cap."""
-    opcodes = eligible_opcodes(catalogue, difficulty)
+    opcodes = family_opcodes(catalogue, difficulty, barrage_family)
     if not opcodes:
         raise ValueError("catalogue has no exact source volley for difficulty")
     chooser = random.Random(seed)
@@ -322,26 +428,34 @@ def generate_barrage_case(
     bullets: list[Bullet] = []
     sources = []
     attempts = 0
-    while len(bullets) < target and attempts < 160:
+    while len(bullets) < target and attempts < 320:
         attempts += 1
         opcode = chooser.choice(opcodes)
         pattern = _resolved_pattern(opcode, rank, difficulty)
-        bearing = chooser.uniform(-math.pi, math.pi)
-        radius = chooser.uniform(48.0, 210.0)
-        origin = (
-            _f32(min(400.0, max(-16.0, player_x + math.cos(bearing) * radius))),
-            _f32(min(320.0, max(-24.0, player_y + math.sin(bearing) * radius))),
-        )
-        aim = (
-            _f32(player_x + chooser.uniform(-32.0, 32.0)),
-            _f32(player_y + chooser.uniform(-32.0, 32.0)),
-        )
+        if barrage_family == "horizontal-bands":
+            origin, aim, age = _horizontal_band_geometry(
+                chooser, pattern, player_x, player_y
+            )
+        else:
+            bearing = chooser.uniform(-math.pi, math.pi)
+            radius = chooser.uniform(48.0, 210.0)
+            origin = (
+                _f32(min(400.0, max(
+                    -16.0, player_x + math.cos(bearing) * radius
+                ))),
+                _f32(min(320.0, max(
+                    -24.0, player_y + math.sin(bearing) * radius
+                ))),
+            )
+            aim = (
+                _f32(player_x + chooser.uniform(-32.0, 32.0)),
+                _f32(player_y + chooser.uniform(-32.0, 32.0)),
+            )
+            age = chooser.randrange(0, 25)
         volley = spawn_pattern(pattern, origin, aim, th06_rng)
         # Different real volleys may have been emitted on different updates.
         # Once fired, these selected flags have source-exact motion in the
         # current oracle rung (linear plus the deterministic 0x01 slowdown).
-        age = chooser.randrange(0, 25)
-        accepted = 0
         for bullet in volley:
             advanced = _advance_fired(bullet, age, len(bullets))
             if -80.0 <= advanced.x <= 464.0 and -80.0 <= advanced.y <= 512.0:
@@ -349,7 +463,6 @@ def generate_barrage_case(
                 sources.append((
                     opcode.source, opcode.subroutine, opcode.offset
                 ))
-                accepted += 1
                 if len(bullets) >= target:
                     break
     if not bullets:
@@ -379,7 +492,9 @@ def generate_barrage_case(
         rng_seed=th06_rng.seed,
         rng_generation=th06_rng.generation_count,
     )
-    return BarrageCase(seed, target, snapshot, tuple(sources))
+    return BarrageCase(
+        seed, target, snapshot, tuple(sources), barrage_family
+    )
 
 
 def generate_barrage_births(
@@ -389,6 +504,7 @@ def generate_barrage_births(
     *,
     frames: int,
     events: int,
+    barrage_family: str = "mixed",
 ) -> tuple[ScheduledBarrageBirth, ...]:
     """Schedule source-valid ECL volleys inside a synthetic state sequence.
 
@@ -401,7 +517,9 @@ def generate_barrage_births(
         raise ValueError("birth schedule dimensions are invalid")
     if events == 0:
         return ()
-    candidates = eligible_opcodes(catalogue, snapshot.difficulty)
+    candidates = family_opcodes(
+        catalogue, snapshot.difficulty, barrage_family
+    )
     animated = tuple(opcode for opcode in candidates if opcode.flags & 0x0E)
     candidates = animated or candidates
     if not candidates:
@@ -417,14 +535,20 @@ def generate_barrage_births(
         pattern = _resolved_pattern(
             opcode, snapshot.rank, snapshot.difficulty
         )
-        bearing = chooser.uniform(-math.pi, math.pi)
-        radius = chooser.uniform(56.0, 192.0)
-        origin = (
-            _f32(min(400.0, max(-16.0,
-                snapshot.x + math.cos(bearing) * radius))),
-            _f32(min(320.0, max(-24.0,
-                snapshot.y + math.sin(bearing) * radius))),
-        )
+        if barrage_family == "horizontal-bands":
+            origin = (
+                _f32(chooser.uniform(-16.0, 400.0)),
+                _f32(chooser.uniform(-24.0, 144.0)),
+            )
+        else:
+            bearing = chooser.uniform(-math.pi, math.pi)
+            radius = chooser.uniform(56.0, 192.0)
+            origin = (
+                _f32(min(400.0, max(-16.0,
+                    snapshot.x + math.cos(bearing) * radius))),
+                _f32(min(320.0, max(-24.0,
+                    snapshot.y + math.sin(bearing) * radius))),
+            )
         result.append(ScheduledBarrageBirth(
             update,
             pattern,

@@ -12,7 +12,10 @@ import time
 
 from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.corpus import load_failure_history
-from th06.barrage_lab.generator import runtime_barrage_template
+from th06.barrage_lab.generator import (
+    BARRAGE_FAMILIES,
+    runtime_barrage_template,
+)
 from th06.barrage_lab.stateful import (
     ExactTerminalPolicy,
     NativeTerminalPolicy,
@@ -24,6 +27,7 @@ from th06.barrage_lab.stateful import (
     shrink_horizon_advantage,
     shrink_policy_advantage,
     step_closed_world,
+    sweep_initial_snapshot,
 )
 from th06.model import CONTROL_ACTIONS
 
@@ -40,6 +44,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seeds", type=int, default=32)
     parser.add_argument("--frames", type=int, default=24)
+    parser.add_argument(
+        "--barrage-family", choices=BARRAGE_FAMILIES, default="mixed",
+        help="source-geometry family for mature barrages and future births",
+    )
+    parser.add_argument(
+        "--physical-initial-world", action="store_true",
+        help=(
+            "start each seed from a complete captured bullet world instead "
+            "of regenerating only its density/context"
+        ),
+    )
     parser.add_argument(
         "--birth-events", type=int, default=3,
         help="source-valid synthetic ECL volleys scheduled per sequence",
@@ -113,10 +128,15 @@ def main() -> int:
             kernel = NativeSafetyKernel()
         raw = json.loads(args.artifact.read_text(encoding="utf-8"))
         raw_history = raw.get("snapshot_history") or (raw["snapshot"],)
-        templates = tuple(
-            runtime_barrage_template(item, args.corpus_density_scale)
-            for item in raw_history
+        templates = (
+            ()
+            if args.physical_initial_world
+            else tuple(
+                runtime_barrage_template(item, args.corpus_density_scale)
+                for item in raw_history
+            )
         )
+        physical_worlds = history if args.physical_initial_world else ()
         catalogue = load_ecl_bullet_catalogue(args.archive)
         comparisons = {}
         summaries = {}
@@ -145,8 +165,10 @@ def main() -> int:
                 frames=args.frames,
                 horizons=horizons,
                 runtime_templates=templates,
+                physical_initial_worlds=physical_worlds,
                 policy_factory=policy_factory,
                 birth_events_per_case=args.birth_events,
+                barrage_family=args.barrage_family,
             )
             comparisons[metric] = {
                 "elapsed_seconds": time.perf_counter() - started,
@@ -223,32 +245,32 @@ def main() -> int:
             if first_win is not None:
                 from th06.barrage_lab.generator import (
                     generate_barrage_births,
-                    generate_barrage_case,
                 )
                 horizon, seed = first_win
-                case = generate_barrage_case(
+                snapshot = sweep_initial_snapshot(
                     catalogue,
                     seed,
-                    runtime_template=templates[
-                        (seed * 1_315_423_911) % len(templates)
-                    ],
+                    runtime_templates=templates,
+                    physical_initial_worlds=physical_worlds,
+                    barrage_family=args.barrage_family,
                 )
                 schedule = generate_barrage_births(
                     catalogue,
                     seed,
-                    case.snapshot,
+                    snapshot,
                     frames=args.frames,
                     events=args.birth_events,
+                    barrage_family=args.barrage_family,
                 )
                 baseline_result = run_closed_loop(
-                    case.snapshot,
+                    snapshot,
                     factories[baseline_metric](horizon),
                     frames=args.frames,
                     delivery_seed=seed,
                     birth_schedule=schedule,
                 )
                 candidate_result = run_closed_loop(
-                    case.snapshot,
+                    snapshot,
                     factories[candidate_metric](horizon),
                     frames=args.frames,
                     delivery_seed=seed,
@@ -262,7 +284,7 @@ def main() -> int:
                         candidate_metric,
                         baseline_result,
                         candidate_result,
-                        case.snapshot,
+                        snapshot,
                         schedule,
                     ),
                     frames=args.frames,
@@ -359,6 +381,15 @@ def main() -> int:
         output["stateful_sweep"] = asdict(summary)
         output["terminal_metric"] = metric
         output["continuation"] = args.continuation
+        output["barrage_family"] = args.barrage_family
+        output["initial_world"] = (
+            "physical-bullet-ablation"
+            if args.physical_initial_world
+            else "source-generated"
+        )
+        output["runtime_worlds"] = len(
+            physical_worlds if physical_worlds else templates
+        )
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
                 advantage,

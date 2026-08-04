@@ -1088,6 +1088,62 @@ class PolicyAdvantage:
     birth_schedule: tuple = ()
 
 
+def closed_bullet_world(snapshot: Snapshot) -> Snapshot:
+    """Project a physical snapshot onto the stateful bullet-only rung.
+
+    This is an offline ablation, not a Hard-certified replacement for the
+    omitted enemy, laser, timeline, or callback world.
+    """
+    return replace(
+        snapshot,
+        laser_count=0,
+        lasers=(),
+        enemies=(),
+        despawning_bullets=(),
+        spawners=(),
+        timeline_instructions=(),
+        timeline_complete=True,
+        timeline_emitter_subs=(),
+        timeline_boss_subs=(),
+        ecl_subroutines=(),
+        timeline_ecl_program=(),
+        timeline_message_delays=(),
+        timeline_current_message_waits=0,
+    )
+
+
+def sweep_initial_snapshot(
+    catalogue,
+    seed: int,
+    *,
+    runtime_templates=(),
+    physical_initial_worlds=(),
+    barrage_family: str = "mixed",
+) -> Snapshot:
+    """Choose the exact initial state used by a reproducible sweep seed."""
+    from .generator import generate_barrage_case
+
+    if runtime_templates and physical_initial_worlds:
+        raise ValueError(
+            "generated runtime templates and physical initial worlds are "
+            "exclusive"
+        )
+    index = seed * 1_315_423_911
+    if physical_initial_worlds:
+        return closed_bullet_world(
+            physical_initial_worlds[index % len(physical_initial_worlds)]
+        )
+    return generate_barrage_case(
+        catalogue,
+        seed,
+        runtime_template=(
+            runtime_templates[index % len(runtime_templates)]
+            if runtime_templates else None
+        ),
+        barrage_family=barrage_family,
+    ).snapshot
+
+
 def _deeper_better(
     shallow: ClosedLoopResult,
     deep: ClosedLoopResult,
@@ -1256,16 +1312,23 @@ def run_stateful_sweep(
     frames: int,
     horizons: tuple[int, ...],
     runtime_templates=(),
+    physical_initial_worlds=(),
     policy_factory=ExactTerminalPolicy,
     birth_events_per_case: int = 0,
+    barrage_family: str = "mixed",
 ) -> tuple[StatefulSweepSummary, HorizonAdvantage | None]:
     """Fuzz complete decision/pickup/world sequences, not isolated queries."""
-    from .generator import generate_barrage_births, generate_barrage_case
+    from .generator import generate_barrage_births
 
     if seeds <= 0 or frames <= 0 or not horizons or birth_events_per_case < 0:
         raise ValueError("stateful sweep dimensions must be positive")
     if tuple(sorted(set(horizons))) != horizons or horizons[0] < 4:
         raise ValueError("stateful horizons must be unique, sorted, and >= 4")
+    if runtime_templates and physical_initial_worlds:
+        raise ValueError(
+            "generated runtime templates and physical initial worlds are "
+            "exclusive"
+        )
 
     outcomes = {horizon: Counter() for horizon in horizons}
     survival = {horizon: 0 for horizon in horizons}
@@ -1278,37 +1341,35 @@ def run_stateful_sweep(
     first_advantage = None
 
     for seed in range(seeds):
-        case = generate_barrage_case(
+        snapshot = sweep_initial_snapshot(
             catalogue,
             seed,
-            runtime_template=(
-                runtime_templates[
-                    (seed * 1_315_423_911) % len(runtime_templates)
-                ]
-                if runtime_templates else None
-            ),
+            runtime_templates=runtime_templates,
+            physical_initial_worlds=physical_initial_worlds,
+            barrage_family=barrage_family,
         )
         # A generated seed that is already touching a kill box is not a
         # decision problem.  The four-frame certifier starts at the next
         # update, so it cannot be used as a substitute for this current-frame
         # source collision gate.
         if (
-            collides_now(case.snapshot)
-            or not certify_linear_source(case.snapshot, 4).actions
+            collides_now(snapshot)
+            or not certify_linear_source(snapshot, 4).actions
         ):
             continue
         birth_schedule = generate_barrage_births(
             catalogue,
             seed,
-            case.snapshot,
+            snapshot,
             frames=frames,
             events=birth_events_per_case,
+            barrage_family=barrage_family,
         )
         viable_cases += 1
         results = {}
         for horizon in horizons:
             result = run_closed_loop(
-                case.snapshot,
+                snapshot,
                 policy_factory(horizon),
                 frames=frames,
                 delivery_seed=seed,
@@ -1339,7 +1400,7 @@ def run_stateful_sweep(
                         deep_horizon,
                         shallow,
                         deep,
-                        case.snapshot,
+                        snapshot,
                         birth_schedule,
                     )
 
