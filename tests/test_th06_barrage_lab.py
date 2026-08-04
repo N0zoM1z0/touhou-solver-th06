@@ -34,6 +34,7 @@ from th06.barrage_lab.temporal import run_proposal_temporal_sweep
 from th06.barrage_lab.stateful import (
     ExactTerminalPolicy,
     UnsupportedStatefulModel,
+    derive_nominal_battle_worlds,
     physical_step_parity,
     run_closed_loop,
     step_bullet,
@@ -53,7 +54,7 @@ from th06.hazards.world import (
     WorldBirthForecast,
     WorldForecastContinuation,
 )
-from th06.model import CONTROL_ACTIONS, Bullet, EclInstruction
+from th06.model import CONTROL_ACTIONS, Bullet, EclInstruction, SafeAction
 
 
 class BitWriter:
@@ -289,6 +290,74 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual((following.rng_seed, following.rng_generation), (0x4567, 99))
         self.assertEqual(len(following.bullets), 1)
         self.assertEqual(following.bullets[0].slot, 0)
+
+    def test_nominal_battle_corpus_is_derived_through_stateful_play(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        base = generate_barrage_case(
+            (opcode,), 7, target_bullets=1
+        ).snapshot
+        roots = (
+            replace(
+                base,
+                frame=100,
+                bullets=(),
+                spawners=(),
+                enemies=(),
+                timeline_instructions=(),
+                timeline_complete=True,
+            ),
+            replace(
+                base,
+                frame=200,
+                bullets=(),
+                spawners=(),
+                enemies=(),
+                timeline_instructions=(),
+                timeline_complete=True,
+            ),
+        )
+        lateral = tuple(
+            action for action in CONTROL_ACTIONS
+            if action.name in ("left", "right")
+        )
+
+        def certify(snapshot):
+            return tuple(
+                SafeAction(
+                    action,
+                    999.0,
+                    snapshot.x + action.dx * 8.0,
+                    snapshot.y,
+                )
+                for action in lateral
+            )
+
+        first, summary = derive_nominal_battle_worlds(
+            roots,
+            cases=4,
+            maximum_warmup_frames=4,
+            certifier=certify,
+        )
+        second, repeated = derive_nominal_battle_worlds(
+            roots,
+            cases=4,
+            maximum_warmup_frames=4,
+            certifier=certify,
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(summary, repeated)
+        self.assertEqual(summary.generated_cases, 4)
+        self.assertEqual(summary.outcomes, (("survived", 4),))
+        self.assertEqual(summary.total_warmup_updates, 10)
+        self.assertEqual(summary.total_born_bullets, 0)
+        self.assertEqual(summary.source_root_frames, (100, 200))
+        self.assertEqual(
+            sorted(world.frame - (100 if world.frame < 200 else 200)
+                   for world in first),
+            [1, 2, 3, 4],
+        )
+        self.assertTrue(all(world.timeline_complete for world in first))
 
     def test_runtime_decoder_restores_hashable_future_ecl_program(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

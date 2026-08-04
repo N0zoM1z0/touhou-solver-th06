@@ -1089,6 +1089,7 @@ def run_closed_loop(
     delivery_seed: int,
     birth_schedule=(),
     battle_world: bool = False,
+    state_sink: Callable[[Snapshot], None] | None = None,
 ) -> ClosedLoopResult:
     """Run solver decisions through bounded pickup and source bullet updates."""
     if frames <= 0:
@@ -1181,6 +1182,8 @@ def run_closed_loop(
                 births_by_update.get(update, ()),
             )
         )
+        if state_sink is not None:
+            state_sink(state)
         minimum_clearance = min(
             minimum_clearance, current_bullet_clearance(state)
         )
@@ -1297,6 +1300,116 @@ class StatefulSweepSummary:
     case_metrics: tuple[
         tuple[int, tuple[tuple[int, str, int, int, float], ...]], ...
     ]
+
+
+@dataclass(frozen=True)
+class NominalBattleDerivationSummary:
+    requested_cases: int
+    generated_cases: int
+    maximum_warmup_frames: int
+    outcomes: tuple[tuple[str, int], ...]
+    total_warmup_updates: int
+    total_born_bullets: int
+    source_root_frames: tuple[int, ...]
+
+
+class _HardWorldExplorationPolicy:
+    """Deterministically sample complete Hard-4 reachable-state groups."""
+
+    def __init__(self, seed: int, certifier) -> None:
+        self.seed = seed
+        self.certifier = certifier
+        self.selection_index = 0
+        self.selected: Action | None = None
+        self.hold_decisions = 0
+
+    def __call__(self, snapshot: Snapshot) -> Action | None:
+        hard = self.certifier(snapshot)
+        if not hard:
+            return None
+        by_action = {candidate.action: candidate for candidate in hard}
+        if self.selected in by_action and self.hold_decisions > 0:
+            self.hold_decisions -= 1
+            return self.selected
+
+        # Boundary clamping can make different controls reach the same state.
+        # Sample endpoint groups first so those aliases do not receive extra
+        # corpus weight merely because they have more action spellings.
+        groups: dict[tuple[float, float], list[Action]] = {}
+        for candidate in hard:
+            groups.setdefault(
+                (_f32(candidate.final_x), _f32(candidate.final_y)), []
+            ).append(candidate.action)
+        ordered = tuple(groups[key] for key in sorted(groups))
+        mixed = (
+            self.seed * 0x9E3779B1
+            + self.selection_index * 0x85EBCA77
+        ) & 0xFFFFFFFF
+        group = ordered[mixed % len(ordered)]
+        self.selected = group[(mixed >> 16) % len(group)]
+        self.selection_index += 1
+        self.hold_decisions = 3
+        return self.selected
+
+
+def derive_nominal_battle_worlds(
+    roots: tuple[Snapshot, ...],
+    *,
+    cases: int,
+    maximum_warmup_frames: int,
+    certifier=None,
+) -> tuple[tuple[Snapshot, ...], NominalBattleDerivationSummary]:
+    """Grow full battle states through safe, pickup-aware nominal play.
+
+    Each output retains the captured bullet pool, enemy VM/timeline state,
+    shared RNG and slot occupancy.  The varied player history also changes
+    source aim and bullet age before the measured policy begins.  These worlds
+    remain nominal because player-shot damage and every RNG consumer are not
+    yet represented.
+    """
+    if not roots or cases <= 0 or maximum_warmup_frames <= 0:
+        raise ValueError("nominal battle derivation dimensions must be positive")
+    if certifier is None:
+        certifier = lambda snapshot: certify_actions(
+            snapshot, 4, actions=CONTROL_ACTIONS
+        )
+
+    worlds = []
+    outcomes = Counter()
+    total_updates = 0
+    total_births = 0
+    source_frames = set()
+    for seed in range(cases):
+        root = roots[(seed * 1_315_423_911) % len(roots)]
+        source_frames.add(root.frame)
+        warmup_frames = 1 + (
+            (seed * 2_654_435_761 + 2_246_822_519)
+            % maximum_warmup_frames
+        )
+        history: list[Snapshot] = []
+        result = run_closed_loop(
+            root,
+            _HardWorldExplorationPolicy(seed ^ root.frame, certifier),
+            frames=warmup_frames,
+            delivery_seed=seed ^ 0xB1771E,
+            battle_world=True,
+            state_sink=history.append,
+        )
+        outcomes[result.outcome] += 1
+        total_updates += result.survived_frames
+        total_births += result.born_bullets
+        if result.outcome == "survived":
+            worlds.append(history[-1])
+
+    return tuple(worlds), NominalBattleDerivationSummary(
+        cases,
+        len(worlds),
+        maximum_warmup_frames,
+        tuple(sorted(outcomes.items())),
+        total_updates,
+        total_births,
+        tuple(sorted(source_frames)),
+    )
 
 
 @dataclass(frozen=True)

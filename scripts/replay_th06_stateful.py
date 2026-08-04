@@ -14,6 +14,7 @@ from th06.barrage_lab.assets import load_ecl_bullet_catalogue
 from th06.barrage_lab.corpus import load_failure_history
 from th06.barrage_lab.generator import (
     BARRAGE_FAMILIES,
+    horizontal_band_count,
     runtime_barrage_template,
 )
 from th06.barrage_lab.stateful import (
@@ -21,6 +22,7 @@ from th06.barrage_lab.stateful import (
     NativeTerminalPolicy,
     PolicyAdvantage,
     TERMINAL_METRICS,
+    derive_nominal_battle_worlds,
     physical_step_parity,
     run_closed_loop,
     run_stateful_sweep,
@@ -70,6 +72,20 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--battle-warmup-frames", type=int, default=0,
+        help=(
+            "derive each physical battle corpus case through a varied 1..N "
+            "frame Hard-safe nominal rollout before measuring it"
+        ),
+    )
+    parser.add_argument(
+        "--minimum-horizontal-bands", type=int, default=0,
+        help=(
+            "retain only physical battle roots with at least this many "
+            "mature lateral strips (corpus coverage only)"
+        ),
+    )
+    parser.add_argument(
         "--birth-events", type=int, default=3,
         help="source-valid synthetic ECL volleys scheduled per sequence",
     )
@@ -114,12 +130,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     horizons = tuple(int(value) for value in args.horizons.split(","))
-    if args.seeds <= 0 or args.frames <= 0 or args.birth_events < 0:
+    if (
+        args.seeds <= 0
+        or args.frames <= 0
+        or args.birth_events < 0
+        or args.battle_warmup_frames < 0
+        or args.minimum_horizontal_bands < 0
+    ):
         raise ValueError("seeds and frames must be positive")
     if args.corpus_density_scale <= 0.0:
         raise ValueError("corpus density scale must be positive")
     if args.physical_initial_world and args.physical_battle_world:
         raise ValueError("choose one physical initial-world mode")
+    if (
+        args.battle_warmup_frames or args.minimum_horizontal_bands
+    ) and not args.physical_battle_world:
+        raise ValueError(
+            "battle warmup and band filtering require --physical-battle-world"
+        )
     if args.physical_battle_world and (
         not args.native or args.birth_events != 0
     ):
@@ -150,6 +178,16 @@ def main() -> int:
         selected_history = tuple(by_frame[frame] for frame in requested)
     else:
         selected_history = history
+    if args.minimum_horizontal_bands:
+        selected_history = tuple(
+            snapshot for snapshot in selected_history
+            if horizontal_band_count(snapshot.bullets)
+            >= args.minimum_horizontal_bands
+        )
+        if not selected_history:
+            raise ValueError(
+                "no physical battle root meets the horizontal-band minimum"
+            )
     output = {
         "artifact": str(args.artifact),
         "physical_step_parity": asdict(physical_step_parity(history)),
@@ -186,6 +224,23 @@ def main() -> int:
         battle_worlds = (
             selected_history if args.physical_battle_world else ()
         )
+        battle_derivation = None
+        if battle_worlds and args.battle_warmup_frames:
+            battle_worlds, battle_derivation = derive_nominal_battle_worlds(
+                battle_worlds,
+                cases=args.seeds,
+                maximum_warmup_frames=args.battle_warmup_frames,
+                certifier=lambda snapshot: kernel.certify_selected(
+                    snapshot,
+                    4,
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                ),
+            )
+            if not battle_worlds:
+                raise RuntimeError(
+                    "no nominal battle warmup retained fresh Hard authority"
+                )
         catalogue = load_ecl_bullet_catalogue(args.archive)
         comparisons = {}
         summaries = {}
@@ -443,6 +498,24 @@ def main() -> int:
             battle_worlds
             if battle_worlds
             else physical_worlds if physical_worlds else templates
+        )
+        output["minimum_horizontal_bands"] = args.minimum_horizontal_bands
+        output["battle_warmup"] = (
+            {
+                "requested_cases": battle_derivation.requested_cases,
+                "generated_cases": battle_derivation.generated_cases,
+                "maximum_warmup_frames": (
+                    battle_derivation.maximum_warmup_frames
+                ),
+                "outcomes": battle_derivation.outcomes,
+                "total_warmup_updates": (
+                    battle_derivation.total_warmup_updates
+                ),
+                "total_born_bullets": battle_derivation.total_born_bullets,
+                "source_root_frames": battle_derivation.source_root_frames,
+            }
+            if battle_derivation is not None
+            else None
         )
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
