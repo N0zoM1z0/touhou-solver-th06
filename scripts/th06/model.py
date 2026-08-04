@@ -313,6 +313,10 @@ class EnemySpawner:
     has_been_in_bounds: bool = False
     sprite_half_width: float = 0.0
     sprite_half_height: float = 0.0
+    death_anm1: int = 0
+    death_anm2: int = 0
+    death_anm3: int = 0
+    item_drop: int = -2
 
 
 @dataclass(frozen=True)
@@ -358,6 +362,11 @@ class Snapshot:
     timeline_message_delays: tuple[tuple[int, int], ...] = ()
     timeline_current_message_waits: int = 0
     player_attack: PlayerAttackState | None = None
+    effect_active_upper_bound: int = -1
+    item_active_upper_bound: int = -1
+    random_item_spawn_index: int = 0
+    random_item_table_index: int = 0
+    message_active: bool = False
 
 
 @dataclass(frozen=True)

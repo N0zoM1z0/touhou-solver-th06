@@ -414,3 +414,40 @@ Every promotion still requires one source or physical falsifier, focused
 parity, and a default fail-close physical rerun.  Stage data may select the
 source program being executed; it must not select safety laws, horizons,
 ranking mechanics, or route actions.
+
+## Player-attack transition audit (2026-08-04)
+
+The next combat slice now has a source-grounded online root.  The native
+snapshot retains all 80 occupied `PlayerBullet` slots, Reimu-A homing state,
+the previous-frame last-enemy target, focus/orb and fire timers, live shot and
+enemy sprite dimensions, the active spell/bomb bits, enemy death animation
+and drop fields, random-drop indices, and conservative effect/item pool active
+upper bounds.  The two pool bounds cost only two four-byte reads; the online
+hot path does not copy either 512-entry presentation pool.
+
+The authoritative Player order is movement/orb state, existing-shot update,
+last-target reset, then fire-timer spawn.  EnemyManager later visits slots in
+ascending order, applies shot collision/damage/death, and updates the new
+homing target.  Reimu-A rank-9 static shot data is compiled into the offline
+stateful model as source physics, selected by character/shot/power state and
+not by stage.  Other power ranks remain explicit unsupported states rather
+than silently borrowing rank 9.
+
+Two controlled ordinary-RNG Practice Stage 5 diagnostics corrected and then
+validated this transition.  The first exposed that GUI-message state gates
+`StartFireBulletTimer`, and a short follow-up exposed the source switch break
+when `ORB_FOCUSING` reaches `ORB_FOCUSED`.  After those general source fixes,
+162/162 adjacent active attack states, 132/132 newborn shots, and 3,370/3,370
+existing-shot transitions matched physical state; player and shot position
+error was zero in that sample.  A preceding 30-second sample also matched all
+1,590 newborn shots and all 63,918 existing-shot positions.  These are
+diagnostic transition results, not a stage clear.
+
+Damage remains the next boundary.  `CalcDamageToEnemy` mutates each non-laser
+shot during the ascending enemy-slot loop, caps raw per-enemy damage at 70,
+then applies spell reduction.  A successful hit also allocates effect 5;
+EffectManager priority 10 consumes two global RNG values for every allocated
+effect 3--11, after all priority-9 ECL work.  Enemy death effects, ECL
+`EFFECTPARTICLE`, random item drops, and item-pool capacity share this causal
+path.  A damage model that merely subtracts life would therefore corrupt the
+next frame's ECL RNG and is not eligible for exact/physical-CE claims.

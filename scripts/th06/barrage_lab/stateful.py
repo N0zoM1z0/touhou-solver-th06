@@ -77,6 +77,25 @@ TERMINAL_METRICS = (
 _SPAWN_DIVISOR = {2: 2.0, 3: 2.5, 4: 3.0}
 _SPAWN_FINAL_TIMER = {2: 9, 3: 15, 4: 31}
 
+# Authoritative ``g_CharacterPowerBulletDataReimuARank9``.  This is immutable
+# source data, not a route rule: lower power ranks fail closed until their
+# tables are compiled as well.  Fields are wait, phase, spawn offset, size,
+# direction in degrees, speed, damage, orb index, type, and ANM script.
+_REIMU_A_RANK9_SHOTS = (
+    (5, 0, -8.0, 0.0, 12.0, 12.0, -97.0, 12.0, 23, 0, 0, 0x440),
+    (5, 0, -8.0, 0.0, 12.0, 12.0, -90.0, 12.0, 24, 0, 0, 0x440),
+    (5, 0, 8.0, 0.0, 12.0, 12.0, -90.0, 12.0, 24, 0, 0, 0x440),
+    (5, 0, 8.0, 0.0, 12.0, 12.0, -83.0, 12.0, 23, 0, 0, 0x440),
+    (16, 0, 0.0, 0.0, 12.0, 12.0, -110.0, 10.0, 10, 1, 1, 0x441),
+    (16, 0, 0.0, 0.0, 12.0, 12.0, -70.0, 10.0, 10, 2, 1, 0x441),
+    (16, 4, 0.0, 0.0, 12.0, 12.0, -130.0, 10.0, 8, 1, 1, 0x441),
+    (16, 4, 0.0, 0.0, 12.0, 12.0, -50.0, 10.0, 8, 2, 1, 0x441),
+    (16, 8, 0.0, 0.0, 12.0, 12.0, -150.0, 10.0, 7, 1, 1, 0x441),
+    (16, 8, 0.0, 0.0, 12.0, 12.0, -30.0, 10.0, 7, 2, 1, 0x441),
+    (16, 12, 0.0, 0.0, 12.0, 12.0, -170.0, 10.0, 10, 1, 1, 0x441),
+    (16, 12, 0.0, 0.0, 12.0, 12.0, -9.9999979, 10.0, 10, 2, 1, 0x441),
+)
+
 
 class UnsupportedStatefulModel(ValueError):
     """The compact forward model lacks authority for this source state."""
@@ -345,6 +364,187 @@ def step_reimu_a_player_shot(
         timer_float=_f32(shot.timer_float + 1.0),
         anm_timer=shot.anm_timer + 1,
         anm_timer_float=_f32(shot.anm_timer_float + 1.0),
+    )
+
+
+def _step_reimu_a_orbs(
+    attack: PlayerAttackState,
+    player: tuple[float, float],
+    focused: bool,
+    current_power: int,
+) -> tuple[int, int, int, float, tuple[tuple[float, float], ...]]:
+    """Run the source orb-state portion of ``HandlePlayerInputs``."""
+    state = attack.orb_state
+    previous = attack.focus_timer_previous
+    timer = attack.focus_timer
+    subframe = _f32(attack.focus_timer_float - attack.focus_timer)
+    horizontal = 0.0
+    vertical = 0.0
+    handled_focusing = False
+
+    if current_power < 8:
+        state = 0
+    elif state == 0:
+        state = 1
+
+    # The source switch deliberately falls through on focus direction changes.
+    if state == 0:
+        previous, timer, subframe = -999, 0, 0.0
+    elif state == 1:
+        horizontal = 24.0
+        previous, timer, subframe = -999, 0, 0.0
+        if focused:
+            state = 2
+    if state == 2:
+        handled_focusing = True
+        previous = timer
+        timer += 1
+        progress = _f32(_f32(timer + subframe) / 8.0)
+        vertical = _f32(_f32(1.0 - progress) * 32.0 - 32.0)
+        progress_squared = _f32(progress * progress)
+        horizontal = _f32(-16.0 * progress_squared + 24.0)
+        if timer >= 8:
+            state = 3
+        if not focused:
+            state = 4
+            previous = -999
+            timer = 8 - timer
+            subframe = 0.0
+    if state == 3 and not handled_focusing:
+        horizontal = 8.0
+        vertical = -32.0
+        previous, timer, subframe = -999, 0, 0.0
+        if not focused:
+            state = 4
+    if state == 4:
+        previous = timer
+        timer += 1
+        progress = _f32(_f32(timer + subframe) / 8.0)
+        vertical = _f32(_f32(32.0 * progress) - 32.0)
+        progress_squared = _f32(progress * progress)
+        horizontal = _f32(-16.0 * _f32(1.0 - progress_squared) + 24.0)
+        if timer >= 8:
+            state = 1
+        if focused:
+            state = 2
+            previous = -999
+            timer = 8 - timer
+            subframe = 0.0
+            # Re-enter the focusing calculation at the mirrored timer.
+            previous = timer
+            timer += 1
+            progress = _f32(_f32(timer) / 8.0)
+            vertical = _f32(_f32(1.0 - progress) * 32.0 - 32.0)
+            horizontal = _f32(-16.0 * _f32(progress * progress) + 24.0)
+            if timer >= 8:
+                state = 3
+
+    x, y = map(_f32, player)
+    positions = (
+        (_f32(x - horizontal), _f32(y + vertical)),
+        (_f32(x + horizontal), _f32(y + vertical)),
+    )
+    return state, previous, timer, _f32(timer + subframe), positions
+
+
+def step_reimu_a_player_attack(
+    attack: PlayerAttackState,
+    player: tuple[float, float],
+    focused: bool,
+    current_power: int,
+    shoot_allowed: bool = True,
+) -> PlayerAttackState:
+    """Run one Reimu-A Player update through shot creation, before damage."""
+    if attack.shot_type != 0:
+        raise UnsupportedStatefulModel("player attack is not Reimu-A")
+    if current_power < 128:
+        raise UnsupportedStatefulModel(
+            "Reimu-A power ranks below the authoritative rank-9 table are not compiled"
+        )
+    if attack.bomb_active:
+        raise UnsupportedStatefulModel("bomb-active player attack is not modeled")
+
+    orb_state, focus_previous, focus_timer, focus_float, orbs = (
+        _step_reimu_a_orbs(attack, player, focused, current_power)
+    )
+    advanced_shots = []
+    for shot in attack.shots:
+        advanced = step_reimu_a_player_shot(shot, attack)
+        if advanced is not None:
+            advanced_shots.append(advanced)
+
+    fire_previous = attack.fire_timer_previous
+    fire_timer = attack.fire_timer
+    fire_subframe = _f32(attack.fire_timer_float - attack.fire_timer)
+    # Every solver action holds Shoot. StartFireBulletTimer runs in
+    # HandlePlayerInputs before UpdateFireBulletsTimer.
+    if fire_timer < 0 and shoot_allowed:
+        fire_previous, fire_timer, fire_subframe = -999, 0, 0.0
+    spawn_timer = (
+        fire_timer
+        if fire_timer >= 0 and fire_timer != fire_previous
+        else None
+    )
+
+    used = {shot.slot for shot in advanced_shots}
+    free_slots = iter(slot for slot in range(80) if slot not in used)
+    if spawn_timer is not None:
+        for (
+            wait, phase, offset_x, offset_y, size_x, size_y, degrees,
+            speed, damage, orb_index, bullet_type, anm_script,
+        ) in _REIMU_A_RANK9_SHOTS:
+            if spawn_timer % wait != phase:
+                continue
+            slot = next(free_slots, None)
+            if slot is None:
+                break
+            origin = player if orb_index == 0 else orbs[orb_index - 1]
+            angle = _f32(math.radians(degrees))
+            vx = _f32(math.cos(angle) * speed)
+            vy = _f32(math.sin(angle) * speed)
+            advanced_shots.append(PlayerShot(
+                slot=slot,
+                x=_f32(origin[0] + offset_x),
+                y=_f32(origin[1] + offset_y),
+                half_width=_f32(size_x / 2.0),
+                half_height=_f32(size_y / 2.0),
+                vx=vx,
+                vy=vy,
+                homing_speed=_f32(speed),
+                timer_previous=-999,
+                timer=0,
+                timer_float=0.0,
+                damage=damage,
+                state=1,
+                bullet_type=bullet_type,
+                anm_script=anm_script,
+                anm_timer=0,
+                anm_timer_float=0.0,
+                sprite_half_width=7.0,
+                sprite_half_height=7.0,
+                spawn_position_index=orb_index,
+            ))
+
+    if fire_timer >= 0:
+        fire_previous = fire_timer
+        fire_timer += 1
+        fire_subframe = 0.0
+        if fire_timer >= 30:
+            fire_previous, fire_timer, fire_subframe = -999, -1, 0.0
+    return replace(
+        attack,
+        shots=tuple(sorted(advanced_shots, key=lambda shot: shot.slot)),
+        last_enemy_hit_x=-999.0,
+        last_enemy_hit_y=-999.0,
+        orb_state=orb_state,
+        is_focus=focused,
+        focus_timer_previous=focus_previous,
+        focus_timer=focus_timer,
+        focus_timer_float=focus_float,
+        fire_timer_previous=fire_previous,
+        fire_timer=fire_timer,
+        fire_timer_float=_f32(fire_timer + fire_subframe),
+        orb_positions=orbs,
     )
 
 
@@ -1397,6 +1597,12 @@ class PhysicalParity:
     enemy_slot_births: int = 0
     enemy_slot_removals: int = 0
     enemy_life_changes: int = 0
+    player_attack_steps: int = 0
+    exact_player_attack_steps: int = 0
+    exact_player_shot_births: int = 0
+    exact_player_orb_steps: int = 0
+    exact_player_fire_timer_steps: int = 0
+    first_player_attack_mismatch: str = ""
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -1421,6 +1627,12 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     enemy_slot_births = 0
     enemy_slot_removals = 0
     enemy_life_changes = 0
+    player_attack_steps = 0
+    exact_player_attack_steps = 0
+    exact_player_shot_births = 0
+    exact_player_orb_steps = 0
+    exact_player_fire_timer_steps = 0
+    first_player_attack_mismatch = ""
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -1461,6 +1673,78 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                     maximum_player_shot_error, shot_error
                 )
                 exact_player_shot_steps += shot_error <= 1e-4
+            predicted_attack = None
+            if left.player_state in (0, 3):
+                try:
+                    predicted_attack = step_reimu_a_player_attack(
+                        left.player_attack,
+                        (right.x, right.y),
+                        observed.focused,
+                        left.current_power,
+                        bool(right.input_mask & BUTTON_SHOOT)
+                        and not left.message_active,
+                    )
+                except UnsupportedStatefulModel:
+                    pass
+            if predicted_attack is not None:
+                player_attack_steps += 1
+                orb_exact = (
+                    predicted_attack.orb_state == right.player_attack.orb_state
+                    and predicted_attack.is_focus == right.player_attack.is_focus
+                    and predicted_attack.focus_timer_previous
+                    == right.player_attack.focus_timer_previous
+                    and predicted_attack.focus_timer
+                    == right.player_attack.focus_timer
+                    and all(
+                        math.hypot(px - ox, py - oy) <= 1e-4
+                        for (px, py), (ox, oy) in zip(
+                            predicted_attack.orb_positions,
+                            right.player_attack.orb_positions,
+                        )
+                    )
+                )
+                fire_exact = (
+                    predicted_attack.fire_timer_previous
+                    == right.player_attack.fire_timer_previous
+                    and predicted_attack.fire_timer
+                    == right.player_attack.fire_timer
+                )
+                exact_player_orb_steps += orb_exact
+                exact_player_fire_timer_steps += fire_exact
+                attack_state_exact = orb_exact and fire_exact
+                exact_player_attack_steps += attack_state_exact
+                if not attack_state_exact and not first_player_attack_mismatch:
+                    first_player_attack_mismatch = (
+                        f"f{left.frame}->{right.frame} "
+                        f"state={left.player_state} msg={int(left.message_active)} "
+                        f"orb={predicted_attack.orb_state}/"
+                        f"{right.player_attack.orb_state} "
+                        f"focus_timer={predicted_attack.focus_timer_previous},"
+                        f"{predicted_attack.focus_timer}/"
+                        f"{right.player_attack.focus_timer_previous},"
+                        f"{right.player_attack.focus_timer} "
+                        f"fire={predicted_attack.fire_timer_previous},"
+                        f"{predicted_attack.fire_timer}/"
+                        f"{right.player_attack.fire_timer_previous},"
+                        f"{right.player_attack.fire_timer}"
+                    )
+                predicted_shots = {
+                    shot.slot: shot for shot in predicted_attack.shots
+                }
+                for slot in after_shots.keys() - before_shots.keys():
+                    predicted = predicted_shots.get(slot)
+                    actual = after_shots[slot]
+                    if (
+                        predicted is not None
+                        and math.hypot(
+                            predicted.x - actual.x,
+                            predicted.y - actual.y,
+                        ) <= 1e-4
+                        and predicted.damage == actual.damage
+                        and predicted.bullet_type == actual.bullet_type
+                        and predicted.anm_script == actual.anm_script
+                    ):
+                        exact_player_shot_births += 1
 
         left_emitters = {item.slot: item for item in left.spawners}
         right_emitters = {item.slot: item for item in right.spawners}
@@ -1513,6 +1797,12 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         enemy_slot_births,
         enemy_slot_removals,
         enemy_life_changes,
+        player_attack_steps,
+        exact_player_attack_steps,
+        exact_player_shot_births,
+        exact_player_orb_steps,
+        exact_player_fire_timer_steps,
+        first_player_attack_mismatch,
     )
 
 

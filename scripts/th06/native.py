@@ -46,6 +46,7 @@ ADDR_SUPERVISOR = 0x6C6D18
 ADDR_PLAYER = 0x6CA628
 ADDR_FRAME_MULTIPLIER = 0x6C6EC0
 ADDR_ENEMY_MANAGER = 0x4B79C8
+ADDR_EFFECT_MANAGER = 0x487FE0
 ADDR_ECL_EX_TABLE = 0x476220
 ADDR_ECL_MANAGER = 0x487E50
 ADDR_ENEMY_CALC_CHAIN = 0x5A5FB4
@@ -54,6 +55,7 @@ ADDR_BULLET_ARRAY = 0x5AB5F8
 ADDR_LASER_ARRAY = 0x691FF8
 ADDR_MAIN_MENU = 0x6D46C0
 ADDR_GUI = 0x69BC30
+ADDR_ITEM_MANAGER = 0x69E268
 
 SUPERVISOR_STATES_OFFSET = 0x188
 CHAIN_ROOT_NEXT_OFFSET = 0x14
@@ -185,6 +187,7 @@ ENEMY_BULLET_PROPS_OFFSET = 0xD00
 ENEMY_SHOOT_INTERVAL_OFFSET = 0xD54
 ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET = 0xD5C
 ENEMY_SHOOT_TIMER_OFFSET = 0xD60
+ENEMY_DEATH_ANM_OFFSET = 0xE3C
 ENEMY_FLAGS_OFFSET = 0xE50
 ENEMY_LOWER_MOVE_LIMIT_OFFSET = 0xE60
 ENEMY_UPPER_MOVE_LIMIT_OFFSET = 0xE68
@@ -196,7 +199,11 @@ ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
 ENEMY_TIMELINE_INSTRUCTION_OFFSET = 0xEE5DC
 ENEMY_TIMELINE_TIMER_OFFSET = 0xEE5E0
 ENEMY_BOSSES_OFFSET = 0xEE598
+ENEMY_RANDOM_ITEM_SPAWN_INDEX_OFFSET = 0xEE5B8
+ENEMY_RANDOM_ITEM_TABLE_INDEX_OFFSET = 0xEE5BA
 ENEMY_SPELL_ACTIVE_OFFSET = 0xEE5C8
+EFFECT_ACTIVE_COUNT_OFFSET = 0x4
+ITEM_ACTIVE_COUNT_OFFSET = 0x28948
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
@@ -1380,6 +1387,16 @@ def _read_snapshot_once(
     current_power = struct.unpack(
         "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
     )[0]
+    effect_active_upper_bound = struct.unpack(
+        "<i", process.read(ADDR_EFFECT_MANAGER + EFFECT_ACTIVE_COUNT_OFFSET, 4)
+    )[0]
+    item_active_upper_bound = struct.unpack(
+        "<I", process.read(ADDR_ITEM_MANAGER + ITEM_ACTIVE_COUNT_OFFSET, 4)
+    )[0]
+    if not 0 <= effect_active_upper_bound <= 512:
+        raise RuntimeError("invalid source effect active count")
+    if not 0 <= item_active_upper_bound <= 512:
+        raise RuntimeError("invalid source item active count")
     character, shot_type = process.read(
         ADDR_GAME_MANAGER + GAME_CHARACTER_OFFSET, 2
     )
@@ -1492,6 +1509,18 @@ def _read_snapshot_once(
         native_pools,
         manager_relative(ENEMY_SPELL_ACTIVE_OFFSET),
     )[0])
+    random_item_spawn_index = struct.unpack_from(
+        "<H",
+        native_pools,
+        manager_relative(ENEMY_RANDOM_ITEM_SPAWN_INDEX_OFFSET),
+    )[0]
+    random_item_table_index = struct.unpack_from(
+        "<H",
+        native_pools,
+        manager_relative(ENEMY_RANDOM_ITEM_TABLE_INDEX_OFFSET),
+    )[0]
+    if random_item_table_index >= 32:
+        raise RuntimeError("invalid source random item table index")
     player_attack = _decode_player_attack(
         player,
         sprite_dimensions,
@@ -1778,6 +1807,9 @@ def _read_snapshot_once(
             ))
 
         life = struct.unpack_from("<i", enemy_pool, base + ENEMY_LIFE_OFFSET)[0]
+        death_anm1, death_anm2, death_anm3, item_drop = struct.unpack_from(
+            "<BBBb", enemy_pool, base + ENEMY_DEATH_ANM_OFFSET
+        )
         boss_timer_subframe = struct.unpack_from(
             "<f", enemy_pool, base + ENEMY_BOSS_TIMER_SUBFRAME_OFFSET
         )[0]
@@ -2081,6 +2113,10 @@ def _read_snapshot_once(
             bool(flags1 & 0x04),
             enemy_sprite_width / 2.0,
             enemy_sprite_height / 2.0,
+            death_anm1,
+            death_anm2,
+            death_anm3,
+            item_drop,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
@@ -2096,6 +2132,11 @@ def _read_snapshot_once(
         character, timeline_message_delays,
         timeline_current_message_waits,
         player_attack,
+        effect_active_upper_bound,
+        item_active_upper_bound,
+        random_item_spawn_index,
+        random_item_table_index,
+        current_message_index >= 0,
     )
 
 
