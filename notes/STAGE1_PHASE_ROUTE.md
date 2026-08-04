@@ -325,3 +325,25 @@ and all 43 boss life-change frames with no unsupported world state or position
 error. The next root is therefore exact local t414; the t414/t444 aimed
 attacks must be evaluated as their own source state before any later t738/t768
 state is exposed.
+
+## sub8 paired-circle candidate
+
+Installed sub8 executes another Hard aimed circle at local t414 and a second
+one at t444, then begins a source movement segment at t526. The next attack
+pair does not begin until t738/t768. The exact local-t414 root therefore uses
+t738 as its next attack boundary, while stable ECL identity still takes
+priority if the life callback enters sub9 earlier.
+
+On the complete 324-update exact-root sweep, target-free h4, h6, and h8 all
+survived all eight delivery seeds and chose `down` first. h4 again aliased the
+incoming lease and retained only 1.78 mean minimum clearance. h6 and h8 used
+47.38 and 60.00 mean commands with 4.27 and 4.81 clearance respectively.
+
+The higher-pressure corpus retained 29 complete battle worlds after 1,000
+varied Hard-safe warmup updates; three derivations stopped on authority. It
+exercised 3,920 source births, five enemy-combat states, 29 player-attack
+states, and ten RNG states. Across 31 viable 128-frame delivery cases, h4
+survived 27, while h6 and h8 survived all 31. h8 raised mean minimum clearance
+from h6's 5.44 to 7.77 at 21.42 versus 20.58 mean commands. The authored
+`paired-circles-movement` state therefore uses target-free policy-volume h8
+for `414 <= ecl_time < 738`; local t738 remains explicit `phase-unavailable`.

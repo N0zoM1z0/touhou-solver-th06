@@ -392,6 +392,20 @@ source transition and physical-root sweep support it; keep the later
 t738/t768 attack state independently fail-visible. Preserve candidate-
 conditioned aim, player damage, boss life/callback, and RNG in every branch.
 
+That comparison now supports one bounded state. The complete exact-root sweep
+to local t738 kept h4/h6/h8 alive on 8/8 delivery seeds, but h4 again aliased
+its incoming lease and retained only 1.78 clearance. A high-pressure corpus
+retained 29 complete battle worlds after 1,000 Hard-safe warmup updates and
+3,920 source births, spanning five enemy-combat, 29 player-attack, and ten RNG
+states. Across 31 viable 128-frame cases, h4 survived 27; h6/h8 survived all
+31. h8 raised clearance from 5.44 to 7.77 for 0.84 additional mean commands.
+
+Only `414 <= ecl_time < 738` is now authored as target-free h8 state
+`paired-circles-movement`. Run ordinary RNG/default fail-close. Expected
+success is an alive stop at local t738 before the next attack, or an earlier
+fail-visible stop if the source life callback changes the stable subroutine to
+sub9. Require exact adjacent parity before promoting either boundary.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

@@ -230,9 +230,21 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=2421,
             spawners=(boss,),
         ))
-        self.assertEqual(second_attack.algorithm, "uncovered")
-        self.assertEqual(second_attack.policy_state, "uncovered")
+        self.assertEqual(second_attack.algorithm, "policy-volume")
+        self.assertEqual(second_attack.policy_state, "paired-circles-movement")
+        self.assertEqual(second_attack.horizon, 8)
+        self.assertIsNone(second_attack.target)
         self.assertEqual(second_attack.phase_id, intent.phase_id)
+
+        boss.ecl_time = 738
+        third_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2745,
+            spawners=(boss,),
+        ))
+        self.assertEqual(third_attack.algorithm, "uncovered")
+        self.assertEqual(third_attack.policy_state, "uncovered")
+        self.assertEqual(third_attack.phase_id, intent.phase_id)
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")
