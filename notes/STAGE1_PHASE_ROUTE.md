@@ -1340,3 +1340,28 @@ callback 22.
 
 The integrated candidate passes 304 Linux tests with 25 native-only skips and
 all 304 Windows/native tests.
+
+## main-boss sub15 physical promotion and sub13 boundary
+
+The next ordinary-RNG default fail-close run crossed the complete sub15
+variable-angle loop and its local-t124 three-way dispatch. It stopped alive at
+f5782 on stable `boss:0:sub13:life_cb22:timer_cb22:nonspell` local t1, so no
+sub13 strategy action was issued. The preceding f5781 sub15 decision retained
+five h8 policy winners and 19.462 current-bullet clearance; the fail-visible
+sub13 root retained seventeen Hard-4 actions.
+
+The complete 5,618-row CSV contains no player-dead state, Bomb bit, timeout, or
+earlier authority stop. Input was released, exact PID 60040 was stopped, and no
+game, agent, or offline worker remained. In the retained window all 254
+adjacent player transitions, 22,778 mature-bullet steps, 960 spawning steps,
+64 hostile births, 109 Reimu-A shot births, 4,233 shot steps, and 31 boss-life
+changes match exactly. Removing only the source-impossible live-boss timeline
+wait makes all 254 combat enemy, player-shot, RNG, graze, Rank, effect, item,
+and Power transitions exact with no unsupported state. The shaping is not
+valid after boss retirement.
+
+The exact sub13 root is player `(124.956, 412.184)`, Power 26, Rank 24, boss
+`(83.813, 103.478)`, 56 residual bullets, RNG seed 59094/generation 7118.
+Sub13 is now the next independent source phase. Its movement, attack schedule,
+dispatch and possible callback boundary must be audited before selecting a
+policy; it does not inherit the policy of the sub15 caller.

@@ -1162,3 +1162,27 @@ or callback-22 identity, with no HIT, Bomb, or earlier authority loss.
 
 This candidate passes 304 Linux tests with 25 native-only skips and all 304
 Windows/native tests.
+
+The ordinary-RNG default fail-close run physically promotes sub15. It crossed
+the complete variable-angle loop and its source-local t124 RNG dispatch, then
+stopped alive exactly at f5782 on stable uncovered sub13 local t1. The last
+authored sub15 decision at f5781 still had five h8 policy winners and 19.462
+current-bullet clearance; the sub13 stop retained seventeen Hard-4 actions.
+The complete 5,618-row CSV has no player-dead state, Bomb bit, timeout, or
+earlier authority stop. All input was released, exact PID 60040 was stopped,
+and no game, agent, or offline worker remained.
+
+The retained window contains 254 adjacent physical pairs. Player state and
+motion, all 22,778 mature-bullet steps, 960 spawning steps, 64 hostile births,
+109 Reimu-A shot births, 4,233 shot steps, and 31 boss-life changes are exact.
+Removing only the source-impossible live-boss timeline wait gives 254/254 exact
+combat enemy, player-shot, RNG, graze, Rank, effect, item, and Power
+transitions, with no unsupported state. This shaping remains invalid after
+boss retirement.
+
+Use exact f5782 next: player `(124.956, 412.184)`, Power 26, Rank 24, boss at
+`(83.813, 103.478)`, 56 residual bullets, RNG seed 59094/generation 7118.
+Audit sub13 independently from installed ECL and authoritative interpreter
+semantics. Do not copy sub12/sub14/sub15 policy merely because sub13 is one of
+their RNG destinations; first identify its movement, complete attack schedule,
+branch/callback boundary, then pressure-test the smallest source-clock state.
