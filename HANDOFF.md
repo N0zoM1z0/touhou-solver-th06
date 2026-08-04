@@ -1140,3 +1140,25 @@ unsupported state. Do not use that shaping after boss retirement.
 The next root is f6010 at `(27.657,408.348)`, Power 32, Rank 25, boss life 2758,
 56 residual bullets, RNG seed 47821/generation 7022. Audit and solve sub15 as a
 new source state; do not inherit the sub12/sub14 route policy.
+
+Sub15 is now source-audited and candidate-authored. Time zero points boss
+movement relative to the current player, initializes a 16-iteration counter,
+and draws one of two rotation signs. Hard uses a variable-angle aimed fan; ECL
+float updates plus `JUMPDEC` repeat it every two local ticks. Local t124 draws
+a three-way branch to sub13/sub14/sub12. Life callback sub22 can occur earlier
+from the f6010 boss life 2758 root. These destinations remain separate states.
+
+Target-free policy-volume h8 reaches a stable destination in 16/16 complete
+exact-entry delivery worlds, with 3.487 worst minimum clearance. Hard-safe
+warmup derived another 47 complete sub15 roots through 3,568 updates and 3,356
+births, spanning 11 enemy-combat, 47 player-attack, and 29 RNG states; h8
+reaches a stable destination 47/47 with 0.487 worst clearance. Its 3,165 fresh
+native production decisions measure 2.267/3.090/4.578 ms median/p90/p99,
+9.538 ms maximum, and zero over 12.5 ms. H5 is cheaper but falls to 1.427 worst
+clearance on exact entry; frontier-count h8 adds no survival or clearance and
+is slightly slower. Run ordinary-RNG/default fail-close and require an alive
+stop or independently covered transition at the first stable sub12/sub13/sub14
+or callback-22 identity, with no HIT, Bomb, or earlier authority loss.
+
+This candidate passes 304 Linux tests with 25 native-only skips and all 304
+Windows/native tests.

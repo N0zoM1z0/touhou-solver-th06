@@ -375,6 +375,22 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "sub12, or sub15; no callee returns to the caller"
             ),
         )
+    if subroutine == 15 and not spell_active:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-variable-angle-loop",
+            algorithm="policy-volume",
+            horizon=8,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f6010 sub15 root; source selects one of two "
+                "rotation signs, emits sixteen variable-angle Hard aimed "
+                "fans through the two-tick JUMPDEC loop, then dispatches at "
+                "local t124; 16/16 exact-entry and 47/47 varied battle "
+                "worlds reach stable sub12/sub13/sub14 with h8"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "

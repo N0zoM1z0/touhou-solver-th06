@@ -364,6 +364,23 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(hard_fan_boundary.commitment_frames, 1)
 
         boss.next_instruction = SimpleNamespace(
+            address=subroutines[15] + 0x10
+        )
+        boss.ecl_time = 1
+        variable_angle_loop = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(variable_angle_loop.algorithm, "policy-volume")
+        self.assertEqual(
+            variable_angle_loop.policy_state,
+            "first-nonspell-variable-angle-loop",
+        )
+        self.assertEqual(variable_angle_loop.horizon, 8)
+        self.assertIsNone(variable_angle_loop.target)
+
+        boss.next_instruction = SimpleNamespace(
             address=subroutines[13] + 0x10
         )
         boss.ecl_time = 1

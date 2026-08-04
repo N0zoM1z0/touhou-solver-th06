@@ -1299,3 +1299,44 @@ unsupported state. This shaping ends when the boss retires.
 The exact sub15 root is `(27.657, 408.348)`, Power 32, Rank 25, boss life 2758,
 56 residual bullets, RNG seed 47821/generation 7022. Audit sub15 independently;
 do not inherit sub12 or sub14 policy.
+
+## main-boss sub15 candidate
+
+Installed sub15 source is a closed variable-angle loop, not another copy of
+sub12 or sub14. At time zero it points the boss relative to the current player,
+sets 60-tick movement, initializes an integer loop counter to 16, and draws a
+two-way RNG value. That value selects the sign of a pi/12 float. On Hard, the
+selected arm begins at local t2 or t4 and installs an aimed fan whose angle and
+angular step are ECL variables. Float multiply instructions update those
+variables, and `JUMPDEC` returns to the fan every two local ticks until the
+counter expires. Local t124 draws the ordinary three-way branch and CALLs
+sub13/sub14 or falls through to sub12. None of those callees RET. Life callback
+sub22 remains a possible earlier stable destination because the exact f6010
+root starts at boss life 2758.
+
+All selected comparisons retain candidate-conditioned aim, Reimu-A damage,
+kill/callback, graze RNG, rank, input pickup, and the exact ECL stack. Constant-
+clearance h4 loses two of eight early delivery worlds. H5, policy-volume h8,
+constant-frontier h8/h10, and frontier-count h8/h10/h12 reach the 150-update
+probe, after which a corrected 190-update screen shows the real dispatch at
+152--155 updates.
+
+On 16 complete exact-entry delivery worlds, target-free policy-volume h8
+reaches a stable sub12/sub13/sub14 destination 16/16 with 3.487 worst minimum
+clearance. Target-free constant-frontier-count h8 also reaches 16/16 and differs
+only on a small number of ties; h10 adds no survival and roughly doubles cost.
+H5 reaches 16/16 but falls to 1.427 worst clearance.
+
+Hard-safe stateful warmup then derived 47 complete sub15 roots through 3,568
+updates and 3,356 source births. They span 11 enemy-combat states, 47 player-
+attack states, and 29 RNG states. Policy-volume h8 reaches a stable destination
+47/47; its worst minimum clearance is 0.487. Across 3,165 fresh production-
+Solver decisions it measures 2.267 ms median, 3.090 ms p90, 4.578 ms p99,
+9.538 ms maximum, and zero decisions over 12.5 ms. Frontier-count h8 is no
+safer on this screen and is slightly more expensive. The smallest supported
+candidate therefore authors all stable sub15 identity as target-free policy-
+volume h8 and stops only after the source publishes sub12/sub13/sub14 or life
+callback 22.
+
+The integrated candidate passes 304 Linux tests with 25 native-only skips and
+all 304 Windows/native tests.
