@@ -315,18 +315,19 @@ def _copy_spawner(spawner: EnemySpawner, **changes) -> EnemySpawner:
     return clone
 
 
-def _source_enemy_template(
-    parent: EnemySpawner,
+def source_enemy_template(
+    ecl_program: tuple[EclInstruction, ...],
+    ecl_subroutines: tuple[int, ...],
     sub_id: int,
     x: float,
     y: float,
     life: int,
 ) -> EnemySpawner | None:
     """Build the hazard-relevant state copied by source ``SpawnEnemy``."""
-    if not 0 <= sub_id < len(parent.ecl_subroutines):
+    if not 0 <= sub_id < len(ecl_subroutines):
         return None
-    start_address = parent.ecl_subroutines[sub_id]
-    first = _compiled_program(parent.ecl_program).get(start_address)
+    start_address = ecl_subroutines[sub_id]
+    first = _compiled_program(ecl_program).get(start_address)
     if first is None:
         return None
     return EnemySpawner(
@@ -370,12 +371,12 @@ def _source_enemy_template(
         ecl_compare=0,
         repeat_ex_index=None,
         next_instruction=first,
-        ecl_program=parent.ecl_program,
+        ecl_program=ecl_program,
         hitbox_half_width=4.0,
         hitbox_half_height=4.0,
         interactable=True,
         collidable=True,
-        ecl_subroutines=parent.ecl_subroutines,
+        ecl_subroutines=ecl_subroutines,
         damageable=True,
     )
 
@@ -1824,8 +1825,13 @@ def _forecast_ecl_births_single(
                         "uncertain ECL enemy position needs a world envelope",
                     )
                 child_life = struct.unpack_from("<h", raw, 0x1C)[0]
-                child = _source_enemy_template(
-                    spawner, sub_id, child_x, child_y, child_life
+                child = source_enemy_template(
+                    spawner.ecl_program,
+                    spawner.ecl_subroutines,
+                    sub_id,
+                    child_x,
+                    child_y,
+                    child_life,
                 )
                 if child is None:
                     return EclForecast(

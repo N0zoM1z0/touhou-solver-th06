@@ -9,6 +9,9 @@ import struct
 from ..model import StageTimelineInstruction
 
 
+WORLD_TRANSITION_OPCODES = frozenset((*range(8), 10))
+
+
 @dataclass(frozen=True)
 class TimelineEnemySpawn:
     """The route-neutral source semantics of one timeline spawn opcode."""
@@ -22,6 +25,33 @@ class TimelineEnemySpawn:
     invert_x: bool
     random_x: bool
     random_y: bool
+
+
+def first_world_transition(
+    instructions: tuple[StageTimelineInstruction, ...],
+    current_time: int,
+    horizon: int,
+) -> tuple[int, StageTimelineInstruction] | None:
+    """Return the first uninserted hazard-world transition in the window.
+
+    EnemyManager runs the timeline before its enemy slots.  A record whose
+    source time equals the captured post-update timeline timer therefore runs
+    on forecast frame zero.  Spawn opcodes 0..7 can add a body and execute
+    newborn time-zero ECL; opcode 10 changes a boss ECL interrupt before that
+    boss is updated.  Dialogue/power/wait records do not directly add or
+    redirect a hazard in the same update.
+    """
+    if horizon <= 0:
+        return None
+    for instruction in instructions:
+        if instruction.time < 0:
+            return None
+        lead = max(0, instruction.time - current_time)
+        if lead >= horizon:
+            return None
+        if instruction.opcode in WORLD_TRANSITION_OPCODES:
+            return lead, instruction
+    return None
 
 
 def decode_enemy_spawn(

@@ -27,6 +27,7 @@ from th06.model import (
     EnemySpawner,
     EclInstruction,
     Snapshot,
+    StageTimelineInstruction,
 )
 from th06.safety import certify_actions
 
@@ -125,6 +126,135 @@ def snapshot(frame: int, **changes) -> Snapshot:
 
 
 class PeriodicBirthTests(unittest.TestCase):
+    def test_world_stops_before_uninserted_timeline_enemy(self):
+        transition = StageTimelineInstruction(
+            0x3000,
+            102,
+            7,
+            0,
+            8,
+            struct.pack("<hhhh", 102, 7, 0, 8).hex(),
+        )
+        state = snapshot(
+            100,
+            timeline_time=100,
+            timeline_instructions=(transition,),
+        )
+
+        for mode in ("fail-closed", "nominal"):
+            forecast = forecast_world_births(
+                state,
+                ((100.0, 400.0),) * 4,
+                rng_mode=mode,
+            )
+            self.assertEqual(forecast.covered_frames, 2)
+            self.assertIn("stage timeline", forecast.reason)
+            self.assertIsNone(forecast.continuation)
+
+    def test_timeline_transition_beyond_window_preserves_coverage(self):
+        transition = StageTimelineInstruction(
+            0x3000,
+            104,
+            7,
+            0,
+            8,
+            struct.pack("<hhhh", 104, 7, 0, 8).hex(),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                100,
+                timeline_time=100,
+                timeline_instructions=(transition,),
+            ),
+            ((100.0, 400.0),) * 4,
+        )
+
+        self.assertEqual(forecast.covered_frames, 4)
+
+    def test_hard_world_inserts_deterministic_timeline_enemy(self):
+        bullet_args = struct.pack(
+            "<hhii ffff I",
+            0,
+            0,
+            1,
+            1,
+            4.0,
+            4.0,
+            0.0,
+            0.0,
+            4,
+        )
+        bullet_raw = (
+            struct.pack("<ihhBBBB", 0, 68, 0x30, 0, 4, 0, 0)
+            + bullet_args
+        )
+        bullet = EclInstruction(0x1000, 0, 68, 0x30, 4, bullet_raw.hex())
+        sentinel = EclInstruction(
+            0x1030,
+            -1,
+            -1,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", -1, -1, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        timeline_raw = struct.pack(
+            "<hhhhfffhhI",
+            100,
+            0,
+            0,
+            28,
+            32.0,
+            60.0,
+            0.0,
+            10,
+            -1,
+            100,
+        )
+        transition = StageTimelineInstruction(
+            0x3000,
+            100,
+            0,
+            0,
+            28,
+            timeline_raw.hex(),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                100,
+                bullet_sizes=((3.0, 3.0),),
+                timeline_time=100,
+                timeline_instructions=(transition,),
+                ecl_subroutines=(0x1000,),
+                timeline_ecl_program=(bullet, sentinel),
+            ),
+            ((100.0, 400.0),) * 4,
+        )
+
+        self.assertEqual(forecast.covered_frames, 4, forecast.reason)
+        self.assertEqual([len(frame) for frame in forecast.births], [1, 0, 0, 0])
+        self.assertTrue(forecast.body_hazards[0])
+
+    def test_world_stops_before_timeline_boss_interrupt(self):
+        transition = StageTimelineInstruction(
+            0x3010,
+            100,
+            0,
+            10,
+            16,
+            struct.pack("<hhhhII", 100, 0, 10, 16, 0, 3).hex(),
+        )
+        forecast = forecast_world_births(
+            snapshot(
+                100,
+                timeline_time=100,
+                timeline_instructions=(transition,),
+            ),
+            ((100.0, 400.0),) * 4,
+        )
+
+        self.assertEqual(forecast.covered_frames, 0)
+        self.assertIn("opcode 10", forecast.reason)
+
     def test_world_birth_projection_matches_scalar_source_motion(self):
         turning = Bullet(
             10.0,

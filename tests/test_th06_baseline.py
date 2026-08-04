@@ -220,6 +220,26 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(coherent.frame, 2)
 
+    def test_snapshot_read_retries_an_incomplete_calc_phase(self):
+        coherent_state = Snapshot(**{**snapshot().__dict__, "frame": 2})
+        process = object()
+
+        with mock.patch.object(
+            native,
+            "read_game_frame",
+            side_effect=(2, 2, 2),
+        ), mock.patch.object(
+            native,
+            "_read_snapshot_once",
+            side_effect=(
+                native._SnapshotPhaseIncomplete(2, 1),
+                coherent_state,
+            ),
+        ):
+            coherent = native.read_snapshot(process)
+
+        self.assertIs(coherent, coherent_state)
+
     def test_snapshot_epoch_excludes_local_decode_work(self):
         state = Snapshot(**{**snapshot().__dict__, "frame": 7})
         process = object()

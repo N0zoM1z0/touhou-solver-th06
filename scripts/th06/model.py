@@ -285,6 +285,8 @@ class Snapshot:
     timeline_complete: bool = False
     timeline_emitter_subs: tuple[int, ...] = ()
     timeline_boss_subs: tuple[int, ...] = ()
+    ecl_subroutines: tuple[int, ...] = ()
+    timeline_ecl_program: tuple[EclInstruction, ...] = ()
 
 
 @dataclass(frozen=True)

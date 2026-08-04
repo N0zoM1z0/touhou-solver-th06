@@ -77,6 +77,8 @@ BULLET_COUNT = 640
 BULLET_STRIDE = 0x5C4
 BULLET_TEMPLATE_COUNT = 16
 BULLET_TEMPLATE_STRIDE = 0x560
+BULLET_MANAGER_SIZE = 0xF5C18
+BULLET_MANAGER_TIME_OFFSET = 0xF5C08
 BULLET_TEMPLATE_SIZE_OFFSET = 0x550
 BULLET_SIZE_OFFSET = 0x550
 BULLET_POSITION_OFFSET = 0x560
@@ -190,6 +192,16 @@ class NativeDecodeError(RuntimeError):
 
 class _SnapshotEpochChanged(RuntimeError):
     pass
+
+
+class _SnapshotPhaseIncomplete(RuntimeError):
+    def __init__(self, game_frame: int, bullet_time: int):
+        super().__init__(
+            f"calc chain incomplete at game frame {game_frame}: "
+            f"bullet manager is at {bullet_time}"
+        )
+        self.game_frame = game_frame
+        self.bullet_time = bullet_time
 
 
 def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
@@ -365,6 +377,9 @@ class NativeProcess:
         ] = {}
         self.ecl_timeline_cache: dict[
             int, tuple[StageTimelineInstruction, ...]
+        ] = {}
+        self.ecl_timeline_program_cache: dict[
+            tuple[int, ...], tuple[EclInstruction, ...]
         ] = {}
         self.ecl_cache_stage: int | None = None
         self.ecl_subroutines: tuple[int, ...] = ()
@@ -651,6 +666,37 @@ def _timeline_subroutine_traits(
     )
 
 
+def _timeline_ecl_program(
+    process: NativeProcess,
+    instructions: tuple[StageTimelineInstruction, ...],
+) -> tuple[EclInstruction, ...]:
+    """Capture immutable ECL graphs referenced by visible timeline spawns."""
+    sub_ids = tuple(sorted({
+        instruction.arg0
+        for instruction in instructions
+        if 0 <= instruction.opcode <= 7
+    }))
+    cache = getattr(process, "ecl_timeline_program_cache", None)
+    if cache is not None and sub_ids in cache:
+        return cache[sub_ids]
+    program_by_address: dict[int, EclInstruction] = {}
+    for sub_id in sub_ids:
+        if not 0 <= sub_id < len(process.ecl_subroutines):
+            raise RuntimeError(f"invalid timeline ECL subroutine id {sub_id}")
+        for instruction in _read_ecl_program(
+            process,
+            process.ecl_subroutines[sub_id],
+        ):
+            program_by_address.setdefault(instruction.address, instruction)
+    program = tuple(
+        program_by_address[address]
+        for address in sorted(program_by_address)
+    )
+    if cache is not None:
+        cache[sub_ids] = program
+    return program
+
+
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
     api = _kernel32()
 
@@ -738,10 +784,6 @@ def _read_snapshot_once(
     bullet_read_retries: int = 0,
 ) -> Snapshot:
     game = process.read(ADDR_GAME_MANAGER + GAME_FLAGS_OFFSET, GAME_STAGE_OFFSET + 4 - GAME_FLAGS_OFFSET)
-    game_menu, retry_menu, gameplay_active, _completed, _practice, demo_mode = game[0:6]
-    # Despite its name, GameManager::OnUpdate sets isInMenu=1 during normal
-    # gameplay and 0 while its pause/retry menu breaks the calc chain.
-    in_menu = bool(game_menu or retry_menu or not gameplay_active or demo_mode)
     frame = struct.unpack_from("<I", game, GAME_FRAMES_OFFSET - GAME_FLAGS_OFFSET)[0]
     stage = struct.unpack_from("<i", game, GAME_STAGE_OFFSET - GAME_FLAGS_OFFSET)[0]
     if process.ecl_cache_stage != stage:
@@ -749,9 +791,88 @@ def _read_snapshot_once(
         process.ecl_program_cache.clear()
         process.ecl_timeline_instruction_cache.clear()
         process.ecl_timeline_cache.clear()
+        process.ecl_timeline_program_cache.clear()
         process.ecl_subroutine_traits.clear()
         process.ecl_cache_stage = stage
         process.ecl_subroutines = _read_ecl_subroutines(process)
+    # The source layouts place EnemyManager's runtime array, BulletManager's
+    # templates/bullets, lasers, and trailing timer in one mapped interval.
+    # Copy them together so the source timer is a phase witness for the same
+    # bytes that contain every native hazard pool.
+    pool_start = ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET
+    pool_end = ADDR_BULLET_MANAGER + BULLET_MANAGER_SIZE
+    native_pools = process.read(pool_start, pool_end - pool_start)
+    enemy_pool = native_pools[:ENEMY_COUNT * ENEMY_STRIDE]
+    template_offset = ADDR_BULLET_MANAGER - pool_start
+    bullet_templates = native_pools[
+        template_offset:
+        template_offset + BULLET_TEMPLATE_COUNT * BULLET_TEMPLATE_STRIDE
+    ]
+    bullet_offset = ADDR_BULLET_ARRAY - pool_start
+    pool = native_pools[bullet_offset:]
+    ex_function_table = process.read(
+        ADDR_ECL_EX_TABLE,
+        ECL_EX_COUNT * 4,
+    )
+    manager_relative = lambda absolute: (
+        ADDR_ENEMY_MANAGER + absolute - pool_start
+    )
+    timeline_instruction_address = struct.unpack_from(
+        "<I",
+        native_pools,
+        manager_relative(ENEMY_TIMELINE_INSTRUCTION_OFFSET),
+    )[0]
+    _timeline_previous, timeline_subframe, timeline_time = struct.unpack_from(
+        "<ifi",
+        native_pools,
+        manager_relative(ENEMY_TIMELINE_TIMER_OFFSET),
+    )
+    if (
+        not math.isfinite(timeline_subframe)
+        or not 0.0 <= timeline_subframe < 1.0
+        or timeline_time < -1000
+        or timeline_time >= 10_000_000
+    ):
+        raise RuntimeError("invalid source stage timeline timer")
+
+    bullet_manager_relative = ADDR_BULLET_MANAGER - pool_start
+    (
+        _bullet_time_previous,
+        bullet_time_subframe,
+        bullet_time,
+    ) = struct.unpack_from(
+        "<ifi",
+        native_pools,
+        bullet_manager_relative + BULLET_MANAGER_TIME_OFFSET,
+    )
+    if (
+        not math.isfinite(bullet_time_subframe)
+        or not 0.0 <= bullet_time_subframe < 1.0
+        or bullet_time < 0
+        or bullet_time >= 10_000_000
+    ):
+        raise RuntimeError("invalid source bullet-manager timer")
+
+    game = process.read(
+        ADDR_GAME_MANAGER + GAME_FLAGS_OFFSET,
+        GAME_STAGE_OFFSET + 4 - GAME_FLAGS_OFFSET,
+    )
+    game_menu, retry_menu, gameplay_active, _completed, _practice, demo_mode = game[0:6]
+    captured_frame = struct.unpack_from(
+        "<I", game, GAME_FRAMES_OFFSET - GAME_FLAGS_OFFSET
+    )[0]
+    captured_stage = struct.unpack_from(
+        "<i", game, GAME_STAGE_OFFSET - GAME_FLAGS_OFFSET
+    )[0]
+    if captured_frame != frame or captured_stage != stage:
+        raise _SnapshotEpochChanged
+    # Despite its name, GameManager::OnUpdate sets isInMenu=1 during normal
+    # gameplay and 0 while its pause/retry menu breaks the calc chain.
+    in_menu = bool(game_menu or retry_menu or not gameplay_active or demo_mode)
+
+    # Read separately stored dynamic state only after the bulk hazard capture.
+    # If the next calc update begins during these reads, capture_epoch observes
+    # the GameManager increment and discards the snapshot.
     difficulty = struct.unpack(
         "<i", process.read(ADDR_GAME_MANAGER + GAME_DIFFICULTY_OFFSET, 4)
     )[0]
@@ -797,45 +918,17 @@ def _read_snapshot_once(
     if player_state in (PLAYER_ALIVE, PLAYER_INVULNERABLE) and not active_geometry:
         in_menu = True
 
-    # The source layouts place EnemyManager's runtime array, BulletManager's
-    # templates/bullets, and its laser pool in one mapped interval.  Copy it in
-    # one ReadProcessMemory call so all hazard pools share the tightest native
-    # capture boundary, then decode only the immutable local bytes.
-    pool_start = ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET
-    pool_end = ADDR_LASER_ARRAY + LASER_COUNT * LASER_STRIDE
-    native_pools = process.read(pool_start, pool_end - pool_start)
-    enemy_pool = native_pools[:ENEMY_COUNT * ENEMY_STRIDE]
-    template_offset = ADDR_BULLET_MANAGER - pool_start
-    bullet_templates = native_pools[
-        template_offset:
-        template_offset + BULLET_TEMPLATE_COUNT * BULLET_TEMPLATE_STRIDE
-    ]
-    bullet_offset = ADDR_BULLET_ARRAY - pool_start
-    pool = native_pools[bullet_offset:]
-    ex_function_table = process.read(
-        ADDR_ECL_EX_TABLE,
-        ECL_EX_COUNT * 4,
-    )
-    manager_relative = lambda absolute: (
-        ADDR_ENEMY_MANAGER + absolute - pool_start
-    )
-    timeline_instruction_address = struct.unpack_from(
-        "<I",
-        native_pools,
-        manager_relative(ENEMY_TIMELINE_INSTRUCTION_OFFSET),
-    )[0]
-    _timeline_previous, timeline_subframe, timeline_time = struct.unpack_from(
-        "<ifi",
-        native_pools,
-        manager_relative(ENEMY_TIMELINE_TIMER_OFFSET),
-    )
+    # Both timers are initialized to zero for a stage. At the supported 1x
+    # rate GameManager increments at priority 4, while BulletManager advances
+    # this timer only after bullet/laser updates and collision at priority 11.
+    # Equality therefore rejects the otherwise invisible priority-4..10 phase.
     if (
-        not math.isfinite(timeline_subframe)
-        or not 0.0 <= timeline_subframe < 1.0
-        or timeline_time < -1000
-        or timeline_time >= 10_000_000
+        not in_menu
+        and not time_stopped
+        and 0.99 <= frame_multiplier <= 1.01
+        and bullet_time != frame
     ):
-        raise RuntimeError("invalid source stage timeline timer")
+        raise _SnapshotPhaseIncomplete(frame, bullet_time)
     if capture_epoch is not None:
         capture_epoch(frame)
 
@@ -850,6 +943,10 @@ def _read_snapshot_once(
     )
     timeline_emitter_subs, timeline_boss_subs = (
         _timeline_subroutine_traits(process, timeline_instructions)
+    )
+    timeline_ecl_program = _timeline_ecl_program(
+        process,
+        timeline_instructions,
     )
 
     bullets: list[Bullet] = []
@@ -1338,12 +1435,14 @@ def _read_snapshot_once(
         current_power, timeline_time, timeline_time + timeline_subframe,
         timeline_instructions, timeline_complete,
         timeline_emitter_subs, timeline_boss_subs,
+        process.ecl_subroutines, timeline_ecl_program,
     )
 
 
 def read_snapshot(process: NativeProcess) -> Snapshot:
     """Return one frame-coherent native snapshot or fail closed."""
     observed_epochs = []
+    observed_phases = []
     last_decode_error = None
     bullet_read_retries = 0
     for _attempt in range(8):
@@ -1366,6 +1465,9 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
             )
         except _SnapshotEpochChanged:
             continue
+        except _SnapshotPhaseIncomplete as error:
+            observed_phases.append((error.game_frame, error.bullet_time))
+            continue
         except NativeDecodeError as error:
             # SpawnSingleBullet publishes state before geometry and velocity.
             # Discard the whole captured pool instead of mixing a later tail
@@ -1384,10 +1486,15 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         evidence = dict(last_decode_error.evidence)
         evidence["read_retries"] = bullet_read_retries
         evidence["observed_epochs"] = observed_epochs
+        evidence["observed_phases"] = observed_phases
         raise NativeDecodeError(str(last_decode_error), evidence)
     raise NativeDecodeError(
-        "native state changed throughout snapshot reads",
-        {"observed_epochs": observed_epochs},
+        "native state changed or remained inside an incomplete calc phase "
+        "throughout snapshot reads",
+        {
+            "observed_epochs": observed_epochs,
+            "observed_phases": observed_phases,
+        },
     )
 
 

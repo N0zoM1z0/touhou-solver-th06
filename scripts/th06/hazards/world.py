@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from ..model import Bullet, EnemySpawner, Snapshot
 from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
-from .ecl import forecast_ecl_births
+from .ecl import forecast_ecl_births, source_enemy_template
 from .rng import RngState
+from .timeline import decode_enemy_spawn, first_world_transition
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,31 @@ class _NoRngState(RngState):
         raise _NominalRngConsumed
 
 
+def _limit_for_uninserted_timeline(
+    snapshot: Snapshot,
+    forecast: WorldBirthForecast,
+) -> WorldBirthForecast:
+    transition = first_world_transition(
+        snapshot.timeline_instructions,
+        snapshot.timeline_time,
+        len(forecast.births),
+    )
+    if transition is None:
+        return forecast
+    lead, instruction = transition
+    if forecast.covered_frames <= lead:
+        return forecast
+    return WorldBirthForecast(
+        forecast.births,
+        forecast.hazards,
+        lead,
+        "uninserted stage timeline world transition "
+        f"opcode {instruction.opcode} at 0x{instruction.address:08x}",
+        forecast.body_hazards,
+        None,
+    )
+
+
 def _project_hazards(
     births: list[list[Bullet]],
     radial: bool,
@@ -62,6 +88,158 @@ def _project_hazards(
             for frame_index, hazard in enumerate(hazards, birth_frame):
                 frames[frame_index].append(hazard)
     return tuple(tuple(frame) for frame in frames)
+
+
+def _forecast_hard_timeline_births(
+    snapshot: Snapshot,
+    player_positions: tuple[tuple[float, float], ...],
+) -> WorldBirthForecast:
+    """Insert deterministic timeline children into the bounded Hard world."""
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    horizon = len(player_positions)
+    for instruction in snapshot.timeline_instructions:
+        if instruction.time < 0:
+            break
+        lead = max(0, instruction.time - snapshot.timeline_time)
+        if lead >= horizon:
+            break
+        if instruction.opcode == 10:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead,
+                "uninserted stage timeline boss interrupt opcode 10 "
+                f"at 0x{instruction.address:08x}",
+                tuple(map(tuple, bodies)),
+            )
+        spawn = decode_enemy_spawn(instruction)
+        if spawn is None:
+            if 0 <= instruction.opcode <= 7:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    lead,
+                    "invalid stage timeline enemy spawn record "
+                    f"at 0x{instruction.address:08x}",
+                    tuple(map(tuple, bodies)),
+                )
+            continue
+        if spawn.random_x or spawn.random_y:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead,
+                "random stage timeline enemy position needs a world envelope "
+                f"at 0x{instruction.address:08x}",
+                tuple(map(tuple, bodies)),
+            )
+        child = source_enemy_template(
+            snapshot.timeline_ecl_program,
+            snapshot.ecl_subroutines,
+            spawn.sub_id,
+            spawn.x,
+            spawn.y,
+            spawn.life if spawn.life is not None else -1,
+        )
+        if child is None:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead,
+                "timeline enemy ECL graph is unavailable "
+                f"for sub {spawn.sub_id}",
+                tuple(map(tuple, bodies)),
+            )
+
+        # SpawnEnemy executes time-zero ECL inline. The manager then starts its
+        # slot loop at zero, so every timeline child receives one ordinary
+        # update in the same source frame. The template's initial movement is
+        # zero, making the first forecast step equivalent to the inline call.
+        inline = forecast_ecl_births(
+            child,
+            (player_positions[lead],),
+            snapshot.difficulty,
+            snapshot.rank,
+            snapshot.bullet_sizes,
+            snapshot.frame_multiplier,
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+            # Other timeline children in this forecast can install callbacks;
+            # do not prove ENEMYKILLALL neutral from only the live root.
+            enemy_kill_all_is_noop=False,
+            model_player_damage=False,
+        )
+        if inline.covered_frames < 1:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead,
+                f"timeline emitter {spawn.sub_id}: {inline.reason}",
+                tuple(map(tuple, bodies)),
+            )
+        births[lead].extend(inline.births[0])
+        if inline.next_spawner is None:
+            if inline.finished:
+                continue
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead + 1,
+                f"timeline emitter {spawn.sub_id}: {inline.reason}",
+                tuple(map(tuple, bodies)),
+            )
+
+        child = replace(
+            inline.next_spawner,
+            invert_x=spawn.invert_x,
+            life=(
+                spawn.life
+                if spawn.life is not None
+                else inline.next_spawner.life
+            ),
+        )
+        ordinary = forecast_ecl_births(
+            child,
+            player_positions[lead:],
+            snapshot.difficulty,
+            snapshot.rank,
+            snapshot.bullet_sizes,
+            snapshot.frame_multiplier,
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+            enemy_kill_all_is_noop=False,
+        )
+        for offset, frame_births in enumerate(ordinary.births, lead):
+            births[offset].extend(frame_births)
+        for offset, frame_bodies in enumerate(ordinary.body_hazards, lead):
+            bodies[offset].extend(frame_bodies)
+        if ordinary.covered_frames < horizon - lead:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                lead + ordinary.covered_frames,
+                f"timeline emitter {spawn.sub_id}: {ordinary.reason}",
+                tuple(map(tuple, bodies)),
+            )
+        if ordinary.next_spawner is None and not ordinary.finished:
+            return WorldBirthForecast(
+                tuple(map(tuple, births)),
+                _project_hazards(births, True),
+                horizon,
+                f"timeline emitter {spawn.sub_id}: persistent state branches",
+                tuple(map(tuple, bodies)),
+            )
+    return WorldBirthForecast(
+        tuple(map(tuple, births)),
+        _project_hazards(births, True),
+        horizon,
+        body_hazards=tuple(map(tuple, bodies)),
+    )
 
 
 def _forecast_nominal_without_shared_rng(
@@ -384,6 +562,17 @@ def forecast_world_births(
             if emitter_coverage < covered_frames:
                 covered_frames = emitter_coverage
                 reason = f"emitter {emitter.slot}: {emitter_reason}"
+        timeline = _forecast_hard_timeline_births(
+            snapshot,
+            player_positions,
+        )
+        for frame_index, frame_births in enumerate(timeline.births):
+            births[frame_index].extend(frame_births)
+        for frame_index, frame_bodies in enumerate(timeline.body_hazards):
+            bodies[frame_index].extend(frame_bodies)
+        if timeline.covered_frames < covered_frames:
+            covered_frames = timeline.covered_frames
+            reason = timeline.reason
         return WorldBirthForecast(
             tuple(tuple(frame) for frame in births),
             _project_hazards(births, True),
@@ -391,10 +580,13 @@ def forecast_world_births(
             reason,
             tuple(tuple(frame) for frame in bodies),
         )
-    return _forecast_nominal_from_state(
+    return _limit_for_uninserted_timeline(
         snapshot,
-        player_positions,
-        emitters,
-        RngState(snapshot.rng_seed, snapshot.rng_generation),
-        framewise=len(emitters) != 1,
+        _forecast_nominal_from_state(
+            snapshot,
+            player_positions,
+            emitters,
+            RngState(snapshot.rng_seed, snapshot.rng_generation),
+            framewise=len(emitters) != 1,
+        ),
     )
