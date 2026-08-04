@@ -590,6 +590,26 @@ laser allocations/timers, bullets, combat, and player state. Stop at the next
 genuinely uncovered source phase (expected eventual sub6 spell end or an
 unsupported later callback), not at an invented absolute frame.
 
+`cycle-rewind` is physically promoted. The retained second transition is
+f4148/t331 to f4149/t121: boss life/position stay 100 and
+`(238.549,144.000)`, RNG generation stays 3996, the existing interval timer
+advances 33 to 34, and laser slots 0/1 are reborn at state 0/timer 1. Adjacent
+parity is exact across 254 combat/RNG/item/Power pairs, 20,717 fired-bullet
+steps, 4,116 spawning steps, 2,822 player-shot steps, both laser births, all
+182 laser transitions, and both removals. The run later fail-closed at exact
+f4237/sub6 local t0 after a post-RunEcl death callback; do not confuse that
+legitimate pending callback state with the earlier torn life-callback read.
+
+Before authoring sub6, resolve the earlier route-level counterexample exposed
+by another ordinary run: sub8 timed out to sub7 at f3449 with life 1248 on the
+preceding frame. Its retained history already had life 2496 at local t537 and
+lost all damage once the boss moved right near t717. Live-boss-x tie-breaking
+inside equal h8 continuations did not robustly fix it, and constant right is
+too slow while faster chasing collides. Capture a modern exact local-t160 root
+with an explicit diagnostic fail-close, then compare candidate-conditioned
+future damage/kill/lead policies over the complete life-versus-timer race.
+Hard and h8 continuation authority must remain unchanged.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

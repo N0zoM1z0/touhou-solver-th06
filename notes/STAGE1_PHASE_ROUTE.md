@@ -633,3 +633,47 @@ Physical promotion must include the adjacent t331-to-t120 rewind in retained
 history and match opcode-2 dispatch, interval/RNG state, new laser slots and
 timers, bullets, combat, and player state before this transition is considered
 closed. Later spell-end entry remains independently uncovered.
+
+The ordinary-RNG run physically promoted `cycle-rewind` and later stopped on
+the independently uncovered sub6 death callback. The retained second rewind
+is exact f4148/local t331 to f4149/local t121. It carries boss life 100 and
+position `(238.549,144.000)` unchanged, advances boss timer 780 to 781, keeps
+RNG generation 3996 unchanged, and changes the live world from 90 bullets/no
+laser to 89 bullets plus source laser slots 0/1 at state 0/timer 1. The
+existing interval remains 38 and advances timer 33 to 34; the rewind does not
+invent a second initial-delay RNG draw.
+
+Adjacent replay matches all 254 retained player/combat/RNG/rank/item/Power
+pairs, 20,717 fired-bullet steps, 4,116 spawning steps, 294 births, 267
+removals, and 2,822 player-shot steps. Both rewind laser births, all 182
+retained laser transitions (116 with ECL mutation), and both later source
+laser removals are exact with zero error. There was no HIT, Bomb, stale
+authority stop, or timeout before the final sub6 fail-close. `cycle-rewind` is
+therefore physically promoted; the exact new phase root is f4237/sub6 local
+t0, installed by a post-RunEcl death callback with spell publication still
+active.
+
+## unresolved sub8 attack-tempo counterexample
+
+A separate ordinary-RNG run never reached sub9: sub8 reached boss timer 1440
+at f3448 with life 1248, then correctly entered timer-callback sub7 and
+fail-closed. The retained window starts at f3192/local t537 with life 2496;
+damage falls to zero at f3372/local t717 when the boss begins moving right
+while the player stays near center. The terminal sub7 state is an effect, not
+the cause: the route had already lost the life-callback race much earlier.
+
+A first offline ablation kept the same h8 continuation evidence and used live
+boss x only as a tie-break from source t526/t708/t738. It did not robustly
+repair the race: across four delivery seeds the last sub8 life remained
+1056--1488. Constant-action projections from the f3372 root likewise show why
+simple chasing is insufficient: focused right survives 64 updates but only
+deals 48 damage, while faster/right-diagonal approaches enter unsupported or
+colliding branches. Source movement plus player-shot travel time requires a
+phase-local future-damage objective or an earlier lead/preposition policy, not
+a coordinate special case.
+
+The next falsifier must capture a modern exact local-t160 root, before the
+first damaging circle state, and run the full sub8 life/timer race offline.
+Compare survival-equivalent policies using candidate-conditioned future boss
+position and player-shot damage/kill timing. Hard eligibility and h8 survival
+evidence must remain unchanged; only the soft route ranking may change.
