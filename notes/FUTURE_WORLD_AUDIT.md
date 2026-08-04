@@ -892,3 +892,18 @@ publication, raw-pointer interrupt selection, and future child
 28 skipped. The capture distinction is source- and unit-grounded; the next
 physical diagnostic must cross the former f3522 failure before it counts as
 runtime validation.
+
+The first post-fix physical diagnostic reached f3438 with two live lasers and
+no boss-pointer coherence failure. It then stopped on an `IndexError` in soft
+native preparation, not on a HIT or Hard authority decision. The traceback
+identified an independent forecast contract bug: extending a completed
+nominal prefix with a partial tail represented "no body hazards" as one empty
+tuple for the entire tail, then concatenated it as though it were already a
+frame array. Thus `covered_frames` could exceed the length of
+`body_hazards`. The extension now materializes the compact empty sentinel to
+one empty body frame per forecast frame and rejects any other misalignment.
+A focused partial-tail regression raises the complete suite to 348 tests with
+28 skipped. Exact PID 43308 was stopped, input was released, and no trial
+process remained. This run confirms the stale-pointer capture correction on
+that trajectory and exercises live-laser integration, but still does not
+provide adjacent-frame future-laser parity or a clear.

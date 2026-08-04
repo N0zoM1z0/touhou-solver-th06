@@ -1037,7 +1037,26 @@ def extend_nominal_world_births(
         start_lead=continuation.elapsed_frames,
     )
     births = prefix.births + tail.births
-    bodies = prefix.body_hazards + tail.body_hazards
+    # An empty body_hazards tuple is the compact representation for "no body
+    # hazards in this slice". A partial tail can legitimately use that form
+    # after stopping on an unsupported future instruction; materialize both
+    # slices before concatenation so frame indices remain aligned.
+    prefix_bodies = (
+        prefix.body_hazards
+        if prefix.body_hazards
+        else ((),) * len(prefix.births)
+    )
+    tail_bodies = (
+        tail.body_hazards
+        if tail.body_hazards
+        else ((),) * len(tail.births)
+    )
+    if (
+        len(prefix_bodies) != len(prefix.births)
+        or len(tail_bodies) != len(tail.births)
+    ):
+        raise ValueError("nominal body forecast is not frame-aligned")
+    bodies = prefix_bodies + tail_bodies
     prefix_horizon = len(prefix.births)
     total_horizon = len(births)
     hazards = [list(frame) for frame in prefix.hazards]

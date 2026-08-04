@@ -16,6 +16,7 @@ from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
 from th06.hazards.timeline import TimelineBossInterrupt
 from th06.hazards.world import (
+    WorldBirthForecast,
     _project_hazards,
     _timeline_interrupt_targets,
     extend_nominal_world_births,
@@ -322,6 +323,31 @@ class PeriodicBirthTests(unittest.TestCase):
         child = direct.continuation.emitters[0]
         self.assertEqual((child.slot, child.ecl_time), (0, 5))
         self.assertEqual(direct.continuation.elapsed_frames, 7)
+
+    def test_nominal_extension_aligns_empty_partial_tail_body_frames(self):
+        state = snapshot(100)
+        prefix = forecast_world_births(
+            state,
+            ((100.0, 400.0),) * 2,
+            rng_mode="nominal",
+        )
+        partial_tail = WorldBirthForecast(
+            ((), (), ()),
+            ((), (), ()),
+            2,
+            "unsupported future instruction",
+        )
+
+        with mock.patch(
+            "th06.hazards.world._forecast_nominal_from_state",
+            return_value=partial_tail,
+        ):
+            extended = extend_nominal_world_births(
+                state, prefix, ((100.0, 400.0),) * 3
+            )
+
+        self.assertEqual(extended.covered_frames, 4)
+        self.assertEqual(extended.body_hazards, ((),) * 5)
 
     def test_world_stops_before_timeline_boss_interrupt(self):
         transition = StageTimelineInstruction(
