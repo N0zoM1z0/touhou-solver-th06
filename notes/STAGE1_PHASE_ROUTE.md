@@ -132,3 +132,20 @@ route while the inherited bullets expire. The smallest falsifier is thus
 `target-only` h4 from t1220 through t1599, with a private tail state after the
 last random parent at t1400. The t1600 sub0 body/resource formation remains
 explicitly uncovered.
+
+The ordinary-RNG default fail-close run physically promoted this phase. It
+completed both the random-insertion state and its quiet tail without HIT,
+Bomb, or Hard-authority loss, then stopped exactly at f1600/t1600 with
+`phase-unavailable` for the next source formation. The boundary retained all
+18 Hard-safe actions and a five-frame certified held input at
+`(197.331,379.355)`, with Power 3 and one expiring bullet.
+
+All 325 phase decisions were fresh: there were no stale publications or
+timeouts. Solve time was 3.382 ms median/4.838 ms p90/6.166 ms maximum during
+`random-insertion`, and 1.481/3.248/4.444 ms in the tail. Adjacent replay of
+the final 255 physical transitions matched every player, player-shot, enemy,
+RNG, graze/rank, item, and Power transition. It also matched all 3,289
+retained hostile-bullet steps and 1,765 player-shot steps, with no unsupported
+transition. The next offline root is therefore the exact f1600 entry; it must
+evaluate only the t1600--t2007 sub0 body/resource formation before the t2008
+midboss transition.

@@ -284,10 +284,21 @@ adjacent combat/RNG transitions and 10,465 bullet steps matched exactly.
 The t1220 exact-root sweep selected bottom-target `target-only` h4 through
 t1599. Targeted h4/h6/h8 were identical and survived all eight 379-frame
 delivery seeds. Target-free h4 also survived, but its mean minimum clearance
-fell from 14.85 to 4.73 and its worst case reached 0.62. Physically falsify
-the minimal targeted h4 phase with ordinary RNG/default fail-close. Expected
-success is an alive `phase-unavailable` stop at t1600; keep that next sub0
-body/resource formation uncovered until the run.
+fell from 14.85 to 4.73 and its worst case reached 0.62. The ordinary-RNG
+default fail-close run physically promoted the targeted h4 candidate: it
+completed both source states without HIT, Bomb, stale publication, timeout,
+or Hard-authority loss, then stopped exactly at f1600/t1600. The boundary is
+`(197.331,379.355)`, Power 3, one bullet, and all 18 Hard-safe actions. The
+final 255 adjacent combat/RNG/item/Power transitions, 3,289 hostile-bullet
+steps, and 1,765 player-shot steps all matched exactly with no unsupported
+transition.
+
+Use this exact f1600 entry for the next stateful sweep. The installed source
+phase is the t1600--t2007 mirrored sub0 body/resource formation; compare only
+the smallest publishable local policies through that boundary. Keep the t2008
+sub8 midboss entry uncovered, and expect runtime boss identity to supersede
+the timeline label as soon as the newborn source enemy publishes its boss
+state.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
