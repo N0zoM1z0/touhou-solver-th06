@@ -8,6 +8,7 @@ from th06.model import BUTTON_FOCUS, PlayerAttackState, Snapshot
 from th06.routes.phase import boss_phase_id, ecl_subroutine_index
 from th06.routes.registry import default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
+    AIMED_STREAM,
     FIRST_BODY_STREAM,
     HardReimuAStage1,
 )
@@ -113,14 +114,16 @@ class RoutePhaseTests(unittest.TestCase):
             state, player_attack=player_attack(shot_type=1)
         )))
 
-    def test_stage1_first_body_stream_isolated_from_aimed_phase(self):
+    def test_stage1_authored_phases_stop_before_random_insertion(self):
         pack = HardReimuAStage1()
 
         setup = pack.intent(snapshot(stage=1, timeline_time=127))
         first = pack.intent(snapshot(stage=1, timeline_time=128))
         mirrored = pack.intent(snapshot(stage=1, timeline_time=432))
         tail = pack.intent(snapshot(stage=1, timeline_time=639))
-        next_phase = pack.intent(snapshot(stage=1, timeline_time=640))
+        aimed = pack.intent(snapshot(stage=1, timeline_time=640))
+        dense_tail = pack.intent(snapshot(stage=1, timeline_time=1080))
+        next_phase = pack.intent(snapshot(stage=1, timeline_time=1220))
 
         self.assertEqual(setup.phase_id, "timeline:t0:setup")
         self.assertEqual(first.phase_id, FIRST_BODY_STREAM.phase_id)
@@ -128,15 +131,21 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(first.algorithm, "target-only")
         self.assertEqual(mirrored.policy_state, "sub1-mirrored-stream")
         self.assertEqual(tail.policy_state, "tail")
+        self.assertEqual(aimed.phase_id, AIMED_STREAM.phase_id)
+        self.assertEqual(aimed.policy_state, "aimed-stream-entry")
+        self.assertEqual(aimed.algorithm, "policy-volume")
+        self.assertEqual(aimed.horizon, 8)
+        self.assertIsNone(aimed.target)
+        self.assertEqual(dense_tail.policy_state, "compressed-sub2-tail")
         self.assertEqual(next_phase.algorithm, "uncovered")
         self.assertEqual(
             next_phase.phase_id,
-            "timeline:t640:subs2-3-aimed-stream",
+            "timeline:t1220:random-subs0-1-body-stream",
         )
 
-    def test_common_solver_stops_at_uncovered_stage1_aimed_phase(self):
+    def test_common_solver_stops_at_uncovered_stage1_random_phase(self):
         decision = Solver(decision_budget_ms=100.0).decide(
-            snapshot(stage=1, timeline_time=640)
+            snapshot(stage=1, timeline_time=1220)
         )
 
         self.assertTrue(decision.safe_actions)
@@ -145,7 +154,7 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(decision.route_id, "hard-reimu-a-stage1")
         self.assertEqual(
             decision.phase_id,
-            "timeline:t640:subs2-3-aimed-stream",
+            "timeline:t1220:random-subs0-1-body-stream",
         )
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):

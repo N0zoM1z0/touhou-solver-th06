@@ -264,12 +264,19 @@ actions at `(192,384)`, Power 2. The first phase used only three input
 transitions; its 528 route decisions measured 1.884 ms median, 4.307 ms p90,
 and 7.051 ms maximum.
 
-Use the captured f641 entry plus installed ECL to author only t640--t1219.
-Sub2 fires a Hard 9x2 aimed fan at local ECL t70; sub3 does not fire on Hard.
-Run stateful candidate-conditioned offline comparisons across source-valid
-warmups, then physically falsify the smallest publishable policy. Keep the
-t1220 random-coordinate sub0/sub1 insertion explicitly uncovered until the
-aimed-stream phase is promoted.
+The captured f641 entry now has exact low-Power causal replay: authoritative
+Reimu-A rank 1 was compiled, after which all 255 adjacent player-attack,
+enemy-combat, shot, RNG, item, and Power transitions matched. Stateful sweeps
+selected target-free policy-volume h8 for t640--t1219. h4 failed all eight
+complete-phase seeds; h6/h7/h8 survived all eight, and h8 retained the best
+clearance for essentially the same command count as h7. Target-free h8 also
+survived all eight complete roots and 32/32 warmup-derived delivery cases,
+with materially fewer commands than the bottom target.
+
+Physically falsify this candidate with ordinary RNG and default fail-close.
+Expected success is an alive `phase-unavailable` stop at t1220; any earlier
+failure belongs to the exact t640 route state named in the trace. Do not
+author the t1220 random-coordinate sub0/sub1 phase before this run.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

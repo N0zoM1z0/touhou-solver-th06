@@ -1,8 +1,8 @@
 """Hard/Reimu-A Stage 1, authored one source phase at a time.
 
-Only the quiet setup and the installed t128 sub0/sub1 body stream are covered.
-The t640 sub2/sub3 aimed-wave transition is deliberately fail-visible until
-its own policy has physical entry evidence.
+Only the quiet setup, t128 body stream, and t640 aimed stream are covered. The
+t1220 random-coordinate insertion is deliberately fail-visible until the
+preceding aimed policy has physical evidence.
 """
 
 from __future__ import annotations
@@ -62,6 +62,35 @@ FIRST_BODY_STREAM = TimelineStateMachine(
 )
 
 
+AIMED_STREAM = TimelineStateMachine(
+    "timeline:t640:subs2-3-aimed-stream",
+    (
+        PolicyState(
+            640,
+            "aimed-stream-entry",
+            "policy-volume",
+            8,
+            None,
+            provenance=(
+                "physical f641 entry; sub2 fires the Hard 9x2 aimed fan "
+                "at local ECL t70"
+            ),
+        ),
+        PolicyState(
+            1080,
+            "compressed-sub2-tail",
+            "policy-volume",
+            8,
+            None,
+            provenance=(
+                "installed t1080/t1100/t1110 sub2 tail fires at "
+                "t1150/t1170/t1180"
+            ),
+        ),
+    ),
+)
+
+
 def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     return RouteIntent(
         phase_id=phase_id,
@@ -97,8 +126,10 @@ class HardReimuAStage1:
             return SETUP.intent(snapshot)
         if snapshot.timeline_time < 640:
             return FIRST_BODY_STREAM.intent(snapshot)
+        if snapshot.timeline_time < 1220:
+            return AIMED_STREAM.intent(snapshot)
         return uncovered(
-            "timeline:t640:subs2-3-aimed-stream",
-            "next installed source phase begins with sub2 at t640; "
-            "its Hard 9x2 aimed fan fires at local ECL t70",
+            "timeline:t1220:random-subs0-1-body-stream",
+            "next installed source phase begins with random-coordinate "
+            "sub0/sub1 insertion at t1220",
         )

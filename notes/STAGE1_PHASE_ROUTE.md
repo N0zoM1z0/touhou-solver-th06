@@ -73,3 +73,27 @@ transitions. All 49 newborn rank-1 shots and 1,800 retained shot steps matched;
 23 enemy birth/removal transitions were exact and unsupported combat steps
 fell from 255 to zero. This validates the low-Power causal root used by the
 t640 offline sweep; it is not evidence for uncompiled power ranks.
+
+## t640 aimed-stream candidate
+
+From the exact f641 root, a 192-frame delivery sweep found h4/h6/h8 identical
+through the first part of the phase: all 16 seeds survived. The complete
+578-frame sweep to t1219 separated them. h4 stopped on all eight seeds after
+329.75 mean frames; targeted h6, h7, and h8 survived all eight. h8 had 5.16
+mean minimum clearance versus h7's 4.45 and h6's 2.55, while h7 saved less
+than one mean command. The selected continuation rung is therefore h8.
+
+On that complete root, target-free h8 also survived 8/8 while reducing mean
+commands from 224.13 to 53.38 and increasing mean minimum clearance from 5.16
+to 7.97. A second corpus derived 30 complete worlds by 8,151 varied Hard-safe
+warmup updates and 1,062 source births. It covered 13 enemy-combat, 30
+player-attack, and 13 RNG states. Both policies survived all 32 delivery
+cases for 96 frames; target-free used 11.84 mean commands versus 24.19. Its
+worst minimum clearance was also higher, although the targeted policy's mean
+clearance was inflated by several quiet roots.
+
+The next physical falsifier therefore covers only t640--t1219 with target-free
+policy-volume h8. A private state boundary at t1080 names the compressed
+sub2 tail whose t1080/t1100/t1110 parents fire at t1150/t1170/t1180. The
+algorithm is unchanged across that boundary. Random-coordinate insertion at
+t1220 remains explicit `phase-unavailable`.
