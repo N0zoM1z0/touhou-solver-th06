@@ -907,6 +907,15 @@ next resource section. The h8 post-midboss policy therefore remains an offline
 candidate for earlier-boss-removal worlds; it is not physically promoted by
 that run.
 
+A later ordinary-RNG default fail-close run exercised the previously shadowed
+world. The boss retired before f4005, after which target-free h8 published 391
+fresh decisions through f4497/t4497. Power rose from 9 to 11 while this policy
+was active. The run crossed the residual aimed stream alive and entered the
+distinct t4498 resource phase without HIT, Bomb, authority loss, or timeout.
+The h8 post-midboss policy is therefore physically promoted for the no-boss
+world in which it is selected; the later-boss interleaving continues to use
+the independently promoted boss route.
+
 ## post-midboss random-item resource candidate
 
 Physical f4637 is alive at timeline t4637 with no enemy or hostile bullet,
@@ -926,3 +935,16 @@ the bottom target survives but uses 241--246 commands and reaches only Power
 Reimu-A Rank 4. The policy is dynamic over source item type and position, not
 slot or captured coordinates: Big/Full Power first, then nearest Small Power,
 then the bottom waypoint when no Power item is live. Common Hard-4 is unchanged.
+
+The ordinary-RNG default fail-close run physically promoted this phase. It
+published 705 fresh decisions from f4498 through f5277 and increased Power
+from 11 to 26 before stopping alive on the deliberately uncovered t5278
+dialogue boundary. There was no HIT, Bomb, earlier authority loss, or timeout.
+The retained final 255 adjacent physical pairs exactly match player, combat
+enemy, player-shot, RNG, item, and Power transitions; they include five item
+births and six removals. Inputs were released and the exact trial PID stopped.
+
+This validates the item-aware soft proposal only within unchanged Hard-4
+eligibility. It does not authorize movement through dialogue. The next
+falsifiable boundary is the source-defined t5278 dialogue and t5279 main-boss
+insertion, with dialogue control kept separate from movement.

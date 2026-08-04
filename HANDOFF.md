@@ -786,6 +786,22 @@ target-only Hard-4 with live Power-item priority. Dialogue at t5278 remains
 uncovered and separate from movement. Run ordinary RNG/default fail-close;
 promotion requires actual Power gain plus a safe stop at the dialogue boundary.
 
+That ordinary-RNG default fail-close run promoted both outstanding no-boss
+sections. Target-free h8 was genuinely selected for 391 fresh decisions from
+f4005 through t4497, so it is no longer merely an offline candidate in the
+early-boss-removal world. The resource policy then published 705 decisions
+through f5277 and raised Power 11->26. The only authority stop was the intended
+uncovered t5278 dialogue boundary; there was no HIT, Bomb, earlier authority
+loss, or timeout. Final 255-pair adjacent replay is exact for player, combat
+enemy, player shot, RNG, item, and Power state. The exact PID was stopped and
+inputs were released.
+
+Continue from t5278 by auditing the authoritative dialogue/main-boss sequence,
+not by extending movement blindly. Source timeline control is t5278 message
+start followed by the t5279 boss insertion sequence. Dialogue/advance control
+must remain separate from player movement, and the first new experiment should
+stop at the smallest newly understood boss root.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
