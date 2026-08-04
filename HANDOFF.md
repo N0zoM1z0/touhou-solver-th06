@@ -457,6 +457,19 @@ smallest state whose future laser and bullet transitions are completely
 modeled. Sub9 is a new stable phase; do not inherit sub8 route intent merely
 because the same enemy slot remains alive.
 
+The source entry audit is complete. Sub9 local t0 cancels old bullets,
+disables damage, installs timer callback sub6/1320, and moves for 120 ticks.
+Local t120 re-enables damage, configures the Hard 42-way delayed pattern, and
+creates two lasers. On the exact local-t2 root, bottom-target h4/h6/h8 all
+survived 8/8 complete 118-update seeds; h4 used no new command versus eleven
+for h6/h8. Target-free h4 was identical, so the bottom waypoint is retained
+for spell positioning.
+
+Only sub9 spell `ecl_time < 120` is authored as target-only h4 `spell-entry`.
+Run ordinary RNG/default fail-close and require an alive stop at exact local
+t120 before the bullet/laser transition. Verify stable spell identity and
+adjacent player/combat/RNG parity; do not expose the lasers from source alone.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

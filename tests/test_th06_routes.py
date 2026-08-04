@@ -278,6 +278,32 @@ class RoutePhaseTests(unittest.TestCase):
             "boss:0:sub9:life_cb9:timer_cb7:nonspell",
         )
 
+        boss.timer_callback_sub = 6
+        spell_entry = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3044,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(spell_entry.algorithm, "target-only")
+        self.assertEqual(spell_entry.policy_state, "spell-entry")
+        self.assertEqual(spell_entry.horizon, 4)
+        self.assertIsNotNone(spell_entry.target)
+        self.assertEqual(
+            spell_entry.phase_id,
+            "boss:0:sub9:life_cb9:timer_cb6:spell",
+        )
+
+        boss.ecl_time = 120
+        spell_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3162,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(spell_attack.algorithm, "uncovered")
+        self.assertEqual(spell_attack.policy_state, "uncovered")
+
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")
         self.assertEqual(

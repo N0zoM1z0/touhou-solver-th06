@@ -175,15 +175,16 @@ def uncovered(phase_id: str, provenance: str) -> RouteIntent:
 
 
 def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
+    spell_active = bool(
+        snapshot.player_attack and snapshot.player_attack.spell_active
+    )
     phase_id = boss_phase_id(
         boss,
-        bool(snapshot.player_attack and snapshot.player_attack.spell_active),
+        spell_active,
     )
     is_sub8_nonspell = (
         ecl_subroutine_index(boss) == 8
-        and not (
-            snapshot.player_attack and snapshot.player_attack.spell_active
-        )
+        and not spell_active
     )
     if is_sub8_nonspell and boss.ecl_time < 160:
         return RouteIntent(
@@ -239,6 +240,26 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "cover the t738/t768 Hard circles and the source t840 "
                 "jump back to local t193"
             ),
+        )
+    if ecl_subroutine_index(boss) == 9 and spell_active:
+        if boss.ecl_time < 120:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="spell-entry",
+                algorithm="target-only",
+                horizon=4,
+                target=BOTTOM_CENTER,
+                commitment_frames=4,
+                provenance=(
+                    "physical f3044 sub9 spell root; source entry cancels "
+                    "old bullets, disables damage, and moves for 120 ticks "
+                    "before creating its Hard pattern and two lasers"
+                ),
+            )
+        return uncovered(
+            phase_id,
+            "Stage 1 sub9 spell at or after the local-t120 bullet/laser "
+            "transition has not been authored",
         )
     return uncovered(
         phase_id,

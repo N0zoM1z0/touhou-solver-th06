@@ -409,3 +409,19 @@ Adjacent replay matched all 254 player/combat/RNG/rank/item/Power transitions,
 2,342 player-shot steps, 11 graze transitions, and all 45 boss life-change
 frames. The next phase is now the exact sub9 spell entry, not an estimated
 future callback.
+
+## sub9 spell-entry candidate
+
+Installed sub9 starts the spell at local t0, cancels the old bullets, disables
+damage, installs timer callback sub6 at 1320, and moves the boss for 120 ticks.
+At local t120 it re-enables damage, configures the Hard 42-way pattern and
+delayed interval, and creates two source lasers. The bullet/laser transition
+is therefore excluded from the entry policy rather than approximated.
+
+From the exact f3044/local-t2 root, bottom-target h4/h6/h8 all survived all
+eight complete 118-update delivery seeds. h4 required no new command, while
+h6/h8 each used eleven mean commands; all remained hazard-free before t120.
+Target-free h4 was exactly identical, but the bottom target preserves the
+intended low spell entry without changing Hard eligibility. Only stable sub9
+with spell publication and `ecl_time < 120` is now authored as target-only h4
+`spell-entry`. A missing spell flag or local t120 remains fail-visible.
