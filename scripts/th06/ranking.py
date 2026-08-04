@@ -11,6 +11,11 @@ _MOVEMENT_LEFT = 8.0
 _MOVEMENT_RIGHT = 376.0
 _MOVEMENT_TOP = 16.0
 _MOVEMENT_BOTTOM = 432.0
+# The earliest physically successful Stage 1--4 policy used this game-level
+# soft reference.  Keep it outside Hard authority and expose it as a target
+# parameter so later offline phase policy can replace the default without
+# changing solver mechanics.
+DEFAULT_ROUTE_REFERENCE_Y = 380.0
 
 
 def precision_preferred_actions(
@@ -19,6 +24,40 @@ def precision_preferred_actions(
     """Preserve focused correction reserve inside an exact survival tie."""
     focused = frozenset(action for action in actions if action.focused)
     return focused or actions
+
+
+def preferred_route_reference_actions(
+    candidates: tuple[SafeAction, ...],
+    allowed: frozenset[Action],
+    target_y: float = DEFAULT_ROUTE_REFERENCE_Y,
+) -> frozenset[Action]:
+    """Approach a soft route band inside the current allowed action set.
+
+    The route prior owns no safety or continuation authority.  Horizontal
+    alignment remains free for attack/collection ranking, while the vertical
+    reference prevents a missing deep proposal from becoming an unbounded
+    drift through the playfield.
+    """
+    eligible = tuple(
+        candidate for candidate in candidates
+        if candidate.action in allowed
+    )
+    if not eligible:
+        return frozenset()
+    precise = precision_preferred_actions(frozenset(
+        candidate.action for candidate in eligible
+    ))
+    eligible = tuple(
+        candidate for candidate in eligible
+        if candidate.action in precise
+    )
+    best_distance = min(
+        abs(candidate.final_y - target_y) for candidate in eligible
+    )
+    return frozenset(
+        candidate.action for candidate in eligible
+        if abs(candidate.final_y - target_y) == best_distance
+    )
 
 
 def _preferred_free_space(candidate: SafeAction) -> float:

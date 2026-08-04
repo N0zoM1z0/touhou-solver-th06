@@ -20,7 +20,11 @@ from .model import (
     Snapshot,
     action_from_input,
 )
-from .ranking import ProposalRanker, precision_preferred_actions
+from .ranking import (
+    ProposalRanker,
+    precision_preferred_actions,
+    preferred_route_reference_actions,
+)
 from .safety import DELIVERY_DELAYS, certify_actions
 from .viability import nominal_policy_scores
 
@@ -2928,6 +2932,21 @@ class Solver:
                     == best_local_distance
                 )
             )
+
+        # A complete deeper survival result retains priority because the route
+        # band may only break ties inside it.  When no optional rung completed,
+        # the same soft prior ranks the full fresh Hard set instead of turning
+        # the observed input into an unbounded route.  Horizontal freedom is
+        # deliberately retained for the attack proposal below.
+        route_allowed = preferred or frozenset(
+            candidate.action for candidate in hard
+        )
+        route_preferred = preferred_route_reference_actions(
+            hard,
+            route_allowed,
+        )
+        if route_preferred:
+            preferred = route_preferred
 
         attack_target = None
         if len(preferred) > 1:

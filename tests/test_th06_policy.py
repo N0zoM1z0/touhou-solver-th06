@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from th06.model import ACTIONS, CONTROL_ACTIONS, Bullet, SafeAction, Snapshot
 from th06.kernels.safety import NativeSafetyKernel
-from th06.ranking import ProposalRanker
+from th06.ranking import ProposalRanker, preferred_route_reference_actions
 from th06.solver import (
     BASE_POLICY_HORIZON,
     EFFORT_HORIZONS,
@@ -3015,6 +3015,30 @@ class AnytimePolicyTests(unittest.TestCase):
         chosen = ProposalRanker().choose(state, candidates)
 
         self.assertEqual(chosen.action, current)
+
+    def test_route_reference_only_breaks_ties_inside_allowed_actions(self):
+        stay = CONTROL_ACTIONS[0]
+        up = CONTROL_ACTIONS[1]
+        down = CONTROL_ACTIONS[2]
+        left = CONTROL_ACTIONS[3]
+        candidates = (
+            SafeAction(stay, 10.0, 125.0, 118.0),
+            SafeAction(up, 10.0, 125.0, 116.0),
+            SafeAction(down, 10.0, 125.0, 120.0),
+            SafeAction(left, 10.0, 123.0, 118.0),
+        )
+
+        unrestricted = preferred_route_reference_actions(
+            candidates,
+            frozenset(candidate.action for candidate in candidates),
+        )
+        stronger_survival = preferred_route_reference_actions(
+            candidates,
+            frozenset((stay, up)),
+        )
+
+        self.assertEqual(unrestricted, frozenset((down,)))
+        self.assertEqual(stronger_survival, frozenset((stay,)))
 
     def test_expired_directional_proposal_releases_when_neutral_is_hard(self):
         ranker = ProposalRanker()
