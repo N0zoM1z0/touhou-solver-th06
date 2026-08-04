@@ -29,7 +29,8 @@ at annotated tag `pre-phase-route-pivot-20260804`.
   paths.
 - `scripts/th06/solver.py` is the small common authority and route dispatch.
 - `scripts/th06/routes/` contains route keys, source-phase identity, and the
-  authored route packs. The current pilot is Hard/Reimu-A/Stage 4.
+  authored route packs. Hard/Reimu-A/Stage 4 is the first retained pilot;
+  Stage 1 is now the active phase-by-phase route.
 - `scripts/th06/routes/state_machine.py` contains isolated source-clock policy
   states; only the selected route phase can emit an intent.
 - `scripts/th06/barrage_lab/` provides source-derived/stateful offline
@@ -95,7 +96,7 @@ PYTHONPATH=scripts python3 scripts/stress_th06_barrages.py \
 
 ## Physical play
 
-Current Stage 4 pilot:
+Retained Stage 4 pilot:
 
 ```bat
 run_th06_practice.bat --practice-stage 4 --seconds 300
@@ -124,3 +125,8 @@ sections with route-selected, source-clock policy states and bounded local
 horizons. Boss ECL phases are deliberately reported as `phase-unavailable`
 until authored. This fail-visible boundary is intentional; no anonymous
 universal fallback hides missing route work.
+
+Active development has returned to Stage 1 and will expose coverage one
+source phase at a time. Until a Stage 1 phase is authored and physically
+validated, its missing boundary remains visible rather than borrowing Stage
+4 behavior or the retired universal strategy layer.

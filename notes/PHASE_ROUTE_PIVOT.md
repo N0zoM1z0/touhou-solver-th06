@@ -383,3 +383,26 @@ the old online trace independently measured 18.96 ms median and 24.13 ms
 maximum across its tail decisions. The next falsifier therefore restores the
 bottom waypoint and changes only the t1649 tail from h8 to h7. Parent-entry
 and child-circle remain targeted h8; common Hard-4 eligibility is unchanged.
+
+The following ordinary-RNG default fail-close physical run promoted that
+candidate for this source phase. Targeted h7 crossed both retained f1714 and
+f1782 counterexamples and completed the entire t1514 sub10 tail. Its 118
+published policy rows included 24 stale retries; fresh calls measured 11.468
+ms median, 17.553 ms p90, and 23.100 ms maximum. The run then completed the
+t1878 sub3 section and entered t2108 sub2 before stopping alive, without HIT
+or Bomb, at f2200 in `timeline:t1878:subs3-2/sub2-aimed-stream`.
+
+The f2200 terminal has no repairable action, but it is not yet an understood
+counterexample. The trace first becomes consequential much earlier: fresh h8
+decisions repeatedly select downward motion from about f2163, taking the
+player toward the bottom boundary before a late upward correction. Adjacent
+replay of the captured artifact was exact for all 241 player/combat/RNG
+transitions, 33,155 fired-bullet steps, 2,703 spawning steps, 13,580
+player-shot steps, and all 60 enemy transitions. This evidence is retained as
+the next Stage 4 boundary, not promoted into a stable corpus contract until
+its earliest viable decision has been causally explained.
+
+Per the route-by-route plan, Stage 4 exploration stops at that explicit
+boundary. Work now returns to Stage 1 and will author one source phase at a
+time; the successful t1514 h7 result remains a phase-local physical checkpoint
+and does not justify changing any other route phase.

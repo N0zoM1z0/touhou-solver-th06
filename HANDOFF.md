@@ -235,28 +235,36 @@ ms. The current physical candidate therefore restores the bottom waypoint
 and uses h7 only in the t1649 tail. Parent-entry/child-circle remain targeted
 h8 and common Hard-4 authority is unchanged.
 
+The next ordinary-RNG default fail-close physical run promoted this candidate
+for the t1514 source phase. Targeted h7 crossed both old f1714/f1782 states and
+completed the sub10 tail. Across 118 tail policy rows it recorded 24 stale
+retries; fresh solve times were 11.468 ms median, 17.553 ms p90, and 23.100 ms
+maximum. The run continued through t1878 sub3, entered t2108 sub2, and stopped
+alive without HIT or Bomb at f2200 in
+`timeline:t1878:subs3-2/sub2-aimed-stream`.
+
+The new stop is deliberately deferred, not claimed solved. Its terminal has
+no repairable action, but the earliest visible consequential run is around
+f2163, where repeated fresh h8 decisions move downward toward the boundary
+before a late correction. Exact adjacent replay matched all 241
+player/combat/RNG transitions, 33,155 fired-bullet steps, 2,703 spawning
+steps, 13,580 player-shot steps, and 60 enemy transitions. Preserve this as
+the next Stage 4 causal investigation; do not turn the terminal frame into a
+special case or a corpus contract before tracing the first still-viable wrong
+decision.
+
 ## Immediate experiment
 
-Run exactly:
+Return to Stage 1. Inspect the installed `ecldata1.ecl` timeline and the
+authoritative engine source, recover only useful evidence from the historical
+Stage 1 solver, and author the first minimal Hard/Reimu-A source phase. Keep
+the next source boundary explicitly unavailable. Then run Practice Stage 1
+with ordinary RNG and default fail-close to obtain the first integrated
+physical counterexample. Diagnose that phase before adding the next one.
 
-```bat
-run_th06_practice.bat --practice-stage 4 --seconds 300
-```
-
-Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t1514 targeted-h7 tail, t2108 h8, t2388
-constant-frontier, and t2712 sub5 target-loop corrections:
-
-1. a pre-boss policy fails first, in which case the trace must name its exact
-   `route_id`, `phase_id`, and `policy_state`; or
-2. pre-boss play reaches the first boss, where the deliberate
-   `phase-unavailable` stop must report the stable boss ECL phase.
-
-For a pre-boss failure, trace backward to the earliest still-viable route
-proposal. Build a stateful phase corpus from the physical entry history and
-installed timeline/ECL, compare a few phase-specific policies/parameters, and
-change only that phase. For a boss coverage stop, audit and author that exact
-ECL subroutine/callback phase before rerunning.
+Do not continue opportunistically into the deferred Stage 4 f2200 stop while
+Stage 1 is the active route. The route packs are intentionally independent;
+physical promotion of one phase must not alter another phase's policy.
 
 After the run, release every input, stop the exact trial PID, and verify no
 `th06`, agent, or high-CPU process remains. Do not use a PTY.
