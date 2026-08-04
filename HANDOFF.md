@@ -842,10 +842,11 @@ root, and do not extend through the first source attack speculatively.
 
 That audit now opens only sub10. Authoritative ECL disables boss damage and
 collision, starts its 60-tick entry move, installs interrupt 0 -> sub11, and
-contains no hostile birth opcode. The still-active message proves 48 timeline
-waits before t5281 applies that interrupt; sub11 immediately enables collision
-and damage and remains uncovered. The exact f5286 target-only Hard-4 query has
-all 18 actions safe and selects `down_left` toward bottom center.
+contains no hostile birth opcode. The still-active message proves a 48-wait
+earliest-transition lower bound before t5281 can apply that interrupt; sub11
+immediately enables collision and damage and remains uncovered. The exact
+f5286 target-only Hard-4 query has all 18 actions safe and selects `down_left`
+toward bottom center.
 
 Authoritative Reimu-A Rank 4 (Power 32--47) is compiled. Retained physical
 parity is exact for 255/255 player-attack transitions, 145 shot births, and
@@ -858,6 +859,30 @@ can reach sub11's unaudited life callback.
 Run ordinary RNG/default fail-close next. Promotion requires sub10 movement
 to remain under fresh Hard authority with no HIT/Bomb and an intentional stop
 on the first stable sub11 snapshot. Do not issue an unaudited sub11 action.
+
+That physical run promotes sub10. Power was 30 at entry. Sixty-one fresh
+sub10 decisions through f5349 retained all 18 Hard actions and measured
+0.884 ms mean/0.900 ms median/1.500 ms maximum, with no HIT, Bomb, stale
+publication, timeout, or authority loss. The 48 waits were correctly only a
+lower bound: a source WAIT kept the bound at 38 long enough for the boss to
+reach local t60. F5344 exactly completed the move at `(192,96)`; f5345 ran the
+t60 animation/bounds instructions with no hostile birth and collision/damage
+still disabled. Message 0 ended at f5348 and t5281 applied interrupt 0 on the
+f5350 update.
+
+F5350 is the intentional stop: sub11 local t1 at `(192,96)`, life 7000,
+damageable/collidable, Hard callbacks 22/22, all 18 Hard actions available,
+and no unaudited action issued. All 63 adjacent sub10 emitter transitions are
+source-exact, including t60. The retained window has 255/255 exact player
+attack transitions and 185/185 exact supported combat transitions; 53 active
+message-wait pairs remain explicitly unsupported. Across the full run CSV,
+no player-dead state or Bomb bit appears, and f5350 is the only authority stop.
+
+Next audit sub11 and the called sub12 pattern from this exact root. Account for
+candidate damage, the Hard callbacks 22/22, and the source t100 call before
+authoring its first nonspell interval. Offline work should stop where damage
+can first change callback timing; do not treat the current empty screen as the
+whole nonspell.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

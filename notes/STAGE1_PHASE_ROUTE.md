@@ -1017,11 +1017,12 @@ anywhere in sub10. Its t1060 rewind is irrelevant to the ordinary online path
 but remains part of the audited source graph.
 
 The stage timeline is still stopped on the t5280 MSGWAIT. The captured message
-VM proves 48 remaining priority-9 waits; after the wait releases, t5281 writes
-interrupt 0 before the boss slot updates, so the first unaudited state is
-sub11 rather than sub10 local t60. Sub11 enables collision and damage at time
-zero, installs life 7000 plus life/timer callbacks, and reaches its first call
-site at local t100. It therefore stays a distinct fail-visible phase.
+VM proves a lower bound of 48 remaining priority-9 waits; it is an earliest
+transition bound, not an exact decrementing countdown. After the wait releases,
+t5281 writes interrupt 0 before the boss slot updates. Sub11 enables collision
+and damage at time zero, installs life 7000 plus life/timer callbacks, and
+reaches its first call site at local t100. It therefore stays a distinct
+fail-visible phase.
 
 Reimu-A Rank 4 (Power 32--47) is now compiled directly from authoritative
 `g_CharacterPowerBulletDataReimuARank4`: three five-frame main shots at
@@ -1040,3 +1041,27 @@ active, not-yet-authored life callback. The next physical candidate therefore
 uses only target-only Hard-4 toward bottom center during sub10. The exact root
 retains all 18 Hard actions and selects `down_left`; sub11 remains uncovered,
 so the run must stop on its first stable snapshot.
+
+The ordinary-RNG default fail-close run physically promotes this candidate.
+It reached sub10 at f5286 with Power 30, then published 61 fresh entry decisions
+through f5349. Every decision retained all 18 Hard actions; solve time was
+0.884 ms mean, 0.900 ms median, and 1.500 ms maximum. There was no HIT, Bomb,
+stale decision, timeout, or authority loss in this phase.
+
+The physical message did not release at the 48-frame lower bound. Its computed
+bound remained at 38 during a source WAIT interval, so sub10 reached local t60
+at f5344 and exactly completed the decelerating move at `(192,96)`. It executed
+the t60 animation/bounds instructions on f5345 and remained non-damageable,
+non-collidable, and bullet-free. Message 0 ended at f5348, the timeline reached
+t5281 at f5349, and the next update applied interrupt 0. F5350 is the first
+stable sub11 root: `(192,96)`, local t1, life 7000, damageable/collidable, and
+Hard difficulty callbacks 22/22. The route issued no sub11 action and stopped
+with all 18 Hard actions still available.
+
+All 63 adjacent physical sub10 emitter transitions match the source ECL model,
+including the t60 movement completion and instruction advance. The retained
+255-pair window also has exact player attack on 255/255 pairs and exact full
+combat state on all 185 supported pairs; 53 message-wait pairs remain
+explicitly unsupported by the stateful timeline VM. Across the complete CSV,
+there is no dead player state and neither native nor desired input ever carries
+Bomb bit `0x02`. The sole authority stop is the intended f5350 sub11 boundary.
