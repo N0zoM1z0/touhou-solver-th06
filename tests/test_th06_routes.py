@@ -13,6 +13,7 @@ from th06.routes.stage1_hard_reimu_a import (
     HardReimuAStage1,
     MIDBOSS_INSERTION,
     POST_MIDBOSS_AIMED_STREAM,
+    POST_MIDBOSS_RESOURCE_PHASE_ID,
     RANDOM_BODY_STREAM,
     SECOND_BODY_STREAM,
 )
@@ -173,7 +174,16 @@ class RoutePhaseTests(unittest.TestCase):
 
         post_midboss = pack.intent(snapshot(stage=1, timeline_time=3827))
         residual_tail = pack.intent(snapshot(stage=1, timeline_time=4497))
-        next_resource = pack.intent(snapshot(stage=1, timeline_time=4498))
+        next_resource = pack.intent(snapshot(
+            stage=1,
+            timeline_time=4498,
+            item_states=(ItemState(
+                10, 44.0, 80.0, 0.0, -2.0, 0.0, 0.0,
+                0, 1, 1.0, 2, 0,
+            ),),
+        ))
+        resource_tail = pack.intent(snapshot(stage=1, timeline_time=5277))
+        dialogue = pack.intent(snapshot(stage=1, timeline_time=5278))
         self.assertEqual(post_midboss.phase_id, POST_MIDBOSS_AIMED_STREAM.phase_id)
         self.assertEqual(
             post_midboss.policy_state,
@@ -183,11 +193,14 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(post_midboss.horizon, 8)
         self.assertIsNone(post_midboss.target)
         self.assertEqual(residual_tail.phase_id, post_midboss.phase_id)
-        self.assertEqual(next_resource.algorithm, "uncovered")
-        self.assertEqual(
-            next_resource.phase_id,
-            "timeline:t4498:sub0-resource-formations",
-        )
+        self.assertEqual(next_resource.algorithm, "target-only")
+        self.assertEqual(next_resource.phase_id, POST_MIDBOSS_RESOURCE_PHASE_ID)
+        self.assertEqual(next_resource.policy_state, "power-item-collection")
+        self.assertEqual(next_resource.horizon, 4)
+        self.assertEqual(next_resource.target, (44.0, 80.0))
+        self.assertEqual(resource_tail.phase_id, next_resource.phase_id)
+        self.assertEqual(dialogue.algorithm, "uncovered")
+        self.assertEqual(dialogue.phase_id, "timeline:t5278:preboss-dialogue")
 
     def test_common_solver_stops_if_stage1_midboss_is_missing_after_insertion(self):
         decision = Solver(decision_budget_ms=100.0).decide(

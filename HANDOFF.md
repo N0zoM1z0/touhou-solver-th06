@@ -765,6 +765,27 @@ to cross the complete residual aimed stream with no HIT, Bomb, stale authority,
 or timeout and stop at the distinct t4498 sub0 resource formation. Common
 Hard-4, hazard semantics, and the already promoted boss route are unchanged.
 
+The next physical run took a later boss/timeline interleaving and therefore
+did not exercise that h8 candidate: the midboss remained active past t4498.
+The run stayed fail-close and stopped alive at f4637 after sub6 removed the
+boss, with no HIT, Bomb, authority loss, or timeout. Two stale retries occurred
+earlier in already promoted boss/timeline phases and recovered fresh Hard; no
+post-midboss h8 decision was published. Keep that phase as an offline candidate,
+not a physical promotion.
+
+The active root is now inside source t4498--4978. The 62 sub0 parents have life
+3 and random-item drops; their difficulty-mask `0x08` bullet instruction is
+inactive on Hard. F4637 has Power 6 plus one Big and four Small Power items.
+Exact 641-frame replay through the t5278 dialogue boundary keeps 32/32 dynamic
+delivery branches alive, raises Power to 25--29, uses 66--120 commands, and
+never reaches unsupported Rank 4. The old bottom target reaches only Power
+18--20 and uses roughly 241--246 commands.
+
+The next physical candidate covers only no-boss t4498<=timeline<t5278 as
+target-only Hard-4 with live Power-item priority. Dialogue at t5278 remains
+uncovered and separate from movement. Run ordinary RNG/default fail-close;
+promotion requires actual Power gain plus a safe stop at the dialogue boundary.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

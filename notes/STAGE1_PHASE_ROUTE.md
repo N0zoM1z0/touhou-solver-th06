@@ -898,3 +898,31 @@ every individual world. The full-section worst-case margin selects target-free
 h8 as the smallest physical candidate with the stronger measured tail reserve;
 this is a phase-local falsifier, not a universal horizon claim. Coverage ends
 before t4498 so the following resource formation remains explicit.
+
+The next ordinary-RNG physical run did not exercise this candidate. Its
+midboss survived until after timeline t4498, so boss-owned policy remained
+active throughout the entire t2408--4298 insertion section. It safely stopped
+at f4637 only after sub6 removed the boss, with the timeline already inside the
+next resource section. The h8 post-midboss policy therefore remains an offline
+candidate for earlier-boss-removal worlds; it is not physically promoted by
+that run.
+
+## post-midboss random-item resource candidate
+
+Physical f4637 is alive at timeline t4637 with no enemy or hostile bullet,
+Power 6, and the SpellEnd Big Power plus four Small Power items still live.
+The installed t4498--4978 section contains 62 sub0 parents. Each explicit
+timeline record supplies life 3 and item drop -1, so killed parents consume the
+source random-item table. Sub0's only bullet instruction has difficulty mask
+`0x08` and does not execute on Hard. The next source control event is the t5278
+dialogue start; movement coverage must end before it.
+
+Exact battle replay from f4637 through 641 updates compares the old bottom
+waypoint with a live Power-item target. Across eight paired delivery seeds,
+the bottom target survives but uses 241--246 commands and reaches only Power
+18--20. The Power target survives with 66--116 commands and reaches Power
+25--29. A 32-seed extension keeps every branch alive through t5278, uses
+66--120 commands, ends at Power 25--29, and never crosses into uncompiled
+Reimu-A Rank 4. The policy is dynamic over source item type and position, not
+slot or captured coordinates: Big/Full Power first, then nearest Small Power,
+then the bottom waypoint when no Power item is live. Common Hard-4 is unchanged.
