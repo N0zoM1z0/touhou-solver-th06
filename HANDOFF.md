@@ -314,6 +314,15 @@ ECL and author the smallest t2008 insertion bridge; after the newborn enemy
 sets its boss state, switch to the stable source boss identity and leave the
 first unaudited midboss state fail-visible.
 
+The sub8 audit is now explicit. Its local t0 sets boss/death/life/timer
+callbacks, local t60 enables damage and collision, and local t160 emits the
+first Hard player-aimed 16-by-5 circle. Only the one-frame t2008 timeline
+insertion is authored with bottom-target h4 and a one-frame commitment.
+Physically falsify it with ordinary RNG/default fail-close. Expected success
+is an alive stop on stable `boss:0:sub8:life_cb9:timer_cb7:nonspell` identity
+at the next snapshot; `timeline:t2009:sub8-midboss-missing` is the explicit
+failure if source publication does not match the model.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

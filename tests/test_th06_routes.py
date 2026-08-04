@@ -11,6 +11,7 @@ from th06.routes.stage1_hard_reimu_a import (
     AIMED_STREAM,
     FIRST_BODY_STREAM,
     HardReimuAStage1,
+    MIDBOSS_INSERTION,
     RANDOM_BODY_STREAM,
     SECOND_BODY_STREAM,
 )
@@ -119,7 +120,7 @@ class RoutePhaseTests(unittest.TestCase):
             state, player_attack=player_attack(shot_type=1)
         )))
 
-    def test_stage1_authored_phases_stop_before_t2008_midboss(self):
+    def test_stage1_authored_phases_bridge_only_into_t2008_midboss(self):
         pack = HardReimuAStage1()
 
         setup = pack.intent(snapshot(stage=1, timeline_time=127))
@@ -132,7 +133,8 @@ class RoutePhaseTests(unittest.TestCase):
         random_tail = pack.intent(snapshot(stage=1, timeline_time=1401))
         second_stream = pack.intent(snapshot(stage=1, timeline_time=1600))
         second_tail = pack.intent(snapshot(stage=1, timeline_time=1809))
-        next_phase = pack.intent(snapshot(stage=1, timeline_time=2008))
+        insertion = pack.intent(snapshot(stage=1, timeline_time=2008))
+        next_phase = pack.intent(snapshot(stage=1, timeline_time=2009))
 
         self.assertEqual(setup.phase_id, "timeline:t0:setup")
         self.assertEqual(first.phase_id, FIRST_BODY_STREAM.phase_id)
@@ -158,15 +160,19 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(second_stream.horizon, 4)
         self.assertIsNotNone(second_stream.target)
         self.assertEqual(second_tail.policy_state, "tail")
+        self.assertEqual(insertion.phase_id, MIDBOSS_INSERTION.phase_id)
+        self.assertEqual(insertion.policy_state, "timeline-insertion")
+        self.assertEqual(insertion.algorithm, "target-only")
+        self.assertEqual(insertion.commitment_frames, 1)
         self.assertEqual(next_phase.algorithm, "uncovered")
         self.assertEqual(
             next_phase.phase_id,
-            "timeline:t2008:sub8-midboss-entry",
+            "timeline:t2009:sub8-midboss-missing",
         )
 
-    def test_common_solver_stops_at_uncovered_stage1_t2008_phase(self):
+    def test_common_solver_stops_if_stage1_midboss_is_missing_after_insertion(self):
         decision = Solver(decision_budget_ms=100.0).decide(
-            snapshot(stage=1, timeline_time=2008)
+            snapshot(stage=1, timeline_time=2009)
         )
 
         self.assertTrue(decision.safe_actions)
@@ -175,7 +181,31 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(decision.route_id, "hard-reimu-a-stage1")
         self.assertEqual(
             decision.phase_id,
-            "timeline:t2008:sub8-midboss-entry",
+            "timeline:t2009:sub8-midboss-missing",
+        )
+
+    def test_stage1_midboss_uses_stable_sub8_identity_after_insertion(self):
+        subroutines = tuple(0x1000 + index * 0x100 for index in range(10))
+        boss = SimpleNamespace(
+            is_boss=True,
+            boss_id=0,
+            slot=0,
+            next_instruction=SimpleNamespace(address=subroutines[8] + 0x10),
+            ecl_subroutines=subroutines,
+            life_callback_sub=9,
+            timer_callback_sub=7,
+        )
+
+        intent = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2009,
+            spawners=(boss,),
+        ))
+
+        self.assertEqual(intent.algorithm, "uncovered")
+        self.assertEqual(
+            intent.phase_id,
+            "boss:0:sub8:life_cb9:timer_cb7:nonspell",
         )
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):

@@ -1,8 +1,8 @@
 """Hard/Reimu-A Stage 1, authored one source phase at a time.
 
-Only the quiet setup and source phases through the t1600 body/resource stream
-are covered. The t2008 midboss entry is deliberately fail-visible until the
-preceding formation has physical evidence.
+The quiet setup and source phases through the t1600 body/resource stream are
+covered. At t2008 only the one-frame source insertion bridge is authored; the
+newborn sub8 boss phase remains deliberately fail-visible.
 """
 
 from __future__ import annotations
@@ -143,6 +143,25 @@ SECOND_BODY_STREAM = TimelineStateMachine(
 )
 
 
+MIDBOSS_INSERTION = TimelineStateMachine(
+    "timeline:t2008:sub8-midboss-entry",
+    (
+        PolicyState(
+            2008,
+            "timeline-insertion",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            commitment_frames=1,
+            provenance=(
+                "physical f2008 boundary before RunEclTimeline creates "
+                "sub8; common source future already contains the boss body"
+            ),
+        ),
+    ),
+)
+
+
 def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     return RouteIntent(
         phase_id=phase_id,
@@ -184,8 +203,10 @@ class HardReimuAStage1:
             return RANDOM_BODY_STREAM.intent(snapshot)
         if snapshot.timeline_time < 2008:
             return SECOND_BODY_STREAM.intent(snapshot)
+        if snapshot.timeline_time < 2009:
+            return MIDBOSS_INSERTION.intent(snapshot)
         return uncovered(
-            "timeline:t2008:sub8-midboss-entry",
-            "next installed source phase begins with the sub8 midboss "
-            "entry at t2008",
+            "timeline:t2009:sub8-midboss-missing",
+            "sub8 should have published stable boss ECL state after its "
+            "t2008 timeline insertion",
         )

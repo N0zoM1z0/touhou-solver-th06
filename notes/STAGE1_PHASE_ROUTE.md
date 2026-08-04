@@ -196,3 +196,23 @@ window now matches all 255 combat/rank transitions, 2,091 player-shot steps,
 and all 24 enemy transition frames with no unsupported state. The next phase
 must author only the t2008 insertion bridge and then identify sub8 from its
 source ECL state.
+
+## t2008 midboss insertion candidate
+
+The physical f2008 snapshot is still immediately before the timeline spawn:
+it has no boss slot, although the decoded source manifest already marks sub8
+as a boss-producing routine. Installed sub8 performs `BOSSSET`, death callback
+sub6, Hard/Lunatic life threshold 500 to sub9, and timer threshold 1440 to
+sub7 at local t0. It moves from `(192,-32)` toward the playfield, enables
+damage and collision at local t60, and emits its first Hard attack at local
+t160: a player-aimed 16-by-5 circle with speeds 2.0 through 1.2. Later aimed
+circles occur at local t414/t444 and t738/t768 around source-defined movement
+segments.
+
+Those are separate boss policy states and are not authored by inference. The
+next falsifier covers only source t2008 with bottom-target h4 and a one-frame
+commitment. Common Hard already projects the source boss body across that
+transition. At the following snapshot the route must either expose stable
+`boss:0:sub8:life_cb9:timer_cb7:nonspell` identity or fail visibly as
+`timeline:t2009:sub8-midboss-missing`; it must not continue on an anonymous
+timeline policy.
