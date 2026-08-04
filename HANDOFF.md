@@ -890,8 +890,9 @@ at local t100. Sub12 starts a 60-tick random-in-bounds move and emits seven Hard
 aimed-fan groups at t12--t60. Hard difficulty mask 0x04 gives group sizes
 10/10/10/10/20/30/40, totaling 130 bullets at base speed 5; the earlier
 200-bullet count was the mask-0x08 Lunatic stream. At t180 it consumes the RNG
-branch that may call sub13 or sub14 before always calling sub15; that transition
-and all later pattern states remain uncovered.
+branch: values zero/one CALL sub13/sub14, while value two falls through to CALL
+sub15. These callees contain no RET, so a taken conditional CALL does not return
+to the later sub15 instruction. All later pattern states remain uncovered.
 
 The exact f5350 battle world compares only through the t180 boundary. Plain h8
 policy-volume survived 7/8 delivery seeds; h8 `count-clearance`, which ranks
@@ -938,9 +939,33 @@ state. The f5628->f5629 transition consumes the modeled RNG and enters sub14;
 no unaudited route decision is issued there.
 
 Use exact f5629 next. Audit sub14's time-zero movement and first Hard attack,
-plus the subsequent unconditional sub15 call/return structure, before opening
-another bounded state. Keep sub13 as a separate RNG sibling even though this
-physical run selected sub14.
+plus its exclusive t200 CALL branches, before opening another bounded state.
+Keep sub13 as a separate RNG sibling even though this physical run selected
+sub14.
+
+That bounded sub14 audit is now a physical candidate. Source time zero chooses
+a random-in-bounds direction, speed 3, and 60-tick motion. Hard mask 0x04 emits
+an aimed 5x16 fan at local t80 and an aimed 24x2 circle at t110. At t200 the
+source draws a three-way integer: values zero/one CALL sub13/sub12, while value
+two falls through to CALL sub15. The callees do not RET. Only `ecl_time < 200`
+is opened; sub13, sub12 re-entry, sub15, and life
+callback sub22 stay fail-visible.
+
+The previous count-clearance h8 policy fails one exact delivery branch in this
+phase, confirming that policy does not leak across source states. Exact-root
+and warmup-derived screens select target-free constant-frontier h10: 8/8 exact
+branches and 62/62 branches from 31 source-valid worlds reach t200 or a stable
+called subroutine. The 31 worlds came from 2,263 Hard-safe warmup updates and
+1,456 births and span 29 enemy-combat, 31 player-attack, and 22 RNG states.
+The worst measured clearance is only 0.354, so this remains a narrow physical
+falsifier. Full Hard-4 plus constant-h10 native queries measured 1.337 ms
+median, 1.644 ms p90, 2.073 ms p99, and 2.383 ms maximum on 199 consecutive
+candidate states.
+
+Run ordinary RNG/default fail-close. Expected success is an alive stop on the
+first stable t200 branch or an earlier source life callback, with no sub13/
+sub12/sub15 strategy action. Require exact adjacent parity for both aimed
+births, movement, candidate damage, callback timing, and t200 RNG/CALL state.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

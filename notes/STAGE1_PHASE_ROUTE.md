@@ -1081,8 +1081,9 @@ the following bounded source contract:
   ten secondary lanes, for 130 bullets at base speeds 5 and 1. The 1, 2, 2,
   3, 3, 4, 5 / 200-bullet sequence belongs to Lunatic mask `0x08`; the first
   audit incorrectly conflated these masks;
-- sub12 local t180 draws a three-way integer, conditionally calls sub13 or
-  sub14 for values zero/one, and then unconditionally calls sub15.
+- sub12 local t180 draws a three-way integer. Values zero/one CALL sub13/sub14;
+  value two skips both conditions and falls through to CALL sub15. None of
+  these callees RET, so a taken conditional CALL does not later reach sub15.
 
 The route stops before that t180 branch. Callback 22 is also a distinct spell
 transition, so candidate damage and boss life remain part of every offline
@@ -1166,3 +1167,48 @@ and publishes sub14 local t1; the route issues no sub14 strategy action. Audit
 sub14's movement/first attack and the following sub15 call structure next.
 Sub13 remains an independent RNG sibling and must be audited separately rather
 than inheriting sub14 policy.
+
+## main-boss sub14 candidate
+
+The exact f5629 root enters sub14 local t1 with boss life 4634 and 61 residual
+sub12 bullets. Installed source gives this bounded contract:
+
+- time zero selects a random-in-bounds direction, speed 3, for 60 ticks;
+- Hard mask `0x04` emits opcode 67 at t80: aimed fan, sprite 2/color 2,
+  `count1=5`, `count2=16`, speeds 5/1, angle step pi/48, flags 8;
+- Hard mask `0x04` emits opcode 69 at t110: aimed circle, sprite 1/color 6,
+  `count1=24`, `count2=2`, speed 2.5, flags 4;
+- t200 draws a three-way integer. Values zero/one CALL sub13/sub12; value two
+  skips both conditions and falls through to CALL sub15. The callees do not
+  RET, so these are three exclusive persistent source states.
+
+Sub13 is a different seven-circle stream and sub15 is a variable-angle loop;
+neither is covered by this state. Candidate damage may also reach life callback
+sub22 before t200, so the stateful world retains boss life and treats that
+callback as another stable boundary.
+
+The first exact comparison rejects copying the preceding phase's policy.
+Count-clearance h8 has one lease-authority stop across eight delivery seeds.
+Policy-volume h8 also loses one. Constant-reserve-count h8 passes the exact
+eight but loses 3/62 on a wider warmup-derived screen; h10 moves those failures
+but still loses 2/62. Deeper terminal metrics repair different roots without a
+consistent smallest winner.
+
+Target-free constant-frontier h10 is the smallest candidate that survives the
+whole screen: 8/8 exact roots plus 62/62 delivery branches from 31 derived
+worlds reach t200 or a stable called subroutine. The derived corpus was produced
+by 2,263 Hard-safe warmup updates with 1,456 source births and contains 29
+unique enemy-combat states, 31 player-attack states, and 22 RNG states. Its
+worst clearance is 0.354, so the result selects a physical falsifier rather
+than proving a robust route.
+
+This primitive does not count aliased paths. It keeps only first actions whose
+unchanged control remains safe through a ten-frame, delivery-aware source
+projection; ranking still occurs inside the fresh common Hard set. On 199
+consecutive candidate states, complete Hard-4 plus constant-h10 queries cost
+1.337 ms median, 1.644 ms p90, 2.073 ms p99, and 2.383 ms maximum.
+
+Only sub14 `ecl_time < 200` is candidate-authored as
+`first-nonspell-hard-fan-circle`. A default fail-close run must stop on the
+first stable t200 branch or life callback and must retain exact adjacent parity
+for movement, both aimed births, player shots, boss damage/life, and RNG.

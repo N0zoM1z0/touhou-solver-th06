@@ -325,6 +325,21 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "damage, ECL movement, RNG, and delivery through t179"
             ),
         )
+    if subroutine == 14 and not spell_active and boss.ecl_time < 200:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-hard-fan-circle",
+            algorithm="constant-frontier",
+            horizon=10,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f5629 sub14 root; source moves at time zero, "
+                "emits the Hard t80 aimed 5x16 fan and t110 aimed 24x2 "
+                "circle, then branches at t200; exact and warmup-derived "
+                "battle worlds select a target-free constant h10 reserve"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "

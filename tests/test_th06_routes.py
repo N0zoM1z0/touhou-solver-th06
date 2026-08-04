@@ -313,6 +313,42 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(branch_boundary.algorithm, "uncovered")
         self.assertEqual(branch_boundary.policy_state, "uncovered")
 
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[14] + 0x10
+        )
+        boss.ecl_time = 1
+        hard_fan_circle = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(hard_fan_circle.algorithm, "constant-frontier")
+        self.assertEqual(
+            hard_fan_circle.policy_state,
+            "first-nonspell-hard-fan-circle",
+        )
+        self.assertEqual(hard_fan_circle.horizon, 10)
+        self.assertIsNone(hard_fan_circle.target)
+
+        boss.ecl_time = 200
+        hard_fan_boundary = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(hard_fan_boundary.algorithm, "uncovered")
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[13] + 0x10
+        )
+        boss.ecl_time = 1
+        sibling = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(sibling.algorithm, "uncovered")
+
     def test_stage1_midboss_uses_stable_sub8_identity_after_insertion(self):
         subroutines = tuple(0x1000 + index * 0x100 for index in range(10))
         boss = SimpleNamespace(
