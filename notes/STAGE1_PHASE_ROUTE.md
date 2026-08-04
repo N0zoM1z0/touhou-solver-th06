@@ -948,3 +948,20 @@ This validates the item-aware soft proposal only within unchanged Hard-4
 eligibility. It does not authorize movement through dialogue. The next
 falsifiable boundary is the source-defined t5278 dialogue and t5279 main-boss
 insertion, with dialogue control kept separate from movement.
+
+## pre-boss dialogue candidate
+
+The authoritative update order is EnemyManager at priority 9 and Gui at
+priority 12. At t5278 the timeline starts message 0; t5279 MSGWAIT then holds
+the timeline until the message VM executes its time-84 ECLRESUME. The installed
+message program proves six earliest wait updates with fastest source-legal
+input. When the wait releases, RunEclTimeline inserts sub10 in that same update
+before the new enemy slot runs its time-zero ECL.
+
+The candidate therefore covers only the no-boss t5278/t5279 snapshots with a
+bottom-center target-only Hard-4 proposal. Existing independent Ctrl/Z dialogue
+control advances the message; the route does not emit or reinterpret those
+keys. The exact physical t5278 root has 18 Hard-safe actions under this policy,
+including the six-update message delay and future sub10 world. A no-boss t5280
+snapshot and every newborn sub10 state remain fail-visible. The next physical
+run must stop at the first stable sub10 root.

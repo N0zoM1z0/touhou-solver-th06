@@ -14,6 +14,7 @@ from th06.routes.stage1_hard_reimu_a import (
     MIDBOSS_INSERTION,
     POST_MIDBOSS_AIMED_STREAM,
     POST_MIDBOSS_RESOURCE_PHASE_ID,
+    PREBOSS_DIALOGUE,
     RANDOM_BODY_STREAM,
     SECOND_BODY_STREAM,
 )
@@ -88,7 +89,10 @@ class RoutePhaseTests(unittest.TestCase):
 
         self.assertEqual(len(timeline), 231)
         self.assertTrue(
-            {128, 432, 576, 640, 1220, 1400, 1600, 1808, 2008}
+            {
+                128, 432, 576, 640, 1220, 1400, 1600, 1808, 2008,
+                5278, 5279, 5280,
+            }
             <= source_times
         )
 
@@ -184,6 +188,8 @@ class RoutePhaseTests(unittest.TestCase):
         ))
         resource_tail = pack.intent(snapshot(stage=1, timeline_time=5277))
         dialogue = pack.intent(snapshot(stage=1, timeline_time=5278))
+        dialogue_wait = pack.intent(snapshot(stage=1, timeline_time=5279))
+        missing_boss = pack.intent(snapshot(stage=1, timeline_time=5280))
         self.assertEqual(post_midboss.phase_id, POST_MIDBOSS_AIMED_STREAM.phase_id)
         self.assertEqual(
             post_midboss.policy_state,
@@ -199,8 +205,16 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(next_resource.horizon, 4)
         self.assertEqual(next_resource.target, (44.0, 80.0))
         self.assertEqual(resource_tail.phase_id, next_resource.phase_id)
-        self.assertEqual(dialogue.algorithm, "uncovered")
-        self.assertEqual(dialogue.phase_id, "timeline:t5278:preboss-dialogue")
+        self.assertEqual(dialogue.phase_id, PREBOSS_DIALOGUE.phase_id)
+        self.assertEqual(dialogue.policy_state, "message-zero-wait")
+        self.assertEqual(dialogue.algorithm, "target-only")
+        self.assertEqual(dialogue.horizon, 4)
+        self.assertEqual(dialogue_wait.phase_id, dialogue.phase_id)
+        self.assertEqual(missing_boss.algorithm, "uncovered")
+        self.assertEqual(
+            missing_boss.phase_id,
+            "timeline:t5280:sub10-main-boss-missing",
+        )
 
     def test_common_solver_stops_if_stage1_midboss_is_missing_after_insertion(self):
         decision = Solver(decision_budget_ms=100.0).decide(

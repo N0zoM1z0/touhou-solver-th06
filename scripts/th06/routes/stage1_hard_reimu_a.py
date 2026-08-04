@@ -1,9 +1,4 @@
-"""Hard/Reimu-A Stage 1, authored one source phase at a time.
-
-The quiet setup and source phases through the t1600 body/resource stream are
-covered. At t2008 only the one-frame source insertion bridge is authored; the
-newborn sub8 boss phase remains deliberately fail-visible.
-"""
+"""Hard/Reimu-A Stage 1, authored one source phase at a time."""
 
 from __future__ import annotations
 
@@ -225,6 +220,26 @@ POST_MIDBOSS_AIMED_STREAM = TimelineStateMachine(
 
 POST_MIDBOSS_RESOURCE_PHASE_ID = (
     "timeline:t4498:sub0-random-item-resource-formations"
+)
+
+
+PREBOSS_DIALOGUE = TimelineStateMachine(
+    "timeline:t5278:preboss-dialogue",
+    (
+        PolicyState(
+            5278,
+            "message-zero-wait",
+            "target-only",
+            4,
+            BOTTOM_CENTER,
+            provenance=(
+                "source t5278 MSGREAD(0) and t5279 MSGWAIT; installed message "
+                "bytecode proves six earliest wait updates before ECLRESUME "
+                "allows the same-update sub10 boss insertion; Ctrl/Z dialogue "
+                "control remains independent of this movement proposal"
+            ),
+        ),
+    ),
 )
 
 
@@ -490,7 +505,10 @@ class HardReimuAStage1:
             return POST_MIDBOSS_AIMED_STREAM.intent(snapshot)
         if snapshot.timeline_time < 5278:
             return post_midboss_resource_intent(snapshot)
+        if snapshot.timeline_time < 5280:
+            return PREBOSS_DIALOGUE.intent(snapshot)
         return uncovered(
-            "timeline:t5278:preboss-dialogue",
-            "the source dialogue and main-boss insertion have not been authored",
+            "timeline:t5280:sub10-main-boss-missing",
+            "sub10 should have published stable boss ECL state after the "
+            "t5279 dialogue-gated timeline insertion",
         )

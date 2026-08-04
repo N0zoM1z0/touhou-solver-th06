@@ -802,6 +802,15 @@ start followed by the t5279 boss insertion sequence. Dialogue/advance control
 must remain separate from player movement, and the first new experiment should
 stop at the smallest newly understood boss root.
 
+That audit now opens only the no-boss t5278/t5279 bridge. EnemyManager starts
+message 0 before Gui runs; t5279 MSGWAIT holds for a proved minimum six updates
+until ECLRESUME, then the same EnemyManager update inserts sub10. Movement stays
+bottom-center target-only Hard-4, while the existing independent dialogue
+skipper owns Ctrl/Z. The exact physical t5278 artifact has 18 Hard-safe actions
+with the future message delay and sub10 insertion present. Sub10 itself remains
+uncovered, so the next default fail-close run should stop on its first stable
+snapshot rather than entering the boss pattern.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
