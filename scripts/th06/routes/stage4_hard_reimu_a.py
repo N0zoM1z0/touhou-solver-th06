@@ -81,7 +81,20 @@ TIMELINE_PHASES = (
     ),
     phase(
         "timeline:t1878:subs3-2",
-        state(1878, "aimed-stream", 12, "subs3/2 immediate aimed fans"),
+        # On four retained physical roots in the sub3 group, h6 produced the
+        # same first proposal under the static native policy and the offline
+        # candidate-conditioned combat world.  h8 diverged on two roots.  The
+        # failed h12 physical run also timed out repeatedly after choosing a
+        # downward entry and reached the lower boundary before authority loss.
+        state(
+            1878,
+            "sub3-aimed-stream",
+            6,
+            "physical f1931 CE; 4/4 static/causal h6 entry agreement",
+        ),
+        # Do not extrapolate the sub3 result across the source transition.
+        # Timeline t2108 changes the spawned ECL routine to sub2.
+        state(2108, "sub2-aimed-stream", 12, "timeline switches to sub2"),
         state(2239, "tail", 8, "last immediate fan spawned at t2238"),
     ),
     phase(

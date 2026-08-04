@@ -133,7 +133,14 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(horizontal.state(2458).horizon, 6)
         self.assertEqual(following.state(2712).state_id, "dense-aimed-stream")
         self.assertEqual(following.state(2712).horizon, 6)
-        self.assertEqual(timeline_phase(1878).state(2200).horizon, 12)
+
+    def test_t1878_sub3_causal_boundary_does_not_leak_into_sub2(self):
+        stream = timeline_phase(1878)
+
+        self.assertEqual(stream.state(1878).state_id, "sub3-aimed-stream")
+        self.assertEqual(stream.state(2107).horizon, 6)
+        self.assertEqual(stream.state(2108).state_id, "sub2-aimed-stream")
+        self.assertEqual(stream.state(2108).horizon, 12)
 
     def test_phase_state_machine_can_seek_without_cross_phase_history(self):
         machine = TimelineStateMachine(

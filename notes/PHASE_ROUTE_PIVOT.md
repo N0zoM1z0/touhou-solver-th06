@@ -164,3 +164,26 @@ The state representation is intentionally deterministic under offline seek:
 replaying t2458 directly selects the same state without mutable controller
 history. Future RNG/resource/callback machines may implement the same private
 intent contract, while common Hard authority remains unchanged.
+
+## First state-machine physical counterexample
+
+The ordinary-RNG default fail-close Stage 4 run after `04f8058` crossed the
+old f1615 stop and completed `t1514/child-circle`. It stopped alive without a
+HIT or Bomb at f1931 in `t1878/sub3-aimed-stream`. The terminal empty Hard set
+was downstream: at f1878 the h12 proposal selected `down_fast` from y=392.24,
+and repeated 17--24 ms policy queries timed out while the delivered commands
+carried the player to the lower boundary.
+
+The installed timeline spawns sub3 from alternating sides every ten source
+ticks from t1878 through t2008. Its Hard ECL instruction is a 9x2 aimed fan,
+enabled with a delayed, rank-adjusted interval whose ECL base is 50 and whose
+starting timer offset consumes RNG. On retained physical roots f1878, f1890,
+f1901, and f1911, one-step native h6 proposals agreed with the compact
+candidate-conditioned combat-world proposal on all four roots. h8 disagreed
+on two roots. Four static queries took 0.265 seconds; the causal counterparts
+took 7.20 seconds, so the causal model is an offline discriminator rather than
+an online primitive.
+
+The falsifier changes only `sub3-aimed-stream` to h6. At timeline t2108 the
+source switches to sub2, so a separate `sub2-aimed-stream` state retains h12
+until physical/offline evidence supports a change.

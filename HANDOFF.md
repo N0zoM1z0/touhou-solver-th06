@@ -100,8 +100,8 @@ phase may deliberately select.
 
 Current checks after the state-machine extraction:
 
-- Linux: 272 tests passed, 25 skipped;
-- Windows/native: 272 tests passed, no skips/failures;
+- Linux: 273 tests passed, 25 skipped;
+- Windows/native: 273 tests passed, no skips/failures;
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
@@ -117,8 +117,25 @@ ms median solve time. The next stop was alive at f1615 in
 `timeline:t1514:sub10`: h12 measured 19.785 ms median with 10 stale results and
 18 timeouts. Offline retained-root replay kept all compared horizons alive for
 32 frames, while h8 used materially fewer commands. t1514 is now h8 and its
-f1615 boundary maps specifically to policy state `child-circle`; it awaits a
-physical rerun.
+f1615 boundary maps specifically to policy state `child-circle`; the next
+physical rerun crossed it.
+
+The first state-machine physical rerun used ordinary RNG and default
+fail-close. It crossed f1615, completed `t1514/child-circle`, and stopped alive
+with no HIT or Bomb at f1931 in `t1878/sub3-aimed-stream`. The consequential
+decision preceded the terminal empty Hard set: at phase entry f1878 the h12
+policy chose `down_fast` from `(204.24, 392.24)`, then repeated 17--24 ms
+queries timed out while delivery carried the player to the lower boundary.
+Installed timeline/ECL shows alternating sub3 spawns every ten ticks, each
+with a Hard 9x2 aimed fan and a rank-adjusted interval whose ECL base is 50;
+the delayed interval starts from an RNG-selected timer offset.
+
+On four retained physical roots from this sub3 group, h6's first action agreed
+between the static native policy and the candidate-conditioned compact combat
+world on 4/4 roots. h8 disagreed on 2/4. The causal queries cost 7.20 seconds
+for four roots versus 0.265 seconds for the static queries, confirming that
+they belong offline. Only the t1878 sub3 state is now h6; the source transition
+to sub2 at t2108 remains h12 and awaits its own evidence.
 
 ## Immediate experiment
 
@@ -129,7 +146,7 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t1004 h8 correction:
+Expected outcomes after the t1878 sub3 h6 correction:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id`, `phase_id`, and `policy_state`; or
