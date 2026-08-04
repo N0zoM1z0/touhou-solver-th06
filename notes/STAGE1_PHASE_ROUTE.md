@@ -248,3 +248,17 @@ at fire phase zero every 30 ticks, launched at -120 and -60 degrees. Only this
 rank is now compiled; ranks 3--8 remain fail closed. The next physical entry
 run must parity-check rank-2 shot births and motion before the boss-entry
 policy is promoted.
+
+With rank 2 present, the exact f2009 sweep reached local t160 on every one of
+eight delivery seeds. Bottom-target policy-volume h4, h6, and h8 were exactly
+identical for the 158-frame entry: all survived with 63.5 mean commands and
+no deeper-horizon win. Target-free h4 also survived, but used only two mean
+commands because it kept the initial `up` proposal instead of returning to the
+bottom route. That is undesirable immediately before a player-aimed circle,
+even though this bullet-free prefix cannot distinguish it by clearance.
+
+The authored sub8 policy therefore covers only `ecl_time < 160` with
+bottom-target h4 and source state `entry-movement`. At ecl time 160 it returns
+`phase-unavailable` under the same stable boss identity, before executing the
+first Hard circle. The next ordinary-RNG run must reach that boundary alive
+and provide physical parity for the Power-8 rank-2 shots created on the way.

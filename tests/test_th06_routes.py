@@ -194,6 +194,7 @@ class RoutePhaseTests(unittest.TestCase):
             ecl_subroutines=subroutines,
             life_callback_sub=9,
             timer_callback_sub=7,
+            ecl_time=2,
         )
 
         intent = HardReimuAStage1().intent(snapshot(
@@ -202,11 +203,24 @@ class RoutePhaseTests(unittest.TestCase):
             spawners=(boss,),
         ))
 
-        self.assertEqual(intent.algorithm, "uncovered")
+        self.assertEqual(intent.algorithm, "target-only")
+        self.assertEqual(intent.policy_state, "entry-movement")
+        self.assertEqual(intent.horizon, 4)
+        self.assertIsNotNone(intent.target)
         self.assertEqual(
             intent.phase_id,
             "boss:0:sub8:life_cb9:timer_cb7:nonspell",
         )
+
+        boss.ecl_time = 160
+        first_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2167,
+            spawners=(boss,),
+        ))
+        self.assertEqual(first_attack.algorithm, "uncovered")
+        self.assertEqual(first_attack.policy_state, "uncovered")
+        self.assertEqual(first_attack.phase_id, intent.phase_id)
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

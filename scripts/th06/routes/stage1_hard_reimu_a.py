@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..model import Snapshot
 from .base import RouteIntent, RouteKey
-from .phase import boss_phase_id
+from .phase import boss_phase_id, ecl_subroutine_index
 from .state_machine import PolicyState, TimelineStateMachine
 
 
@@ -174,6 +174,37 @@ def uncovered(phase_id: str, provenance: str) -> RouteIntent:
     )
 
 
+def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
+    phase_id = boss_phase_id(
+        boss,
+        bool(snapshot.player_attack and snapshot.player_attack.spell_active),
+    )
+    if (
+        ecl_subroutine_index(boss) == 8
+        and not (
+            snapshot.player_attack and snapshot.player_attack.spell_active
+        )
+        and boss.ecl_time < 160
+    ):
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="entry-movement",
+            algorithm="target-only",
+            horizon=4,
+            target=BOTTOM_CENTER,
+            commitment_frames=4,
+            provenance=(
+                "physical f2009 sub8 root; local t60 enables interaction "
+                "and the first Hard aimed circle is local t160"
+            ),
+        )
+    return uncovered(
+        phase_id,
+        "Stage 1 midboss source state at or after the local-t160 aimed "
+        "circle has not been authored",
+    )
+
+
 class HardReimuAStage1:
     key = RouteKey(difficulty=2, character=0, shot_type=0, stage=1)
     route_id = "hard-reimu-a-stage1"
@@ -182,16 +213,7 @@ class HardReimuAStage1:
         bosses = tuple(spawner for spawner in snapshot.spawners if spawner.is_boss)
         if bosses:
             boss = min(bosses, key=lambda spawner: (spawner.boss_id, spawner.slot))
-            return uncovered(
-                boss_phase_id(
-                    boss,
-                    bool(
-                        snapshot.player_attack
-                        and snapshot.player_attack.spell_active
-                    ),
-                ),
-                "Stage 1 boss ECL phase has not been authored",
-            )
+            return midboss_intent(snapshot, boss)
 
         if snapshot.timeline_time < 128:
             return SETUP.intent(snapshot)

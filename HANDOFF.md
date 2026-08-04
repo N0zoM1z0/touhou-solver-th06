@@ -346,6 +346,14 @@ shots every 30 ticks. Ranks 3--8 remain unsupported. Focused source tests pass;
 require adjacent physical parity for these newborn rank-2 shots on the next
 run rather than treating the source table alone as promotion evidence.
 
+The completed f2009-to-local-t160 sweep found targeted h4/h6/h8 identical on
+all eight delivery seeds; target-free h4 retained `up` instead of restoring
+the bottom route. Only sub8 `ecl_time < 160` is now authored as bottom-target
+h4 state `entry-movement`. Run ordinary RNG/default fail-close. Expected
+success is an alive `phase-unavailable` stop under the same stable sub8 boss
+identity at ecl time 160, before its first Hard aimed circle. Verify rank-2
+player-shot births and motion in the adjacent physical window.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
