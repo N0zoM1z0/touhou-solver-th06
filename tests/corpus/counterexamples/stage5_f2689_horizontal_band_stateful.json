@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "id": "stage5-f2689-horizontal-band-stateful",
+  "runner": "barrage_stateful_policy",
+  "summary": "A physical mature-fan world from the horizontal-band sequence. The full 401-bullet state shrinks to three downward fan bullets while preserving the causal closed-loop difference: raw h16 terminal multiplicity chooses down-right-fast and loses fresh authority 12 updates later, whereas filtering by positive next-publication replanning reserve first chooses down-fast and completes the 24-update replay.",
+  "contract": "Deep soft multiplicity ranks only inside actions retaining positive fresh next-command continuation; pickup, held input, and repeated replanning remain stateful.",
+  "origin": {
+    "mode": "practice-diagnostic-fixed-rng",
+    "difficulty": "hard",
+    "rng_seed": "0x6382",
+    "stage": 5,
+    "decision_frame": 2689,
+    "source_bullets": 401,
+    "reduced_bullets": 3
+  },
+  "input": {
+    "horizon": 16,
+    "frames": 24,
+    "delivery_seed": 8,
+    "snapshot": {
+      "frame": 2689,
+      "stage": 5,
+      "player_state": 0,
+      "x": 189.94117736816406,
+      "y": 409.3553771972656,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 161,
+      "bullets": [
+        {
+          "x": 198.5142822265625,
+          "y": 371.16119384765625,
+          "vx": -0.3496672809123993,
+          "vy": 1.8866199254989624,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 516,
+          "speed": 1.9187500476837158,
+          "angle": 1.7540574073791504,
+          "timer": 158,
+          "timer_float": 158.0,
+          "slot": 29
+        },
+        {
+          "x": 154.96641540527344,
+          "y": 397.6513366699219,
+          "vx": 0.1691727340221405,
+          "vy": 2.111985445022583,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 516,
+          "speed": 2.1187500953674316,
+          "angle": 1.490865707397461,
+          "timer": 153,
+          "timer_float": 153.0,
+          "slot": 55
+        },
+        {
+          "x": 208.95855712890625,
+          "y": 415.9107666015625,
+          "vx": -0.30467867851257324,
+          "vy": 2.2986459732055664,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 516,
+          "speed": 2.3187501430511475,
+          "angle": 1.7025752067565918,
+          "timer": 148,
+          "timer_float": 148.0,
+          "slot": 172
+        }
+      ],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [],
+      "despawning_bullets": [],
+      "spawners": [],
+      "difficulty": 2,
+      "rank": 25,
+      "rng_seed": 55473,
+      "rng_generation": 12355,
+      "current_power": 128,
+      "timeline_time": 2689,
+      "timeline_time_float": 2689.0
+    }
+  },
+  "expect": {
+    "count": {
+      "first_action": "down_right_fast",
+      "outcome": "authority-stop",
+      "survived_frames": 12
+    },
+    "authority-filtered-count": {
+      "first_action": "down_fast",
+      "outcome": "survived",
+      "survived_frames": 24
+    }
+  }
+}

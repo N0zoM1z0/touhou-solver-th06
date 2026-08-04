@@ -3,6 +3,8 @@ import unittest
 from dataclasses import asdict, replace
 from unittest import mock
 
+from counterexample_corpus import load_cases
+
 from th06.barrage_lab.assets import (
     Pbg3Archive,
     parse_ecl_bullet_opcodes,
@@ -136,6 +138,29 @@ def pbg3_bytes(name, payload):
 
 
 class BarrageLabTests(unittest.TestCase):
+    def test_stateful_horizontal_band_counterexamples(self):
+        for case in load_cases():
+            if case.get("runner") != "barrage_stateful_policy":
+                continue
+            snapshot = decode_snapshot(case["input"]["snapshot"])
+            for metric in ("count", "authority-filtered-count"):
+                expected = case["expect"][metric]
+                result = run_closed_loop(
+                    snapshot,
+                    ExactTerminalPolicy(
+                        case["input"]["horizon"], metric=metric
+                    ),
+                    frames=case["input"]["frames"],
+                    delivery_seed=case["input"]["delivery_seed"],
+                )
+                self.assertEqual(
+                    result.decision_trace[0][1], expected["first_action"]
+                )
+                self.assertEqual(result.outcome, expected["outcome"])
+                self.assertEqual(
+                    result.survived_frames, expected["survived_frames"]
+                )
+
     def test_horizontal_band_family_builds_mature_layered_source_fans(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
 
