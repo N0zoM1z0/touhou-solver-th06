@@ -3105,6 +3105,7 @@ def run_closed_loop(
         if collides_now(state):
             outcome = "hit"
             break
+        lease_recheck = pending is not None
         if pending is None:
             target = policy(state)
             decisions += 1
@@ -3118,37 +3119,47 @@ def run_closed_loop(
                     delivery_seed, commands, held, target
                 )
                 commands += 1
-        else:
-            # Match Solver.decide(required_action): an in-flight command is
-            # rechecked for the next physical update, not replanned through a
-            # fresh four-frame delivery window. Focused commands share the
-            # source's focused action batch exactly as production does.
-            leased_actions = ACTIONS if pending.focused else (pending,)
+        step_action = held
+        settles_pending = False
+        if pending is not None:
+            if pending_delay == 0:
+                step_action = pending
+                settles_pending = True
+            elif pending_delay == 1 and pending_prefix is not None:
+                step_action = pending_prefix
+
+        if lease_recheck:
+            # A delivery seed is one realized physical pickup branch. Recheck
+            # the actual next movement of that already-issued batch; applying
+            # a fresh four-delay window here invents a second command and can
+            # falsely stop on an observed sorted-key prefix.
             lease_safe = (
                 tuple(
                     item.action.name for item in certify_actions(
-                        state, 1, actions=leased_actions
+                        state,
+                        1,
+                        delivery_delays=(0,),
+                        actions=(step_action,),
                     )
                 )
                 if battle_world
                 else certify_linear_source(
-                    state, 1, actions=leased_actions
+                    state,
+                    1,
+                    actions=(step_action,),
+                    delivery_delays=(0,),
                 ).actions
             )
-            if pending.name not in lease_safe:
+            if step_action.name not in lease_safe:
                 outcome = "lease-authority-stop"
                 break
 
-        step_action = held
         if pending is not None:
-            if pending_delay == 0:
-                step_action = pending
+            if settles_pending:
                 held = pending
                 pending = None
                 pending_prefix = None
             else:
-                if pending_delay == 1 and pending_prefix is not None:
-                    step_action = pending_prefix
                 pending_delay -= 1
         action_trace.append(step_action.name)
         before_slots = {bullet.slot for bullet in state.bullets}

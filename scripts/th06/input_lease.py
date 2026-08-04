@@ -13,6 +13,7 @@ from .model import (
     BUTTON_UP,
     SafeAction,
 )
+from .safety import transition_input_masks
 
 
 _CONTROL_MASK = BUTTON_FOCUS | BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT
@@ -75,6 +76,12 @@ def covered_current_retry(
 class LeaseStatus:
     action: Action | None = None
     timed_out: bool = False
+    # Delivery branches still possible on the next game update.  Once a
+    # release/press prefix from the already-issued SendInput batch is visible,
+    # that batch is known to have crossed the game update and only its settled
+    # target can follow.  Treating the prefix as a fresh command invents a
+    # second pickup window that was never issued.
+    delivery_delays: tuple[int, ...] = (0, 1, 2, 3)
 
 
 def _issued_mask(action: Action) -> int:
@@ -95,6 +102,7 @@ class InputLease:
 
     def __init__(self) -> None:
         self.desired: Action | None = None
+        self.source: Action | None = None
         self.issued_frame: int | None = None
 
     def status(self, native_input: int, frame: int) -> LeaseStatus:
@@ -106,12 +114,34 @@ class InputLease:
         elapsed = frame - self.issued_frame
         if elapsed < 0 or elapsed >= INPUT_PICKUP_MAX_FRAMES:
             return LeaseStatus(timed_out=True)
-        return LeaseStatus(action=self.desired)
+        if self.source is None:
+            return LeaseStatus(action=self.desired)
+        observed_mask = native_input & _CONTROL_MASK
+        prefixes = transition_input_masks(self.source, self.desired)
+        if observed_mask in prefixes:
+            return LeaseStatus(action=self.desired, delivery_delays=(0,))
+        if observed_mask != _issued_mask(self.source):
+            return LeaseStatus(timed_out=True)
+        # If the original state is still visible, the next update may retain
+        # it, observe one sorted-key prefix, or observe the settled target.
+        # The issue-age timeout remains separate and fails closed if pickup
+        # has still not completed at its measured boundary.
+        return LeaseStatus(
+            action=self.desired,
+            delivery_delays=(0, 1),
+        )
 
-    def issued(self, frame: int, action: Action) -> None:
+    def issued(
+        self,
+        frame: int,
+        action: Action,
+        source: Action | None = None,
+    ) -> None:
         self.desired = action
+        self.source = source
         self.issued_frame = frame
 
     def cleared(self) -> None:
         self.desired = None
+        self.source = None
         self.issued_frame = None

@@ -220,6 +220,7 @@ def certify_linear_source(
     *,
     collision_margin: float = 0.35,
     actions: tuple[Action, ...] = CONTROL_ACTIONS,
+    delivery_delays: tuple[int, ...] = _DELAYS,
 ) -> OracleResult:
     """Reproduce source update order and hard delivery branches, slowly."""
     frames = _bullet_boxes(snapshot, horizon)
@@ -230,7 +231,7 @@ def certify_linear_source(
         valid = True
         terminal_x, terminal_y = snapshot.x, snapshot.y
         prefixes = _transitions(snapshot.input_mask, target)
-        for delay in _DELAYS:
+        for delay in delivery_delays:
             branches = (None,) + (prefixes if delay > 0 else ())
             for prefix in branches:
                 x, y = _f32(snapshot.x), _f32(snapshot.y)
@@ -253,7 +254,7 @@ def certify_linear_source(
                     ):
                         valid = False
                         break
-                if prefix is None and delay == _DELAYS[-1]:
+                if prefix is None and delay == delivery_delays[-1]:
                     terminal_x, terminal_y = x, y
                 if not valid:
                     break

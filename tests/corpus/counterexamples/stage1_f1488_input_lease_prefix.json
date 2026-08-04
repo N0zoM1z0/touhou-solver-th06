@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "stage1-f1488-input-lease-prefix",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 1487,
+    "failure_frame": 1488
+  },
+  "runner": "input_lease_transition",
+  "contract": "A native input that matches a sorted release/press prefix of an already-issued SendInput batch settles to that batch's target on the next update; it must not receive a second fresh pickup window.",
+  "summary": "The f1487 down-right to up-left command was Hard-certified across every delivery prefix. Physical f1488 observed its left prefix. Holding that prefix for another invented pickup frame leaves only 0.113 clearance, while completing the already-issued up-left target leaves 1.527 clearance.",
+  "input": {
+    "issued_frame": 1488,
+    "source_action": "down_right",
+    "desired_action": "up_left",
+    "snapshot": {
+      "frame": 1488,
+      "stage": 1,
+      "player_state": 0,
+      "x": 196.803955078125,
+      "y": 380.53424072265625,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 69,
+      "bullets": [
+        {
+          "x": 191.99688720703125,
+          "y": 384.04052734375,
+          "vx": 0.41140016913414,
+          "vy": 0.8563001155853271,
+          "half_width": 3.0,
+          "half_height": 3.0,
+          "state": 1,
+          "ex_flags": 2,
+          "speed": 0.949999988079071,
+          "angle": 1.1229194402694702,
+          "timer": 310,
+          "timer_float": 310.0,
+          "slot": 101,
+          "is_grazed": true
+        }
+      ],
+      "despawning_bullets": [],
+      "lasers": [],
+      "enemies": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "difficulty": 2,
+      "rank": 16,
+      "rng_seed": 26479,
+      "rng_generation": 870,
+      "current_power": 3,
+      "timeline_time": 1488,
+      "timeline_time_float": 1488.0,
+      "timeline_complete": true,
+      "character": 0
+    }
+  },
+  "expect": {
+    "remaining_delivery_delays": [0],
+    "action": "up_left"
+  }
+}

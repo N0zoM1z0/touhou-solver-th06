@@ -1090,3 +1090,35 @@ without stale authority loss. If it reaches the already authored boss route,
 the outstanding sub14 expectation remains an alive stop after t200 at stable
 sub13/sub12/sub15 (or an earlier life callback), with no HIT or Bomb. Diagnose
 the earliest consequential state of any new failure and clean up the exact PID.
+
+That run crossed f1362 and the full t1220--t1400 insertion, then stopped alive
+at f1488 on `input-lease-unsafe`, with no HIT or Bomb. The f1487 command was a
+four-edge `down_right` to `up_left` transition; f1488 physically observed its
+`left` sorted-key prefix. The original Hard proof already covered exactly that
+prefix followed by the settled target. The lease path instead treated `left`
+as a new command source and invented another pickup window. Physical bullet
+slot 101 leaves only 0.113 clearance if left is held once more, versus 1.527
+when the already-issued up-left target completes. InputLease now retains the
+issued source action and narrows an observed prefix to `delivery_delays=(0,)`;
+an unchanged source input remains conservatively current/prefix/target. The
+stateful replay now rechecks each delivery seed's realized next movement under
+the same no-second-command invariant. The compact physical CE is
+`stage1_f1488_input_lease_prefix.json`.
+
+The earlier route cause was the t1401 residual tail's bottom target, which
+produced high-frequency reversals while live bullets drained. From exact f1401
+through t1600, target-only h4 survived only 34/64 native production-Solver
+delivery worlds and stopped as early as update 69, with 0.371 worst clearance.
+Target-free constant-clearance h4 survived 64/64 complete 199-update worlds,
+with 11.370 worst clearance. Its 6,797 fresh native decisions measured
+0.962/2.262/4.129 ms median/p90/p99, 5.204 ms maximum, and zero over 12.5 ms.
+The route tail now uses that existing smallest h4 primitive; the phase contract
+is `stage1_f1401_random_tail_clearance.json`.
+
+After validation and checkpoint, rerun ordinary-RNG/default fail-close Stage
+1. It must first cross f1488 and t1600. Diagnose the earliest consequential
+state of any new failure; do not resume Stage 4 opportunistically. Release all
+input, stop the exact PID, and check for leftover game/agent/high-CPU workers.
+
+This integrated checkpoint passes 304 Linux tests with 25 native-only skips
+and all 304 Windows/native tests.

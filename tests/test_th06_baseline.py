@@ -26,7 +26,12 @@ from th06.model import (
     action_from_input,
 )
 from th06.ranking import ProposalRanker
-from th06.safety import DELIVERY_DELAYS, certify_actions, transition_actions
+from th06.safety import (
+    DELIVERY_DELAYS,
+    certify_actions,
+    transition_actions,
+    transition_input_masks,
+)
 from th06.hazards.bullets import (
     _may_reach_player,
     extend_reachable_hazards_by_frame,
@@ -650,6 +655,28 @@ class BaselineTests(unittest.TestCase):
         self.assertFalse(status.timed_out)
         self.assertEqual(status.action, ACTION_BY_VECTOR[(1, 0)])
 
+    def test_observed_transition_prefix_settles_on_the_leased_target(self):
+        lease = InputLease()
+        down_right = ACTION_BY_VECTOR[(1, 1)]
+        up_left = ACTION_BY_VECTOR[(-1, -1)]
+        lease.issued(1488, up_left, down_right)
+
+        status = lease.status(BUTTON_FOCUS | BUTTON_LEFT, 1488)
+
+        self.assertEqual(status.action, up_left)
+        self.assertEqual(status.delivery_delays, (0,))
+
+    def test_unobserved_transition_retains_current_and_target_branches(self):
+        lease = InputLease()
+        left = ACTION_BY_VECTOR[(-1, 0)]
+        right = ACTION_BY_VECTOR[(1, 0)]
+        lease.issued(10, right, left)
+
+        status = lease.status(BUTTON_FOCUS | BUTTON_LEFT, 11)
+
+        self.assertEqual(status.action, right)
+        self.assertEqual(status.delivery_delays, (0, 1))
+
     def test_missing_authority_is_not_no_write(self):
         self.assertTrue(
             authority_unavailable(Decision(None, (), 0.0, 16, "hard-safe-set-empty"))
@@ -1109,6 +1136,10 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(
             tuple(action.name for action in transition_actions(down, up_left)),
             ("stay", "left"),
+        )
+        self.assertEqual(
+            transition_input_masks(down, up_left),
+            (BUTTON_FOCUS, BUTTON_FOCUS | BUTTON_LEFT),
         )
 
         # All ordinary current/target pickup paths miss this tiny obstacle;

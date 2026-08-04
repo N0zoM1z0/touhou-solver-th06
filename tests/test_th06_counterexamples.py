@@ -8,6 +8,7 @@ from counterexample_corpus import (
     load_cases,
 )
 from th06.input_lease import (
+    InputLease,
     bounded_delivery_age,
     changed_action_delivery_supported,
     covered_current_retry,
@@ -35,6 +36,7 @@ from th06.kernels.safety import NativeSafetyKernel
 from th06.routes.stage4_hard_reimu_a import timeline_phase
 from th06.routes.stage1_hard_reimu_a import RANDOM_BODY_STREAM
 from th06.safety import certify_actions
+from th06.solver import Solver
 from th06.viability import (
     delivery_segment_viability_scores,
     nominal_policy_scores,
@@ -42,6 +44,35 @@ from th06.viability import (
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_input_lease_transition_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "input_lease_transition"
+        )
+        self.assertTrue(cases, "input-lease transition corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = decode_snapshot(case["input"]["snapshot"])
+                source = ACTION_BY_NAME[case["input"]["source_action"]]
+                desired = ACTION_BY_NAME[case["input"]["desired_action"]]
+                lease = InputLease()
+                lease.issued(case["input"]["issued_frame"], desired, source)
+                status = lease.status(state.input_mask, state.frame)
+                self.assertFalse(status.timed_out)
+                self.assertEqual(status.action, desired)
+                self.assertEqual(
+                    list(status.delivery_delays),
+                    case["expect"]["remaining_delivery_delays"],
+                )
+                self.assertFalse(certify_actions(
+                    state, 1, actions=(desired,)
+                ))
+                decision = Solver().decide(
+                    state, desired, status.delivery_delays
+                )
+                self.assertEqual(decision.reason, "ok")
+                self.assertEqual(decision.action, desired)
+
     def test_stage1_phase_policy_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

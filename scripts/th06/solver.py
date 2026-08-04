@@ -339,13 +339,25 @@ class Solver:
         self,
         snapshot: Snapshot,
         required_action: Action | None = None,
+        required_delivery_delays: tuple[int, ...] = DELIVERY_DELAYS,
     ) -> Decision:
         passive = self._passive_reason(snapshot)
         if passive is not None:
             return Decision(None, (), 0.0, 0, passive)
 
         if required_action is not None:
-            certified = self._certify_selected(snapshot, 1, (required_action,))
+            # This is an already-issued SendInput batch, not a new command.
+            # Its lease reports only the delivery branches that can remain
+            # after the newly observed native input.  The one-action,
+            # one-frame reference proof is deliberately cheap and keeps the
+            # exact delivery set explicit; the native all-action hot path has
+            # no arbitrary-delay entry point.
+            certified = certify_actions(
+                snapshot,
+                1,
+                delivery_delays=required_delivery_delays,
+                actions=(required_action,),
+            )
             leased = next(
                 (
                     candidate for candidate in certified

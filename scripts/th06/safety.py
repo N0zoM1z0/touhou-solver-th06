@@ -54,12 +54,12 @@ def _action_mask(action: Action) -> int:
     return mask
 
 
-def transition_actions(current: Action, target: Action) -> tuple[Action, ...]:
-    """Control states observable inside Keyboard's sorted release/press batch."""
+def transition_input_masks(current: Action, target: Action) -> tuple[int, ...]:
+    """Exact control masks inside Keyboard's sorted release/press batch."""
     current_mask = _action_mask(current)
     target_mask = _action_mask(target)
     prefix_mask = current_mask
-    prefixes: list[Action] = []
+    prefixes: list[int] = []
 
     events = tuple(
         bit for _key, bit in _CONTROL_KEYS
@@ -73,7 +73,16 @@ def transition_actions(current: Action, target: Action) -> tuple[Action, ...]:
             prefix_mask &= ~bit
         else:
             prefix_mask |= bit
-        prefix = action_from_input(prefix_mask)
+        if prefix_mask not in (current_mask, target_mask):
+            prefixes.append(prefix_mask)
+    return tuple(prefixes)
+
+
+def transition_actions(current: Action, target: Action) -> tuple[Action, ...]:
+    """Movement states observable inside the same physical input batch."""
+    prefixes: list[Action] = []
+    for mask in transition_input_masks(current, target):
+        prefix = action_from_input(mask)
         if prefix not in (current, target) and prefix not in prefixes:
             prefixes.append(prefix)
     return tuple(prefixes)

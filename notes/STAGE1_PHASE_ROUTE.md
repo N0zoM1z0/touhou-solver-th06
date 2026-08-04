@@ -1231,3 +1231,50 @@ Sub12 exact t180 is now isolated as h4, one-frame
 `first-nonspell-branch-redispatch`. They do not choose a destination or reuse a
 sibling policy. Common Hard certifies the one update, then the newly published
 stable sub13/sub14/sub15 identity must select its own route state or stop.
+
+## Random-body tail and in-flight prefix CE
+
+The first physical run with target-free `constant-clearance` h5 crossed the
+old f1362 failure and the complete t1220--t1400 random insertion. It stopped
+alive at f1488, in the residual `tail`, on `input-lease-unsafe`; there was no
+HIT or Bomb. Exact PID 61236 was stopped, every input was released, and no game,
+agent, or offline worker remained.
+
+The terminal exposed two independent general causes. First, the old tail
+returned to a bottom-center target every frame while residual bullets were
+still live. It alternated left/right around the target and then issued a
+four-edge `down_right` to `up_left` reversal at f1487. Second, the already-
+issued Win32 batch was physically observed at f1488 in its `left` sorted-key
+prefix. Hard at f1487 had explicitly certified that branch as prefix-left for
+one update followed by target-up-left. The lease recheck incorrectly treated
+the observed prefix as a newly issued `left` to `up_left` batch and added a
+second pickup window. Continuing left for that invented update had only 0.113
+clearance to physical bullet slot 101; completing up-left had 1.527. All 255
+retained adjacent steps have exact player, hostile-bullet, Reimu-A attack,
+enemy, RNG, graze, Rank, item, and Power parity, including the exact f1487 to
+f1488 prefix movement.
+
+`InputLease` now retains the source action of the issued batch. Observing one
+of that batch's source-defined sorted release/press prefixes narrows the next-
+update proof to the settled target (`delivery_delays=(0,)`); observing the old
+source retains current/prefix/target uncertainty. The solver performs this
+one-action, one-frame reference proof without changing ordinary Hard-4. The
+stateful barrage replay received the same semantic correction: a delivery seed
+rechecks its realized next movement instead of inventing another four-delay
+command. The minimized physical contract is
+`stage1_f1488_input_lease_prefix.json`.
+
+From exact physical f1401 through t1600, the old bottom-target h4 survived only
+34/64 native production-Solver delivery worlds and stopped as early as update
+69. Its worst minimum clearance was 0.371. Target-free constant-clearance h4
+survived 64/64 complete 199-update worlds with 11.370 worst clearance. Across
+6,797 fresh decisions it measured 0.962 ms median, 2.262 ms p90, 4.129 ms p99,
+5.204 ms maximum, and zero decisions over 12.5 ms. H5/h6/h8 did not improve
+entry survival or clearance in the initial comparison, while policy-volume h6
+was materially more expensive. The tail therefore uses the already existing
+constant-clearance primitive at the smallest tested h4, without a target or a
+new solver branch. Its compact route contract is
+`stage1_f1401_random_tail_clearance.json`.
+
+The integrated checkpoint passes 304 Linux tests with 25 native-only skips and
+all 304 Windows/native tests.

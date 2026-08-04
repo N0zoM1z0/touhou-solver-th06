@@ -916,6 +916,10 @@ class BarrageLabTests(unittest.TestCase):
             )
         self.assertIn(1, [call.args[1] for call in certify.call_args_list])
         self.assertNotIn(4, [call.args[1] for call in certify.call_args_list])
+        self.assertIn(
+            (0,),
+            [call.kwargs.get("delivery_delays") for call in certify.call_args_list],
+        )
 
     def test_stateful_world_rejects_unproved_despawn_animation(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

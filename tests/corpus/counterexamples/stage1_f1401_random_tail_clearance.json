@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "stage1-f1401-random-tail-clearance",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 1401,
+    "failure_frame": 1488
+  },
+  "runner": "stage1_phase_policy",
+  "contract": "The residual random-body tail keeps the smallest target-free constant-clearance reserve that survived the complete source interval; a bottom target must not force per-frame reversal through live residual bullets.",
+  "summary": "From physical f1401, the former bottom-target h4 survived only 34/64 native delivery worlds and stopped as early as 69 updates. Target-free constant-clearance h4 survived 64/64 through t1600 with 11.370 worst minimum clearance and no decision over 12.5 ms.",
+  "input": {
+    "timeline_time": 1401
+  },
+  "expect": {
+    "phase_id": "timeline:t1220:random-subs0-1-body-stream",
+    "policy_state": "tail",
+    "algorithm": "constant-clearance",
+    "horizon": 4,
+    "target": null
+  }
+}

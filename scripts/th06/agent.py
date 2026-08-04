@@ -369,7 +369,15 @@ def run(args: argparse.Namespace) -> int:
                         1,
                     )
                 else:
-                    decision = solver.decide(snapshot, leased_action)
+                    decision = (
+                        solver.decide(
+                            snapshot,
+                            leased_action,
+                            lease_status.delivery_delays,
+                        )
+                        if leased_action is not None
+                        else solver.decide(snapshot)
+                    )
                 solve_ms = (time.perf_counter() - solve_started) * 1000.0
                 stale_retry = False
                 dialogue = DialogueState(False, False, False)
@@ -490,7 +498,9 @@ def run(args: argparse.Namespace) -> int:
                                 issued_frame = read_game_frame(process)
                                 command_issue_age = issued_frame - snapshot.frame
                                 input_lease.issued(
-                                    issued_frame, decision.action
+                                    issued_frame,
+                                    decision.action,
+                                    current_action,
                                 )
                         elif decision.action is None:
                             transition_count += len(keyboard.release_all())

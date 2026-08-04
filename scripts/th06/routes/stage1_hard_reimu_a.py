@@ -146,10 +146,15 @@ RANDOM_BODY_STREAM = TimelineStateMachine(
         PolicyState(
             1401,
             "tail",
-            "target-only",
+            "constant-clearance",
             4,
-            BOTTOM_CENTER,
-            provenance="last random-coordinate parent spawned at source t1400",
+            None,
+            provenance=(
+                "last random-coordinate parent spawned at source t1400; "
+                "physical f1401 tail entry rejects per-frame bottom-target "
+                "turns, while target-free constant-clearance h4 survives "
+                "64/64 native delivery worlds through t1600"
+            ),
         ),
     ),
 )
