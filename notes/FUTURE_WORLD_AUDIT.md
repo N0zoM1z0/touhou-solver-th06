@@ -743,11 +743,27 @@ clear.  A created beam then joins BulletManager's later priority-11 pass in
 the same update.  Focused tests verify both pointer/mutation order and the
 same-frame `endOffset 20 -> 22`, `timer 0 -> 1` transition.
 
-Hard forecasting deliberately still uses its earlier fail-closed boundary
-when a newly created laser can become collidable inside the certified window.
-The exact implementation above improves stateful causal fuzzing and soft
-nominal branches; it does not silently grant Hard authority before a
-multi-frame future-laser hazard stream has been modeled and checked.
+Hard forecasting initially retained its earlier fail-closed boundary when a
+newly created laser could become collidable inside the certified window.  The
+next checkpoint replaces that blanket stop for source create/aimed-create:
+the future beam now advances its phase, offsets, length clamp, timer, and both
+shipped midpoint-hitbox bugs from the same-frame BulletManager pass onward.
+A fixed-angle beam is inserted as the conservative AABB of its rotated source
+rectangle.  Because the current Hard ECL forecast is shared across candidate
+paths, an aimed beam uses the union over every possible aim angle rather than
+borrowing one nominal player path.  Laser-store writes are retained, and a
+cancel may conservatively keep the pre-cancel hazard alive.  Future rotate,
+offset, re-aim, and liveness-dependent control flow still fail closed at their
+first mutation; they are not silently projected as static.
+
+A raw scan of the authoritative installed ST.DAT gives the practical scope:
+the shipped ECL contains 140 opcode-85 creates, 14 aimed creates, 139 store
+writes, 79 rotations, 15 offsets, and five cancels; opcodes 89 and 91 do not
+occur.  Thus the new Hard insertion covers many create/warning intervals and
+same-time multi-create sequences, while rotation remains the dominant real
+future-laser boundary.  The aimed angle-independent AABB is deliberately
+conservative and may contract Hard more than a future per-candidate rotated
+stream; it cannot create false safety.
 
 A 30-second ordinary-RNG, default fail-close, non-PTY Stage 5 diagnostic then
 validated the enlarged native capture against the exact supported EXE.  It

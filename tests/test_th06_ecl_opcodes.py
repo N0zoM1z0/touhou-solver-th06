@@ -681,7 +681,7 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertIn("laser creation", forecast.reason)
         self.assertNotIn("unsupported ECL opcode", forecast.reason)
 
-    def test_laser_creation_advances_only_while_source_timing_is_dormant(self):
+    def test_future_laser_creation_projects_its_first_collidable_frame(self):
         laser_args = struct.pack(
             "<hhffffffiiiiii",
             0,
@@ -719,6 +719,7 @@ class EclOpcodeCoverageTests(unittest.TestCase):
             bullet_sizes=(),
         )
         self.assertEqual(covered.covered_frames, 4, covered.reason)
+        self.assertTrue(all(len(frame) == 1 for frame in covered.body_hazards))
 
         immediate_args = bytearray(laser_args)
         struct.pack_into("<i", immediate_args, 28, 0)
@@ -737,8 +738,31 @@ class EclOpcodeCoverageTests(unittest.TestCase):
             rank=0,
             bullet_sizes=(),
         )
-        self.assertEqual(blocked.covered_frames, 3)
-        self.assertIn("aimed ECL laser creation", blocked.reason)
+        self.assertEqual(blocked.covered_frames, 4, blocked.reason)
+        self.assertEqual(len(blocked.body_hazards[3]), 2)
+        laser_box = max(
+            blocked.body_hazards[3],
+            key=lambda box: box[2] - box[0],
+        )
+        self.assertLess(laser_box[0], -480.0)
+        self.assertGreater(laser_box[2], 490.0)
+
+        hard = forecast_ecl_births(
+            replace(
+                source,
+                next_instruction=immediate,
+                ecl_program=(immediate, sentinel),
+            ),
+            ((100.0, 400.0),) * 4,
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            allow_player_variables=False,
+            radial_births=True,
+            abstract_rng=True,
+        )
+        self.assertEqual(hard.covered_frames, 4, hard.reason)
+        self.assertEqual(len(hard.body_hazards[3]), 2)
 
     def test_exact_laser_world_preserves_pointer_and_mutation_order(self):
         class LaserWorld:

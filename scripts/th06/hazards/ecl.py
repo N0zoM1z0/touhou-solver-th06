@@ -24,6 +24,7 @@ from ..model import (
 )
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
 from .enemies import finish_motion_values, interpolation_progress
+from .lasers import LaserHazard, future_hazards
 from .rng import RngState
 
 
@@ -158,6 +159,47 @@ def consume_effect_spawn_rng(rng: RngState, effect_ids) -> None:
         if effect_id in EFFECT_RANDOM_SPRITE_IDS:
             rng.u16()
 
+
+def _future_laser_aabb(
+    hazard: LaserHazard,
+    aimed: bool,
+    uncertainty_x: float,
+    uncertainty_y: float,
+) -> tuple[float, float, float, float]:
+    """Conservative AABB for one not-yet-born rotated laser hitbox."""
+    half_length = hazard.size_x / 2.0
+    half_width = hazard.size_y / 2.0
+    if aimed:
+        near = hazard.center_offset - half_length
+        far = hazard.center_offset + half_length
+        radius = math.hypot(max(abs(near), abs(far)), half_width)
+        return (
+            hazard.origin_x - radius - uncertainty_x,
+            hazard.origin_y - radius - uncertainty_y,
+            hazard.origin_x + radius + uncertainty_x,
+            hazard.origin_y + radius + uncertainty_y,
+        )
+    cosine = math.cos(hazard.angle)
+    sine = math.sin(hazard.angle)
+    center_x = hazard.origin_x + cosine * hazard.center_offset
+    center_y = hazard.origin_y + sine * hazard.center_offset
+    extent_x = (
+        abs(cosine) * half_length
+        + abs(sine) * half_width
+        + uncertainty_x
+    )
+    extent_y = (
+        abs(sine) * half_length
+        + abs(cosine) * half_width
+        + uncertainty_y
+    )
+    return (
+        center_x - extent_x,
+        center_y - extent_y,
+        center_x + extent_x,
+        center_y + extent_y,
+    )
+
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
 # instructions may be ignored because they only change presentation, scoring,
@@ -183,14 +225,10 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
 
 FAIL_CLOSED_ECL_OPCODES = {
     OPCODE_SET_SELF_Z: "SETVARSELFZ needs the uncaptured source z coordinate",
-    OPCODE_LASER_CREATE: "future ECL laser creation is not yet represented",
-    OPCODE_LASER_CREATE_AIMED: "future aimed ECL laser creation is not yet represented",
-    OPCODE_LASER_INDEX: "future ECL laser store state is not captured",
     OPCODE_LASER_ROTATE: "future ECL laser mutation is not represented",
     OPCODE_LASER_ROTATE_FROM_PLAYER: "future aimed ECL laser mutation is not represented",
     OPCODE_LASER_OFFSET: "future ECL laser mutation is not represented",
     OPCODE_LASER_TEST: "future ECL laser liveness is not captured",
-    OPCODE_LASER_CANCEL: "future ECL laser state mutation is not represented",
     OPCODE_ENEMY_CREATE: ENEMY_CREATE_WORLD_REASON,
     OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
     OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
@@ -200,6 +238,8 @@ MODELLED_ECL_OPCODES = frozenset(
      {OPCODE_NOP, 1, *range(OPCODE_JUMP, OPCODE_SET_SELF_Z),
      *range(OPCODE_MATH_INT_ADD, OPCODE_MOVE_BOUNDS_DISABLE + 1),
      *range(OPCODE_BULLET_FIRST, OPCODE_BULLET_EFFECTS + 1),
+     OPCODE_LASER_CREATE, OPCODE_LASER_CREATE_AIMED, OPCODE_LASER_INDEX,
+     OPCODE_LASER_CANCEL,
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
      OPCODE_DAMAGEABLE_FLAG,
      OPCODE_DEATH_FLAG,
@@ -2196,22 +2236,114 @@ def _forecast_ecl_births_single(
                     _flags,
                 ) = struct.unpack_from("<iiiiii", raw, 0x28)
                 if laser_world is None:
-                    # SpawnLaserPattern starts directly in state 1 when
-                    # startTime is zero. Otherwise BulletManager tests the
-                    # warmup hitbox at hitboxStartTime, or enters state 1 at
-                    # startTime. Hard forecasting stays fail-closed once that
-                    # future hitbox can matter; exact nominal replay supplies
-                    # the shared 64-slot world below.
-                    earliest_hitbox = (
-                        0
-                        if start_time <= 0
-                        else min(start_time, max(0, hitbox_start_time))
-                    )
-                    if frame_index + earliest_hitbox < horizon:
+                    try:
+                        values = tuple(
+                            _float_var(
+                                raw[offset:offset + 4],
+                                integers,
+                                floats,
+                                difficulty,
+                                rank,
+                                life,
+                                enemy,
+                                variable_player,
+                            )
+                            for offset in (0x10, 0x14, 0x18, 0x1C, 0x20)
+                        )
+                    except UnsupportedBirthModel as error:
                         return EclForecast(
-                            tuple(map(tuple, births)),
-                            frame_index,
-                            FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
+                            tuple(map(tuple, births)), frame_index, str(error)
+                        )
+                    if any(isinstance(value, FloatInterval) for value in values):
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index,
+                            "uncertain ECL laser parameters need a hard envelope",
+                        )
+                    (
+                        laser_angle,
+                        laser_speed,
+                        start_offset,
+                        end_offset,
+                        start_length,
+                    ) = values
+                    width = struct.unpack_from("<f", raw, 0x24)[0]
+                    origin_x = _float_add(enemy_x, shoot_offset_x)
+                    origin_y = _float_add(enemy_y, shoot_offset_y)
+                    uncertainty_x = uncertainty_y = position_uncertainty
+                    if isinstance(origin_x, FloatInterval):
+                        uncertainty_x += (origin_x.high - origin_x.low) / 2.0
+                        origin_x = (origin_x.low + origin_x.high) / 2.0
+                    if isinstance(origin_y, FloatInterval):
+                        uncertainty_y += (origin_y.high - origin_y.low) / 2.0
+                        origin_y = (origin_y.low + origin_y.high) / 2.0
+                    numbers = (
+                        laser_angle,
+                        laser_speed,
+                        start_offset,
+                        end_offset,
+                        start_length,
+                        width,
+                        origin_x,
+                        origin_y,
+                    )
+                    if (
+                        not all(math.isfinite(value) for value in numbers)
+                        or width <= 0.0
+                        or start_length < 0.0
+                        or any(value < 0 for value in (
+                            start_time,
+                            _duration,
+                            _despawn_duration,
+                            hitbox_start_time,
+                            _hitbox_end_delay,
+                        ))
+                    ):
+                        return EclForecast(
+                            tuple(map(tuple, births)), frame_index,
+                            "invalid future ECL laser creation request",
+                        )
+                    aimed = instruction.opcode == OPCODE_LASER_CREATE_AIMED
+                    laser_angle = _f32(laser_angle)
+                    if aimed:
+                        # Hard source forecasting is shared across candidates.
+                        # Use the union over every possible aimed angle below,
+                        # not the nominal root-player angle stored here.
+                        laser_angle = 0.0
+                    future_laser = Laser(
+                        x=_f32(origin_x),
+                        y=_f32(origin_y),
+                        angle=laser_angle,
+                        start_offset=_f32(start_offset),
+                        end_offset=_f32(end_offset),
+                        start_length=_f32(start_length),
+                        width=_f32(width),
+                        speed=_f32(laser_speed),
+                        start_time=start_time,
+                        hitbox_start_time=hitbox_start_time,
+                        duration=_duration,
+                        despawn_duration=_despawn_duration,
+                        hitbox_end_delay=_hitbox_end_delay,
+                        timer=0,
+                        timer_float=0.0,
+                        flags=_flags & 0xFFFF,
+                        state=1 if start_time == 0 else 0,
+                        motion_known=True,
+                    )
+                    for laser_frame, frame_hazards in enumerate(
+                        future_hazards(
+                            future_laser,
+                            horizon - frame_index,
+                        ),
+                        frame_index,
+                    ):
+                        body_hazards[laser_frame].extend(
+                            _future_laser_aabb(
+                                hazard,
+                                aimed,
+                                uncertainty_x,
+                                uncertainty_y,
+                            )
+                            for hazard in frame_hazards
                         )
                 else:
                     try:
@@ -2313,11 +2445,6 @@ def _forecast_ecl_births_single(
                     ))
                     laser_slots[laser_store] = laser_slot
             elif instruction.opcode == OPCODE_LASER_INDEX:
-                if laser_world is None:
-                    return EclForecast(
-                        tuple(map(tuple, births)), frame_index,
-                        FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
-                    )
                 laser_store = _int_var(
                     struct.unpack_from("<i", raw, 0x0C)[0],
                     integers,
@@ -2338,6 +2465,12 @@ def _forecast_ecl_births_single(
                 OPCODE_LASER_CANCEL,
             ):
                 if laser_world is None:
+                    if instruction.opcode == OPCODE_LASER_CANCEL:
+                        # Retaining the projected active beam after a cancel
+                        # is conservative. Any later liveness-dependent ECL
+                        # still fails at LASERTEST.
+                        instruction_address = next_address
+                        continue
                     return EclForecast(
                         tuple(map(tuple, births)), frame_index,
                         FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
