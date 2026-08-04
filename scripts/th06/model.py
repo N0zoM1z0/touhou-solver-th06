@@ -406,6 +406,10 @@ class Snapshot:
     pending_effect_rng_ids: tuple[int, ...] = ()
     item_states: tuple[ItemState, ...] = ()
     item_next_index: int = 0
+    # EnemyManager::bosses is a raw stage-timeline target table. It can
+    # retain a pointer after that slot stops being a boss, so it is distinct
+    # from Enemy::flags.isBoss / bossId captured in ``spawners``.
+    timeline_boss_slots: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

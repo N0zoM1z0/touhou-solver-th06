@@ -9,5 +9,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         raise SystemExit(130)
     except Exception as exc:
+        __import__("traceback").print_exc()
         print(f"error: {exc}", file=__import__("sys").stderr)
         raise SystemExit(1)

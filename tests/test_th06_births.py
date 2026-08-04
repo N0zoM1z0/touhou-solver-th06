@@ -14,8 +14,10 @@ from th06.hazards.births import (
 from th06.hazards.bullets import hazard_box
 from th06.hazards.ecl import forecast_ecl_births
 from th06.hazards.rng import RngState
+from th06.hazards.timeline import TimelineBossInterrupt
 from th06.hazards.world import (
     _project_hazards,
+    _timeline_interrupt_targets,
     extend_nominal_world_births,
     forecast_world_births,
 )
@@ -126,6 +128,18 @@ def snapshot(frame: int, **changes) -> Snapshot:
 
 
 class PeriodicBirthTests(unittest.TestCase):
+    def test_timeline_interrupt_uses_captured_raw_boss_pointer(self):
+        state = snapshot(
+            100,
+            timeline_boss_slots=(7, -1, -1, -1, -1, -1, -1, -1),
+        )
+        ordinary = spawner(pattern(), slot=7, is_boss=False, boss_id=-1)
+        other = replace(ordinary, slot=8)
+        event = TimelineBossInterrupt(0x3010, 0, 3)
+
+        self.assertTrue(_timeline_interrupt_targets(state, ordinary, event))
+        self.assertFalse(_timeline_interrupt_targets(state, other, event))
+
     def test_world_stops_before_uninserted_timeline_enemy(self):
         transition = StageTimelineInstruction(
             0x3000,
@@ -490,6 +504,7 @@ class PeriodicBirthTests(unittest.TestCase):
                     interrupt_shot,
                     interrupt_end,
                 ),
+                timeline_boss_slots=(-1,) * 8,
                 bullet_sizes=((3.0, 3.0),),
             ),
             ((100.0, 400.0),) * 3,

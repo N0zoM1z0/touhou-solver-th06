@@ -363,6 +363,61 @@ class BaselineTests(unittest.TestCase):
 
         self.assertIs(coherent, coherent_state)
 
+    def test_snapshot_read_retries_a_torn_boss_publication(self):
+        coherent_state = Snapshot(**{**snapshot().__dict__, "frame": 2})
+        process = object()
+
+        with mock.patch.object(
+            native,
+            "read_game_frame",
+            side_effect=(2, 2, 2),
+        ), mock.patch.object(
+            native,
+            "_read_snapshot_once",
+            side_effect=(
+                native._SnapshotReadTorn(
+                    "incoherent boss pointer at enemy slot 0"
+                ),
+                coherent_state,
+            ),
+        ):
+            coherent = native.read_snapshot(process)
+
+        self.assertIs(coherent, coherent_state)
+
+    def test_stale_timeline_boss_pointer_does_not_make_nonboss_incoherent(self):
+        enemy_pool = bytearray(
+            native.ENEMY_STRIDE * native.ENEMY_COUNT
+        )
+        boss_slots = (0,) + (-1,) * 7
+
+        boss_id = native._decode_enemy_boss_id(
+            enemy_pool, 0, 0, False, boss_slots
+        )
+
+        self.assertEqual(boss_id, -1)
+
+    def test_true_boss_requires_its_own_id_pointer_to_be_published(self):
+        enemy_pool = bytearray(
+            native.ENEMY_STRIDE * native.ENEMY_COUNT
+        )
+        enemy_pool[native.ENEMY_BOSS_ID_OFFSET] = 3
+
+        self.assertEqual(
+            native._decode_enemy_boss_id(
+                enemy_pool,
+                0,
+                0,
+                True,
+                (-1, -1, -1, 0, -1, -1, -1, -1),
+            ),
+            3,
+        )
+        with self.assertRaises(native._SnapshotReadTorn):
+            native._decode_enemy_boss_id(
+                enemy_pool, 0, 0, True, (-1,) * 8
+            )
+
     def test_snapshot_epoch_excludes_local_decode_work(self):
         state = Snapshot(**{**snapshot().__dict__, "frame": 7})
         process = object()

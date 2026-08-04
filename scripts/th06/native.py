@@ -195,6 +195,7 @@ ENEMY_SHOOT_TIMER_OFFSET = 0xD60
 ENEMY_LASER_POINTERS_OFFSET = 0xDB8
 ENEMY_LASER_STORE_OFFSET = 0xE38
 ENEMY_DEATH_ANM_OFFSET = 0xE3C
+ENEMY_BOSS_ID_OFFSET = 0xE40
 ENEMY_FLAGS_OFFSET = 0xE50
 ENEMY_LOWER_MOVE_LIMIT_OFFSET = 0xE60
 ENEMY_UPPER_MOVE_LIMIT_OFFSET = 0xE68
@@ -265,6 +266,10 @@ class _SnapshotEpochChanged(RuntimeError):
     pass
 
 
+class _SnapshotReadTorn(RuntimeError):
+    pass
+
+
 class _SnapshotPhaseIncomplete(RuntimeError):
     def __init__(self, game_frame: int, bullet_time: int):
         super().__init__(
@@ -273,6 +278,49 @@ class _SnapshotPhaseIncomplete(RuntimeError):
         )
         self.game_frame = game_frame
         self.bullet_time = bullet_time
+
+
+def _decode_timeline_boss_slots(
+    boss_pointers: tuple[int, ...],
+) -> tuple[int, ...]:
+    """Map EnemyManager's raw boss pointers without inferring boss identity."""
+    pool_start = ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET
+    pool_end = pool_start + ENEMY_COUNT * ENEMY_STRIDE
+    slots = []
+    for boss_id, pointer in enumerate(boss_pointers):
+        if pointer == 0:
+            slots.append(-1)
+            continue
+        relative = pointer - pool_start
+        if not pool_start <= pointer < pool_end or relative % ENEMY_STRIDE:
+            raise RuntimeError(
+                f"invalid timeline boss pointer 0x{pointer:08X} "
+                f"at boss id {boss_id}"
+            )
+        slots.append(relative // ENEMY_STRIDE)
+    return tuple(slots)
+
+
+def _decode_enemy_boss_id(
+    enemy_pool: bytes,
+    base: int,
+    index: int,
+    is_boss: bool,
+    timeline_boss_slots: tuple[int, ...],
+) -> int:
+    """Decode Enemy's own identity and only reject a true torn BOSSSET."""
+    if not is_boss:
+        return -1
+    boss_id = enemy_pool[base + ENEMY_BOSS_ID_OFFSET]
+    if boss_id >= len(timeline_boss_slots):
+        raise _SnapshotReadTorn(
+            f"invalid published boss id {boss_id} at enemy slot {index}"
+        )
+    if timeline_boss_slots[boss_id] != index:
+        raise _SnapshotReadTorn(
+            f"incoherent true boss pointer at enemy slot {index}"
+        )
+    return boss_id
 
 
 def _read_sprite_dimensions(
@@ -1790,11 +1838,7 @@ def _read_snapshot_once(
         native_pools,
         manager_relative(ENEMY_BOSSES_OFFSET),
     )
-    boss_id_by_pointer = {
-        pointer: boss_id
-        for boss_id, pointer in enumerate(boss_pointers)
-        if pointer
-    }
+    timeline_boss_slots = _decode_timeline_boss_slots(boss_pointers)
     enemies: list[EnemyBody] = []
     spawners: list[EnemySpawner] = []
     for index in range(ENEMY_COUNT):
@@ -2175,15 +2219,14 @@ def _read_snapshot_once(
             ecl_program,
             tuple(interrupts),
         )
-        enemy_address = (
-            ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET + index * ENEMY_STRIDE
-        )
-        boss_id = boss_id_by_pointer.get(enemy_address, -1)
         is_boss = bool(flags1 & 0x08)
-        if is_boss != (boss_id >= 0):
-            raise RuntimeError(
-                f"incoherent boss pointer at enemy slot {index}"
-            )
+        boss_id = _decode_enemy_boss_id(
+            enemy_pool,
+            base,
+            index,
+            is_boss,
+            timeline_boss_slots,
+        )
 
         enemy_sprite_pointer = struct.unpack_from(
             "<I", enemy_pool, base + ANM_VM_SPRITE_OFFSET
@@ -2280,6 +2323,7 @@ def _read_snapshot_once(
         tuple(pending_effect_rng_ids),
         tuple(item_states),
         item_next_index,
+        timeline_boss_slots,
     )
 
 
@@ -2287,6 +2331,7 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
     """Return one frame-coherent native snapshot or fail closed."""
     observed_epochs = []
     observed_phases = []
+    observed_torn_reads = []
     last_decode_error = None
     bullet_read_retries = 0
     for _attempt in range(8):
@@ -2312,6 +2357,9 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         except _SnapshotPhaseIncomplete as error:
             observed_phases.append((error.game_frame, error.bullet_time))
             continue
+        except _SnapshotReadTorn as error:
+            observed_torn_reads.append(str(error))
+            continue
         except NativeDecodeError as error:
             # SpawnSingleBullet publishes state before geometry and velocity.
             # Discard the whole captured pool instead of mixing a later tail
@@ -2331,7 +2379,17 @@ def read_snapshot(process: NativeProcess) -> Snapshot:
         evidence["read_retries"] = bullet_read_retries
         evidence["observed_epochs"] = observed_epochs
         evidence["observed_phases"] = observed_phases
+        evidence["observed_torn_reads"] = observed_torn_reads
         raise NativeDecodeError(str(last_decode_error), evidence)
+    if observed_torn_reads:
+        raise NativeDecodeError(
+            "snapshot remained internally incoherent after retries",
+            {
+                "observed_epochs": observed_epochs,
+                "observed_phases": observed_phases,
+                "observed_torn_reads": observed_torn_reads,
+            },
+        )
     raise NativeDecodeError(
         "native state changed or remained inside an incomplete calc phase "
         "throughout snapshot reads",

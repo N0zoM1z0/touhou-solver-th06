@@ -104,6 +104,43 @@ def _scheduled_boss_interrupts(
     return tuple(result)
 
 
+def _timeline_interrupt_targets(
+    snapshot: Snapshot,
+    emitter: EnemySpawner,
+    event: TimelineBossInterrupt,
+) -> bool:
+    """Match opcode 10 through the source raw pointer table when captured."""
+    if emitter.slot < 0:
+        # A timeline child forecast before slot insertion can still execute
+        # BOSSSET inline. Its predicted own boss id is the only available
+        # binding inside this compact Hard child world.
+        return event.boss_id == emitter.boss_id
+    if len(snapshot.timeline_boss_slots) == 8:
+        if not 0 <= event.boss_id < len(snapshot.timeline_boss_slots):
+            return False
+        return snapshot.timeline_boss_slots[event.boss_id] == emitter.slot
+    # Older corpus records predate capture of EnemyManager::bosses.
+    return event.boss_id == emitter.boss_id
+
+
+def _timeline_interrupt_has_resolved_target(
+    snapshot: Snapshot,
+    event: TimelineBossInterrupt,
+    known_boss_ids: set[int],
+) -> bool:
+    if len(snapshot.timeline_boss_slots) == 8:
+        if not 0 <= event.boss_id < len(snapshot.timeline_boss_slots):
+            return False
+        target_slot = snapshot.timeline_boss_slots[event.boss_id]
+        if 0 <= target_slot < SOURCE_ENEMY_SLOT_COUNT + 1:
+            return True
+        # A deterministic timeline child can execute BOSSSET between the
+        # capture and this future opcode 10. The child world records that
+        # binding in known_boss_ids even though no physical pointer exists yet.
+        return target_slot == -1 and event.boss_id in known_boss_ids
+    return event.boss_id in known_boss_ids
+
+
 def _forecast_hard_emitter_batched(
     snapshot: Snapshot,
     emitter: EnemySpawner,
@@ -122,7 +159,7 @@ def _forecast_hard_emitter_batched(
         (lead, event)
         for lead, event in _scheduled_boss_interrupts(snapshot, horizon)
         if event is not None
-        and event.boss_id == emitter.boss_id
+        and _timeline_interrupt_targets(snapshot, emitter, event)
         and lead >= start_lead
     )
     cursor = start_lead
@@ -215,7 +252,7 @@ def _forecast_hard_emitter_with_lasers(
         lead: event
         for lead, event in _scheduled_boss_interrupts(snapshot, horizon)
         if event is not None
-        and event.boss_id == emitter.boss_id
+        and _timeline_interrupt_targets(snapshot, emitter, event)
         and lead >= start_lead
     }
     state: EnemySpawner | None = emitter
@@ -345,7 +382,12 @@ def _forecast_hard_timeline_births(
             break
         if instruction.opcode == 10:
             event = decode_boss_interrupt(instruction)
-            if event is None or event.boss_id not in known_boss_ids:
+            if (
+                event is None
+                or not _timeline_interrupt_has_resolved_target(
+                    snapshot, event, known_boss_ids
+                )
+            ):
                 return WorldBirthForecast(
                     tuple(map(tuple, births)),
                     _project_hazards(births, True),

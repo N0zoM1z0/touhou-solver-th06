@@ -853,3 +853,42 @@ birth-forecast time was 0.131 ms on this host. The full focused suite passes
 343 tests with 28 skipped. These are source, unit, asset, and retained physical
 transition results. A naturally reached physical same-frame ECL laser
 creation/mutation remains the required adjacent-frame parity experiment.
+
+## Boss identity versus stage-timeline pointer capture (2026-08-04)
+
+The first default Stage 1 run after the mutable-laser checkpoint stopped alive
+at f1217 on an empty Hard set, before any live laser. Two explicit
+`--continue-on-failure` diagnostics then reached roughly f3450--f3520. One
+transient trace contained two live lasers and no new authority loss while
+they were present, but that artifact was overwritten by the next ordinary-RNG
+path and is not adjacent-frame parity evidence. The diagnostics instead
+exposed a repeatable sensor failure: `incoherent boss pointer at enemy slot
+0`. Retrying a whole coherent snapshot did not repair it; five reads across
+physical frames 3519--3522 observed the same mismatch. Every run released
+input and stopped its exact PID. None is a clear.
+
+The source makes the old capture invariant invalid. Stage timeline opcode 10
+writes directly through `EnemyManager::bosses[id]`, whereas actual boss
+identity belongs to `Enemy::flags.isBoss` plus `Enemy::bossId`. A manager
+pointer that names an occupied non-boss slot is still real timeline state; it
+does not turn that Enemy into a boss and cannot be classified as a permanently
+torn snapshot.
+
+Native capture now preserves the eight manager pointers separately as enemy
+slot identities. A non-boss is decoded solely from its own flag. A true boss
+also reads the source byte at Enemy offset `0xE40` and must map back through
+its own boss id; only a mismatch in that true-boss publication interval is
+retried as a torn `BOSSSET`. Hard timeline opcode 10 selects a captured live
+emitter through the raw pointer slot, including a stale pointer to a non-boss.
+A deterministic future timeline child which executes `BOSSSET` before the
+interrupt records its predicted binding in the child world, so an all-null
+physical pointer table at the earlier root does not suppress that future
+transition. Older corpus snapshots without the new field retain their prior
+boss-id fallback.
+
+Focused regressions cover stale-pointer/non-boss capture, true-boss
+publication, raw-pointer interrupt selection, and future child
+`BOSSSET -> timeline interrupt`. The complete suite now passes 347 tests with
+28 skipped. The capture distinction is source- and unit-grounded; the next
+physical diagnostic must cross the former f3522 failure before it counts as
+runtime validation.
