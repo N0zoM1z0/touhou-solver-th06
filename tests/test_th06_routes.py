@@ -103,6 +103,11 @@ class RoutePhaseTests(unittest.TestCase):
         )
         self.assertEqual(timeline_phase(2388).horizon, 16)
 
+    def test_t1004_phase_uses_the_physically_publishable_local_rung(self):
+        phase = timeline_phase(1004)
+        self.assertEqual(phase.phase_id, "timeline:t1004:subs2-3")
+        self.assertEqual(phase.horizon, 8)
+
     def test_ecl_phase_identity_survives_pointer_relocation(self):
         first = SimpleNamespace(
             next_instruction=SimpleNamespace(address=0x1108),

@@ -102,3 +102,27 @@ Boss phases are intentionally uncovered. Candidate-conditioned aim,
 damage/kill/retirement/callback/RNG causality will be implemented only along
 the source path demanded by the next authored phase and parity-checked before
 physical promotion.
+
+## First post-pivot physical iteration
+
+Checkpoint `bb66973` ran ordinary-RNG, default fail-close Hard/Reimu-A
+Practice Stage 4. It stopped alive at f1329 in
+`timeline:t1004:subs2-3` with an empty Hard set, zero Bomb, and no prior HIT.
+The exact PID 12680 was stopped, all input was released, and no trial process
+remained.
+
+The phase's provisional h12 query measured 16.762 ms median and 27.718 ms
+maximum over 159 phase decisions. It produced 17 stale publications and 46
+complete-query timeouts. At f1313 it selected `up`; f1315/f1320/f1322/f1325
+then retained `up` after timeouts, moving Reimu from y=364.686 to y=344.686.
+The last complete f1327 result was stale, and Hard was empty at f1329. The
+terminal stop was therefore preceded by a missed replanning window.
+
+Native stateful physical-battle replay retained exact parity for all 148
+adjacent player/combat/RNG steps and 8235 fired-bullet steps in the saved
+history. On f1290/f1300/f1310/f1313 roots, h8, h12, and h16 each survived the
+32-frame replay set; h8 used fewer commands and had mean minimum clearance
+6.292 versus h12's 4.921. On the closest f1320 root, h8 proposed `down` while
+h12 proposed `down_right`; the physical h12 query timed out and published
+neither. The smallest falsifier is therefore phase-local h8, not a new common
+fallback or a weakened Hard set.

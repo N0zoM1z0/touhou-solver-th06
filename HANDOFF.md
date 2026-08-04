@@ -95,11 +95,14 @@ Current checks:
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
-No post-pivot physical run has yet been promoted. The latest ignored failure
-artifact still belongs to the old line and ends in default Practice Stage 4 at
-f2762 with `hard-safe-set-empty`, repairable count 11, 16 stale publications,
-and no Bomb. It is historical comparison material, not evidence for the new
-route core.
+The first post-pivot default Practice Stage 4 run stopped alive at f1329 in
+`timeline:t1004:subs2-3` with no HIT or Bomb. Its provisional h12 phase query
+cost 16.762 ms median/27.718 ms maximum, caused 17 stale publications and 46
+timeouts, then missed a downward correction while holding `up`. Stateful
+physical-battle replay kept h8/h12/h16 alive for 32 frames on the retained
+roots, but h8 used fewer commands, had better mean minimum clearance than h12,
+and produced the missed f1320 downward correction. The phase is now changed
+to h8; this has not yet been physically rerun.
 
 ## Immediate experiment
 
@@ -110,7 +113,7 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes:
+Expected outcomes after the t1004 h8 correction:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id` and `phase_id`; or

@@ -32,7 +32,11 @@ class TimelinePhase:
 TIMELINE_PHASES = (
     TimelinePhase(0, "timeline:t0:setup", 8, (192.0, 380.0)),
     TimelinePhase(440, "timeline:t440:sub0", 8, (192.0, 380.0)),
-    TimelinePhase(1004, "timeline:t1004:subs2-3", 12, (192.0, 380.0)),
+    # The first post-pivot physical run measured h12 at 16.76 ms median and
+    # 27.72 ms maximum in this section, with 17 stale publications before its
+    # f1329 stop.  Stateful replay on the retained f1290--f1327 battle roots
+    # kept h8 alive while publishing the missed downward f1320 correction.
+    TimelinePhase(1004, "timeline:t1004:subs2-3", 8, (192.0, 380.0)),
     TimelinePhase(1514, "timeline:t1514:sub10", 12, (192.0, 380.0)),
     TimelinePhase(1878, "timeline:t1878:subs3-2", 12, (192.0, 380.0)),
     TimelinePhase(2388, "timeline:t2388:subs11-13", 16, (192.0, 380.0)),
