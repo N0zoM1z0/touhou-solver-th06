@@ -325,6 +325,20 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "damage, ECL movement, RNG, and delivery through t179"
             ),
         )
+    if subroutine == 12 and not spell_active and boss.ecl_time == 180:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-branch-dispatch",
+            algorithm="policy-volume",
+            horizon=4,
+            target=None,
+            commitment_frames=1,
+            provenance=(
+                "physical f5628 source boundary; exact ECL draws one "
+                "three-way branch and transfers permanently to sub13, "
+                "sub14, or sub15 in the next update"
+            ),
+        )
     if subroutine == 14 and not spell_active and boss.ecl_time < 200:
         return RouteIntent(
             phase_id=phase_id,
@@ -338,6 +352,19 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "emits the Hard t80 aimed 5x16 fan and t110 aimed 24x2 "
                 "circle, then branches at t200; exact and warmup-derived "
                 "battle worlds select a target-free constant h10 reserve"
+            ),
+        )
+    if subroutine == 14 and not spell_active and boss.ecl_time == 200:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-branch-redispatch",
+            algorithm="policy-volume",
+            horizon=4,
+            target=None,
+            commitment_frames=1,
+            provenance=(
+                "installed sub14 t200 three-way source dispatch to sub13, "
+                "sub12, or sub15; no callee returns to the caller"
             ),
         )
     return uncovered(

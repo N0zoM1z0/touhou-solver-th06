@@ -967,6 +967,21 @@ first stable t200 branch or an earlier source life callback, with no sub13/
 sub12/sub15 strategy action. Require exact adjacent parity for both aimed
 births, movement, candidate damage, callback timing, and t200 RNG/CALL state.
 
+The first run did not exercise sub14. It stopped alive at f5628 on sub12 local
+t180 because no input command happened to be in flight. The preceding run had
+crossed the same boundary only under a one-frame Hard lease, so `<180` made
+source progress depend on incidental publication state. F5628 still has all
+18 Hard actions, Power 30, boss life 4858, and 62 bullets. One shaped nominal
+step under the observed `up_right_fast` enters sub13 local t1 and advances the
+captured RNG exactly through the modeled time-zero work.
+
+Sub12 t180 is now its own one-frame h4 `first-nonspell-branch-dispatch` state.
+Sub14 t200 receives the symmetric one-frame `branch-redispatch` state. These
+states authorize only the understood source transition; every destination
+remains independently fail-visible. Rerun default fail-close. Expected success
+is an alive stop on stable sub13/sub14/sub15 after t180, or—if sub14 is chosen—
+after crossing its two attacks at the next unauthored destination.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

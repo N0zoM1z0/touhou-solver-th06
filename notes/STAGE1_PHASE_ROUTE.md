@@ -1212,3 +1212,22 @@ Only sub14 `ecl_time < 200` is candidate-authored as
 `first-nonspell-hard-fan-circle`. A default fail-close run must stop on the
 first stable t200 branch or life callback and must retain exact adjacent parity
 for movement, both aimed births, player shots, boss damage/life, and RNG.
+
+The first physical attempt stops earlier at f5628, sub12 local t180. It is
+alive with all 18 Hard actions, Power 30, boss life 4858, and 62 bullets. The
+previous run crossed t180 only because an already-issued command still had a
+one-frame Hard lease; in this run no lease exists, so the route's `<180` bound
+correctly exposes the missing transition instead of issuing an unaudited
+action.
+
+The transition itself is source-understood and already has one physical sibling
+parity sample (the preceding run entered sub14). On current f5628, one exact
+phase-shaped nominal step under observed `up_right_fast` predicts sub13 local
+t1, boss life 4798, RNG seed 15194/generation 6702, and the same 62 bullets.
+This provides the next adjacent physical falsifier.
+
+Sub12 exact t180 is now isolated as h4, one-frame
+`first-nonspell-branch-dispatch`; sub14 exact t200 has the symmetric
+`first-nonspell-branch-redispatch`. They do not choose a destination or reuse a
+sibling policy. Common Hard certifies the one update, then the newly published
+stable sub13/sub14/sub15 identity must select its own route state or stop.

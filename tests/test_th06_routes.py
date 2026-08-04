@@ -310,8 +310,13 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(branch_boundary.algorithm, "uncovered")
-        self.assertEqual(branch_boundary.policy_state, "uncovered")
+        self.assertEqual(branch_boundary.algorithm, "policy-volume")
+        self.assertEqual(
+            branch_boundary.policy_state,
+            "first-nonspell-branch-dispatch",
+        )
+        self.assertEqual(branch_boundary.horizon, 4)
+        self.assertEqual(branch_boundary.commitment_frames, 1)
 
         boss.next_instruction = SimpleNamespace(
             address=subroutines[14] + 0x10
@@ -336,7 +341,13 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(hard_fan_boundary.algorithm, "uncovered")
+        self.assertEqual(hard_fan_boundary.algorithm, "policy-volume")
+        self.assertEqual(
+            hard_fan_boundary.policy_state,
+            "first-nonspell-branch-redispatch",
+        )
+        self.assertEqual(hard_fan_boundary.horizon, 4)
+        self.assertEqual(hard_fan_boundary.commitment_frames, 1)
 
         boss.next_instruction = SimpleNamespace(
             address=subroutines[13] + 0x10
