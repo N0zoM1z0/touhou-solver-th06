@@ -105,6 +105,11 @@
       "first_action": "down_fast",
       "outcome": "survived",
       "survived_frames": 24
+    },
+    "delivery-filtered-count": {
+      "first_action": "down_fast",
+      "outcome": "survived",
+      "survived_frames": 24
     }
   }
 }

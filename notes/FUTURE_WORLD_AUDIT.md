@@ -1,7 +1,8 @@
 # TH06 Future-World And Offline/Online Audit
 
-Snapshot: 2026-08-04, repository HEAD `05b5648`, solver code checkpoint
-`52ed4ac`, authoritative source `cc475a0bc3fef38683b0f02224c87ddba0a021d9`.
+Snapshot refreshed 2026-08-04 through repository checkpoint `16cf0c0` and the
+following measured barrage-policy experiment.  Authoritative source remains
+`cc475a0bc3fef38683b0f02224c87ddba0a021d9`.
 
 This is a source-coverage audit, not an implementation roadmap and not clear
 evidence.  It records which future-world claims are already supported, which
@@ -64,6 +65,18 @@ The concise rule is: precompute the source program, not a future trajectory.
 - Source `ENEMYCREATE` can be audited inside the Hard window through newborn
   time-zero ECL and both relevant EnemyManager slot-order cases.  Persistent
   nominal world insertion remains unsupported.
+- Deterministic stage-timeline children are now inserted into the Hard world:
+  their source record is decoded, newborn time-zero ECL runs inline, and the
+  child is advanced through the remaining Hard interval. Random-coordinate
+  timeline children fail closed at their first unresolved RNG dependency.
+- Timeline boss-interrupt records are applied before the affected live boss
+  update. The sensor now retains every installed live interrupt target graph,
+  including targets whose `ENEMYINTERRUPTSET` instruction precedes the
+  captured current ECL pointer.
+- `MSGREAD`/`MSGWAIT` timing uses the captured live GUI message VM plus the
+  immutable message bytecode. The forecast takes the safe minimum across the
+  snapshot priority-11 / GUI priority-12 boundary rather than treating
+  dialogue duration as a fixed stage constant.
 - A future-created laser may be skipped only when source timers prove it
   cannot become collidable inside the requested window.  Otherwise creation
   fails closed; future laser geometry is not yet inserted.
@@ -79,21 +92,22 @@ The concise rule is: precompute the source program, not a future trajectory.
   bullet transitions, and newborn bullet geometry.  The current generic
   stateful parity rung deliberately excludes live enemies, spawners, lasers,
   and despawning bullets.
+- In the fixed-RNG Stage 5 diagnostic, the captured timeline remained at 3373
+  through f3613, advanced to 3374 at f3614 and 3375 at f3615, while the live
+  boss interrupt executed across that adjacent boundary. Hard retained all 18
+  actions and no authority stop occurred. The 75-second diagnostic reached
+  f4320 with no HIT and no Bomb, but is not a default clear.
 
 ## Coverage gaps found in this audit
 
-### 1. Stage timeline is sensed but not part of hazard forecasting
+### 1. Stage timeline Hard insertion is bounded; nominal insertion remains
+incomplete
 
-### Coverage inference
+### Source/current-code fact
 
-`native.py` captures `timeline_time`, a bounded prefix of remaining timeline
-instructions, completion state, and subroutine traits.  The only production
-consumer of these fields is currently soft suppression/attack.  Bullet,
-laser, body, Hard, viability, and guidance forecast call sites do not consume
-the stage timeline.
-
-Consequently, the current world forecast advances already-present emitters
-but does not generally insert:
+`native.py` captures the remaining timeline, ECL program/subroutine table,
+message stalls, and live boss interrupt graphs. The Hard world now consumes
+these fields and inserts deterministic timeline children and boss interrupts:
 
 ```text
 future timeline instruction
@@ -103,14 +117,14 @@ future timeline instruction
     -> newborn bullet/laser/body hazard
 ```
 
-If such an event can fall inside the next Hard-4 updates, this is a potential
-Hard soundness gap rather than only a soft-ranking limitation.  Boss/dialogue
-gates, random timeline positions, exact source update alignment, and snapshot
-phase must be resolved before promoting that inference to a bug claim.
+This closes the identified deterministic Hard-4 omission. It does not yet
+install those children into the nominal continuation used for deeper soft
+ranking. Random-coordinate timeline records still require a shared-RNG world
+envelope and therefore stop Hard coverage at the unresolved transition.
 
 ### 2. Same frame number does not by itself prove one calc-chain phase
 
-### Source-proved gap; implementation pending physical parity
+### Source/current-code fact with physical transition evidence
 
 The frame epoch is checked before and after decode, and hazard pools are copied
 in one native read.  Player state and other globals are read separately.  The
@@ -123,11 +137,13 @@ laser, and collision work.  At the supported 1x rate, a controllable complete
 hazard root therefore requires equality; `gameFrames == bulletTime + 1` is the
 otherwise invisible mid-chain phase.
 
-The implementation now copies the BulletManager timer with the native hazard
+The implementation copies the BulletManager timer with the native hazard
 pools, rejects a mismatched active phase, and reads separately stored player
-and global state only after that pool witness.  Adjacent physical parity is
-still required before this implementation is promoted from source proof to
-physical evidence.
+and global state only after that pool witness. The f3613--f3615 dialogue and
+interrupt transition retained fresh Hard authority across the expected source
+phase. Broader adjacent parity is still required for each newly inserted
+enemy/laser transition; one successful boundary does not validate all of
+them.
 
 ### 3. Deep exact search runs on a partly nominal future world
 
@@ -168,7 +184,9 @@ implemented, reachable-state deduplication cannot use player endpoint alone.
   remain unsupported.
 - Future laser create/aim/store/rotate/test/cancel lacks a persistent laser
   world state and exact geometry.
-- Future stage-timeline enemies are not inserted at all.
+- Deterministic future stage-timeline enemies are inserted only in the bounded
+  Hard forecast, not in nominal continuation; random-coordinate records stop
+  at the unresolved RNG transition.
 
 ### 6. Nominal RNG is exact only within the modelled consumer set
 
@@ -188,6 +206,15 @@ Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
   literal bullet opcodes from the shipped `th06_ST.DAT`.
 - Generated individual volleys use source instruction semantics, but their
   synthetic composition is not claimed reachable in a named ECL route.
+- `horizontal-bands` selects source-defined aimed fan opcodes by geometry, not
+  stage identity, and matures multiple independently aged volleys into dense
+  lateral layers. A diagnostic-only band counter never enters Hard or online
+  ranking. At 384 bullets the first 12 generated seeds contained 18--23 bands;
+  the physical f2940--f2959 worlds contained 17--20 by the same measure.
+- Stateful replay can either condition generated worlds on all captured
+  player/input/rank/density frames, or start from every complete captured
+  bullet world. The latter deliberately removes enemy/laser/timeline state and
+  is labelled a physical-bullet ablation, never a complete battle forecast.
 - The independent planner oracle and stateful runner are valuable algorithm
   falsifiers.  They are not replacements for full source-world execution or
   physical play.
@@ -196,16 +223,62 @@ Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
   This removes repeated work but is runtime caching, not full offline asset
   compilation.
 
+## Horizontal-band causal and fuzz evidence
+
+### Physical causal trace
+
+The fail-closed artifact reaches f2959 at `(115.25, 432.0)` with 495 bullets
+and no Hard-4 action. Two mature fan bullets plus the bottom boundary are
+sufficient for the terminal empty set, but that is only the effect. At f2945
+all 18 Hard actions remain; h16 prefers `left_fast`. Physical pickup holds
+that command from f2947, while a fresh turn is already needed by f2949 and is
+not published. The successful diagnostic reaches the corresponding region at
+`(36.0, 405.62)` with 484 bullets, having entered a different lower-left
+corridor earlier. Thus it passed the visible strip by preserving a different
+stateful corridor, not by recognizing a named pattern.
+
+### Offline differential and stateful results
+
+- 256 generated, physical-density-conditioned horizontal-band worlds (98,637
+  bullets total) matched the independent Hard oracle at h8 with no mismatch.
+- The physical history supplies 153 adjacent pairs: all 153 player steps,
+  48,648 fired-bullet steps, and 7,324 spawning-bullet steps match exactly;
+  maximum position error is zero, with 534 births and 485 removals.
+- On 24 complete physical bullet worlds, raw h16 terminal multiplicity stops
+  early on seeds 8, 11, and 16; exact next-publication filtering survives all
+  24. Seed 8 starts at physical f2689 and shrinks from 401 bullets to three,
+  with no synthetic birth: raw count chooses `down_right_fast` and loses
+  authority after 12 updates, while delivery-aware filtering chooses
+  `down_fast` and survives the 24-update replay. The compact regression is
+  `stage5_f2689_horizontal_band_stateful.json`.
+- A 64-seed source-generated closed-loop run produced 28 initially Hard-4
+  viable cases. Raw count survived 21. A coarse one-replan filter improved six
+  but regressed seed 51 by forcing a new unleaseable command. Replacing it with
+  exact repeated-pickup membership fixed that case; retaining the ordinary
+  constant-survival witness when the exact membership set is empty removed
+  the remaining regression. The resulting experimental policy survived 26,
+  stopped at f23 instead of f4 on one raw failure, and postponed the other
+  stop from f2 to f3: five full-sequence conversions plus two longer partial
+  survivals, with no losses against raw count in this finite corpus.
+
+These results support the production ordering already intended by the solver:
+fresh repeated-pickup continuation first, deep terminal volume second, and an
+understood constant witness when the stronger optional rung is empty. They do
+not justify making the experimental barrage policy a new online controller,
+nor do offline survivors count as a physical clear.
+
 ## Smallest useful direction
 
-The evidence order for future work is:
+The evidence order for future work is now:
 
-1. Establish the source phase and complete Hard-4 world coverage, beginning
-   with the next stage-timeline event rather than a longer planner horizon.
-2. Insert one source-defined future world family at a time: timeline enemy,
-   persistent ECL child, then future laser, retaining exact slot/update order.
+1. Retain the new deterministic timeline enemy/message/interrupt Hard
+   coverage and obtain another adjacent physical spawn transition; add a
+   source-bounded envelope for random timeline coordinates rather than a
+   nominal point.
+2. Insert the next source-defined persistent world families one at a time:
+   ECL child, then future laser, retaining exact slot/update order.
 3. Make nominal future births candidate-path conditioned and preserve shared
-   RNG/world state per causal branch.
+   RNG/world state per causal branch, including damage/kill/callback effects.
 4. Extend adjacent-frame parity only for each newly supported transition.
 5. Profile the integrated online path, then compile immutable ECL/timeline
    blocks offline or move a measured stable kernel to native code without

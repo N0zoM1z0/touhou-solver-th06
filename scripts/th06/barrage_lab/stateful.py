@@ -33,7 +33,10 @@ from ..model import (
 )
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
-from ..viability import replanning_scores as source_replanning_scores
+from ..viability import (
+    delivery_segment_viability_scores,
+    replanning_scores as source_replanning_scores,
+)
 from ..guidance import terminal_reachability_counts
 from ..hazards.geometry import signed_clearance
 from ..hazards.births import spawn_pattern
@@ -54,6 +57,7 @@ TERMINAL_METRICS = (
     "local-count-vector",
     "replanning-count",
     "authority-filtered-count",
+    "delivery-filtered-count",
     "constant-reserve-count",
     "count-clearance",
     "count-clearance-confirmed",
@@ -413,28 +417,58 @@ class ExactTerminalPolicy:
         elif self.metric in (
             "replanning-count",
             "authority-filtered-count",
+            "delivery-filtered-count",
         ):
-            replanning = source_replanning_scores(
-                snapshot,
-                candidates,
-                split=4,
-                horizon=min(8, self.horizon),
-                continuation_actions=CONTROL_ACTIONS,
-            )
-            if self.metric == "authority-filtered-count":
+            if self.metric == "delivery-filtered-count":
+                replanning = delivery_segment_viability_scores(
+                    snapshot,
+                    candidates,
+                    4,
+                    self.horizon,
+                )
+            else:
+                replanning = source_replanning_scores(
+                    snapshot,
+                    candidates,
+                    split=4,
+                    horizon=min(8, self.horizon),
+                    continuation_actions=CONTROL_ACTIONS,
+                )
+            if self.metric in (
+                "authority-filtered-count",
+                "delivery-filtered-count",
+            ):
                 deep = dict(source_terminal_counts(
                     snapshot,
                     hard.actions,
                     4,
                     self.horizon,
                 ).counts)
+                deep_by_action = {
+                    candidate.action: deep[candidate.action.name]
+                    for candidate in candidates
+                }
                 preferred = _authority_filtered_preferred(
-                    replanning,
-                    {
-                        candidate.action: deep[candidate.action.name]
-                        for candidate in candidates
-                    },
+                    replanning, deep_by_action
                 )
+                if (
+                    self.metric == "delivery-filtered-count"
+                    and not preferred
+                ):
+                    reserve = certify_linear_source(
+                        snapshot,
+                        min(6, self.horizon),
+                        actions=tuple(
+                            candidate.action for candidate in candidates
+                        ),
+                    ).actions
+                    preferred = _deep_preferred_within(
+                        frozenset(
+                            candidate.action for candidate in candidates
+                            if candidate.action.name in reserve
+                        ),
+                        deep_by_action,
+                    )
             else:
                 scores = {
                     candidate.action: (replanning[candidate.action],)
@@ -606,20 +640,44 @@ class NativeTerminalPolicy:
         elif self.metric in (
             "replanning-count",
             "authority-filtered-count",
+            "delivery-filtered-count",
         ):
-            replanning = self.kernel.macro_tail_scores_budgeted(
-                snapshot,
-                hard,
-                4,
-                min(8, self.horizon),
-                collision_margin=0.35,
-                budget_ms=1000.0,
-            )
+            if self.metric == "delivery-filtered-count":
+                robust = self.kernel.delivery_segment_viability_progressive(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    self.horizon,
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+                replanning = (
+                    robust[1]
+                    if (
+                        robust is not None
+                        and robust[0] == self.horizon
+                        and robust[2]
+                    )
+                    else None
+                )
+            else:
+                replanning = self.kernel.macro_tail_scores_budgeted(
+                    snapshot,
+                    hard,
+                    4,
+                    min(8, self.horizon),
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
             if replanning is None:
                 raise RuntimeError(
                     "stateful full-control replanning did not complete"
                 )
-            if self.metric == "authority-filtered-count":
+            if self.metric in (
+                "authority-filtered-count",
+                "delivery-filtered-count",
+            ):
                 deep = self.kernel.terminal_counts(
                     snapshot,
                     hard,
@@ -631,6 +689,22 @@ class NativeTerminalPolicy:
                     replanning,
                     deep,
                 )
+                if (
+                    self.metric == "delivery-filtered-count"
+                    and not preferred
+                ):
+                    reserve = self.kernel.certify_selected(
+                        snapshot,
+                        min(6, self.horizon),
+                        tuple(candidate.action for candidate in hard),
+                        collision_margin=0.35,
+                    )
+                    preferred = _deep_preferred_within(
+                        frozenset(
+                            candidate.action for candidate in reserve
+                        ),
+                        deep,
+                    )
             else:
                 scores = {
                     candidate.action: (replanning[candidate.action],)

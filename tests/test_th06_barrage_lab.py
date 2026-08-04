@@ -143,7 +143,11 @@ class BarrageLabTests(unittest.TestCase):
             if case.get("runner") != "barrage_stateful_policy":
                 continue
             snapshot = decode_snapshot(case["input"]["snapshot"])
-            for metric in ("count", "authority-filtered-count"):
+            for metric in (
+                "count",
+                "authority-filtered-count",
+                "delivery-filtered-count",
+            ):
                 expected = case["expect"][metric]
                 result = run_closed_loop(
                     snapshot,
