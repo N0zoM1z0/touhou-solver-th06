@@ -12,6 +12,7 @@ from ..model import (
     EnemyEclContext,
     EnemySpawner,
     EclInstruction,
+    ItemState,
     Laser,
     PlayerAttackState,
     PlayerShot,
@@ -30,6 +31,9 @@ def decode_snapshot(raw: dict) -> Snapshot:
     values["lasers"] = tuple(Laser(**item) for item in values["lasers"])
     values["enemies"] = tuple(
         EnemyBody(**item) for item in values["enemies"]
+    )
+    values["item_states"] = tuple(
+        ItemState(**item) for item in values.get("item_states", ())
     )
     values["spawners"] = tuple(
         EnemySpawner(

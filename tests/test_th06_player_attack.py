@@ -5,12 +5,19 @@ from dataclasses import asdict, replace
 from th06.barrage_lab.corpus import decode_snapshot
 from th06.barrage_lab.stateful import (
     _NominalCombatStep,
+    _step_items_after_effects,
     step_reimu_a_player_attack,
     step_reimu_a_player_shot,
 )
 from th06.hazards.ecl import source_enemy_template
 from th06.hazards.rng import RngState
-from th06.model import EclInstruction, PlayerAttackState, PlayerShot, Snapshot
+from th06.model import (
+    EclInstruction,
+    ItemState,
+    PlayerAttackState,
+    PlayerShot,
+    Snapshot,
+)
 from th06.native import (
     ANM_VM_SCRIPT_OFFSET,
     ANM_VM_SPRITE_OFFSET,
@@ -386,8 +393,70 @@ class PlayerAttackTests(unittest.TestCase):
 
         self.assertIsNone(following)
         self.assertEqual(combat.item_upper, 1)
+        self.assertEqual(combat.items[0].item_type, 1)
         # One shot impact, three item particles, then five common particles.
         self.assertEqual(combat.effect_upper, 9)
+
+    def test_item_exit_and_collection_apply_source_subrank_transitions(self):
+        attack = _attack_with_shot(1)
+        miss = ItemState(
+            slot=0,
+            x=20.0,
+            y=463.0,
+            start_x=0.0,
+            start_y=1.0,
+            target_x=0.0,
+            target_y=0.0,
+            timer_previous=9,
+            timer=10,
+            timer_float=10.0,
+            item_type=0,
+            state=0,
+        )
+        miss_root = replace(
+            _snapshot(attack),
+            rank=19,
+            subrank=1,
+            min_rank=10,
+            max_rank=32,
+            item_states=(miss,),
+            item_active_upper_bound=1,
+        )
+        miss_combat = _NominalCombatStep(miss_root, attack)
+
+        miss_rank = _step_items_after_effects(
+            miss_combat,
+            (miss_root.x, miss_root.y),
+            miss_root.player_state,
+            miss_root,
+        )
+
+        self.assertEqual(miss_rank, (18, 98, 0))
+        self.assertEqual(miss_combat.items, {})
+
+        point = replace(
+            miss,
+            x=192.0,
+            y=400.0,
+            start_y=-2.2,
+            item_type=1,
+        )
+        collect_root = replace(
+            miss_root,
+            subrank=1,
+            item_states=(point,),
+        )
+        collect_combat = _NominalCombatStep(collect_root, attack)
+
+        collect_rank = _step_items_after_effects(
+            collect_combat,
+            (collect_root.x, collect_root.y),
+            collect_root.player_state,
+            collect_root,
+        )
+
+        self.assertEqual(collect_rank, (19, 4, 0))
+        self.assertEqual(collect_combat.items, {})
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from .model import (
     EnemyEclContext,
     EnemySpawner,
     EclInstruction,
+    ItemState,
     Laser,
     MessageInstruction,
     PLAYER_ALIVE,
@@ -215,6 +216,16 @@ EFFECT_TIMER_CURRENT_OFFSET = 0x16C
 EFFECT_IN_USE_OFFSET = 0x178
 EFFECT_ID_OFFSET = 0x179
 ITEM_ACTIVE_COUNT_OFFSET = 0x28948
+ITEM_NEXT_INDEX_OFFSET = 0x28944
+ITEM_COUNT = 512
+ITEM_STRIDE = 0x144
+ITEM_POSITION_OFFSET = 0x110
+ITEM_START_POSITION_OFFSET = 0x11C
+ITEM_TARGET_POSITION_OFFSET = 0x128
+ITEM_TIMER_OFFSET = 0x134
+ITEM_TYPE_OFFSET = 0x140
+ITEM_IN_USE_OFFSET = 0x141
+ITEM_STATE_OFFSET = 0x143
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
@@ -1426,9 +1437,62 @@ def _read_snapshot_once(
         )[0]
         if previous == -999 and current == 0:
             pending_effect_rng_ids.append(effect_id)
-    item_active_upper_bound = struct.unpack(
-        "<I", process.read(ADDR_ITEM_MANAGER + ITEM_ACTIVE_COUNT_OFFSET, 4)
-    )[0]
+    item_pool = process.read(
+        ADDR_ITEM_MANAGER,
+        ITEM_ACTIVE_COUNT_OFFSET + 4,
+    )
+    item_next_index, reported_item_count = struct.unpack_from(
+        "<II", item_pool, ITEM_NEXT_INDEX_OFFSET
+    )
+    if not 0 <= item_next_index < ITEM_COUNT:
+        raise RuntimeError("invalid source item next index")
+    item_states = []
+    for slot in range(ITEM_COUNT):
+        base = slot * ITEM_STRIDE
+        if not item_pool[base + ITEM_IN_USE_OFFSET]:
+            continue
+        item_type = struct.unpack_from(
+            "<b", item_pool, base + ITEM_TYPE_OFFSET
+        )[0]
+        state = item_pool[base + ITEM_STATE_OFFSET]
+        x, y = struct.unpack_from(
+            "<ff", item_pool, base + ITEM_POSITION_OFFSET
+        )
+        start_x, start_y = struct.unpack_from(
+            "<ff", item_pool, base + ITEM_START_POSITION_OFFSET
+        )
+        target_x, target_y = struct.unpack_from(
+            "<ff", item_pool, base + ITEM_TARGET_POSITION_OFFSET
+        )
+        timer_previous, timer_subframe, timer = struct.unpack_from(
+            "<ifi", item_pool, base + ITEM_TIMER_OFFSET
+        )
+        numbers = (
+            x, y, start_x, start_y, target_x, target_y, timer_subframe,
+        )
+        if (
+            item_type not in range(7)
+            or state not in range(3)
+            or not all(math.isfinite(value) for value in numbers)
+            or not -1000 <= timer_previous < 1_000_000
+            or not -1000 <= timer < 1_000_000
+        ):
+            raise RuntimeError(f"invalid source item state at slot {slot}")
+        item_states.append(ItemState(
+            slot,
+            x,
+            y,
+            start_x,
+            start_y,
+            target_x,
+            target_y,
+            timer_previous,
+            timer,
+            timer + timer_subframe,
+            item_type,
+            state,
+        ))
+    item_active_upper_bound = len(item_states)
     if not 0 <= reported_effect_count <= 512:
         raise RuntimeError("invalid source effect active count")
     if not (
@@ -1436,7 +1500,7 @@ def _read_snapshot_once(
         and 0 <= subrank < 100
     ):
         raise RuntimeError("invalid source rank state")
-    if not 0 <= item_active_upper_bound <= 512:
+    if not 0 <= reported_item_count <= 512:
         raise RuntimeError("invalid source item active count")
     character, shot_type = process.read(
         ADDR_GAME_MANAGER + GAME_CHARACTER_OFFSET, 2
@@ -2182,6 +2246,8 @@ def _read_snapshot_once(
         max_rank,
         min_rank,
         tuple(pending_effect_rng_ids),
+        tuple(item_states),
+        item_next_index,
     )
 
 

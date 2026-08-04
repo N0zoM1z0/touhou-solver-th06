@@ -133,6 +133,24 @@ class PlayerShot:
 
 
 @dataclass(frozen=True)
+class ItemState:
+    """One occupied source ``ItemManager`` slot at the frame boundary."""
+
+    slot: int
+    x: float
+    y: float
+    start_x: float
+    start_y: float
+    target_x: float
+    target_y: float
+    timer_previous: int
+    timer: int
+    timer_float: float
+    item_type: int
+    state: int
+
+
+@dataclass(frozen=True)
 class PlayerAttackState:
     """Player-owned attack state needed for exact future damage."""
 
@@ -381,6 +399,8 @@ class Snapshot:
     # the frame boundary.  Their callbacks consume RNG on the next update.
     # Only the source effect IDs are needed; visual state is hazard-neutral.
     pending_effect_rng_ids: tuple[int, ...] = ()
+    item_states: tuple[ItemState, ...] = ()
+    item_next_index: int = 0
 
 
 @dataclass(frozen=True)

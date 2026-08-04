@@ -30,8 +30,10 @@ from ..model import (
     BulletPattern,
     EnemyBody,
     EnemySpawner,
+    ItemState,
     PLAYER_ALIVE,
     PLAYER_DEAD,
+    PLAYER_INVULNERABLE,
     PLAYER_SPAWNING,
     PlayerAttackState,
     PlayerShot,
@@ -637,6 +639,16 @@ class _NominalCombatStep:
         self.player_half_height = snapshot.half_height
         self.effect_upper = snapshot.effect_active_upper_bound
         self.item_upper = snapshot.item_active_upper_bound
+        self.items = {item.slot: item for item in snapshot.item_states}
+        if (
+            len(self.items) != len(snapshot.item_states)
+            or any(not 0 <= slot < 512 for slot in self.items)
+            or self.item_upper != len(self.items)
+        ):
+            raise UnsupportedStatefulModel("source item slots are incomplete")
+        self.item_next_index = snapshot.item_next_index
+        if not 0 <= self.item_next_index < 512:
+            raise UnsupportedStatefulModel("source item next index is invalid")
         self.random_spawn_index = snapshot.random_item_spawn_index
         self.random_table_index = snapshot.random_item_table_index
         self.allocated_effects: list[int] = []
@@ -659,11 +671,49 @@ class _NominalCombatStep:
         self.allocated_effects.extend(effect_ids)
 
     def observe_item_spawns(self, count: int) -> None:
-        if not 0 <= count <= 512 - self.item_upper:
+        if count:
             raise UnsupportedStatefulModel(
-                "item-pool upper bound cannot prove item allocation"
+                "ECL item birth needs its type and position, not only a count"
             )
-        self.item_upper += count
+
+    def spawn_item(
+        self,
+        position: tuple[float, float],
+        item_type: int,
+        state: int,
+        rng: RngState,
+    ) -> None:
+        """Allocate one source ItemManager slot with SpawnItem semantics."""
+        if item_type not in range(7) or state not in range(3):
+            raise UnsupportedStatefulModel("invalid source item birth")
+        slot = self.item_next_index
+        for _ in range(512):
+            self.item_next_index = (self.item_next_index + 1) % 512
+            if slot in self.items:
+                slot = self.item_next_index
+                continue
+            target_x = target_y = 0.0
+            start_x, start_y = 0.0, -2.2
+            if state == 2:
+                target_x = _f32(rng.f32_zero_to_one() * 288.0 + 48.0)
+                target_y = _f32(rng.f32_zero_to_one() * 192.0 - 64.0)
+                start_x, start_y = position
+            self.items[slot] = ItemState(
+                slot=slot,
+                x=_f32(position[0]),
+                y=_f32(position[1]),
+                start_x=_f32(start_x),
+                start_y=_f32(start_y),
+                target_x=target_x,
+                target_y=target_y,
+                timer_previous=-999,
+                timer=0,
+                timer_float=0.0,
+                item_type=item_type,
+                state=state,
+            )
+            self.item_upper += 1
+            return
 
     def _spawn_effects(self, effect_ids, rng: RngState) -> None:
         effect_ids = tuple(effect_ids)
@@ -803,16 +853,20 @@ class _NominalCombatStep:
                 emitter = replace(emitter, interactable=False)
             if emitter.item_drop >= 0:
                 self._spawn_effects((emitter.death_anm2 + 4,) * 3, rng)
-                self.observe_item_spawns(1)
+                self.spawn_item(
+                    (emitter.x, emitter.y), emitter.item_drop, 0, rng
+                )
             elif emitter.item_drop == -1:
                 if self.random_spawn_index % 3 == 0:
                     self._spawn_effects(
                         (emitter.death_anm2 + 4,) * 6, rng
                     )
-                    self.observe_item_spawns(1)
-                    # Item type is immutable table data; only the rotating
-                    # index changes combat-relevant future state here.
-                    _RANDOM_ITEMS[self.random_table_index]
+                    self.spawn_item(
+                        (emitter.x, emitter.y),
+                        _RANDOM_ITEMS[self.random_table_index],
+                        0,
+                        rng,
+                    )
                     self.random_table_index = (
                         self.random_table_index + 1
                     ) % len(_RANDOM_ITEMS)
@@ -1005,12 +1059,148 @@ def _increase_subrank(
     return min(rank, max_rank), subrank
 
 
+def _decrease_subrank(
+    rank: int,
+    subrank: int,
+    min_rank: int,
+    amount: int,
+) -> tuple[int, int]:
+    """Authoritative GameManager::DecreaseSubrank transition."""
+    subrank -= amount
+    while subrank < 0:
+        rank -= 1
+        subrank += 100
+    return max(rank, min_rank), subrank
+
+
+def _step_items_after_effects(
+    combat: _NominalCombatStep,
+    player: tuple[float, float],
+    player_state: int,
+    snapshot: Snapshot,
+) -> tuple[int, int, int]:
+    """Advance priority-11 ItemManager before hostile bullets."""
+    rank = snapshot.rank
+    subrank = snapshot.subrank
+    power = snapshot.current_power
+    retained: dict[int, ItemState] = {}
+    for slot in sorted(combat.items):
+        item = combat.items[slot]
+        x = _f32(item.x)
+        y = _f32(item.y)
+        start_x = _f32(item.start_x)
+        start_y = _f32(item.start_y)
+        state = item.state
+        if state == 2 and item.timer < 60:
+            phase = _f32(item.timer_float / 60.0)
+            inverse = _f32(1.0 - phase)
+            x = _f32(
+                _f32(phase * item.target_x)
+                + _f32(start_x * inverse)
+            )
+            y = _f32(
+                _f32(phase * item.target_y)
+                + _f32(start_y * inverse)
+            )
+        else:
+            if state == 2 and item.timer == 60:
+                start_x = start_y = 0.0
+            elif state != 2:
+                if state == 1 or (power >= 128 and player[1] < 128.0):
+                    relative_x = _f32(player[0] - x)
+                    relative_y = _f32(player[1] - y)
+                    angle = (
+                        _f32(math.pi / 2.0)
+                        if relative_x == 0.0 and relative_y == 0.0
+                        else _f32(math.atan2(relative_y, relative_x))
+                    )
+                    start_x = _f32(math.cos(angle) * 8.0)
+                    start_y = _f32(math.sin(angle) * 8.0)
+                    state = 1
+                else:
+                    start_x = 0.0
+                    if start_y < -2.2:
+                        start_y = _f32(-2.2)
+            x = _f32(x + start_x)
+            y = _f32(y + start_y)
+            if y >= 464.0:
+                rank, subrank = _decrease_subrank(
+                    rank, subrank, snapshot.min_rank, 3
+                )
+                combat.item_upper -= 1
+                continue
+            start_y = _f32(min(3.0, _f32(start_y + 0.03)))
+
+        acquired = (
+            player_state in (PLAYER_ALIVE, PLAYER_INVULNERABLE)
+            and abs(player[0] - x) <= 20.0
+            and abs(player[1] - y) <= 20.0
+        )
+        if acquired:
+            if item.item_type == 0:
+                if power < 128:
+                    power += 1
+                    if power >= 128:
+                        raise UnsupportedStatefulModel(
+                            "item acquisition reaches full-power bullet conversion"
+                        )
+                rank, subrank = _increase_subrank(
+                    rank, subrank, snapshot.max_rank, 1
+                )
+            elif item.item_type == 1:
+                rank, subrank = _increase_subrank(
+                    rank,
+                    subrank,
+                    snapshot.max_rank,
+                    30 if y < 128.0 else 3,
+                )
+            elif item.item_type == 2:
+                if power < 128:
+                    old_power = power
+                    power = min(128, power + 8)
+                    if old_power < 128 <= power:
+                        raise UnsupportedStatefulModel(
+                            "item acquisition reaches full-power bullet conversion"
+                        )
+            elif item.item_type == 3:
+                rank, subrank = _increase_subrank(
+                    rank, subrank, snapshot.max_rank, 5
+                )
+            elif item.item_type == 4:
+                if power < 128:
+                    raise UnsupportedStatefulModel(
+                        "full-power item needs bullet conversion"
+                    )
+            elif item.item_type == 5:
+                rank, subrank = _increase_subrank(
+                    rank, subrank, snapshot.max_rank, 200
+                )
+            combat.item_upper -= 1
+            continue
+
+        retained[slot] = replace(
+            item,
+            x=x,
+            y=y,
+            start_x=start_x,
+            start_y=start_y,
+            state=state,
+            timer_previous=item.timer,
+            timer=item.timer + 1,
+            timer_float=_f32(item.timer_float + 1.0),
+        )
+    combat.items = retained
+    return rank, subrank, power
+
+
 def _step_hostile_bullets_after_effects(
     bullets: list[Bullet],
     player: tuple[float, float],
     snapshot: Snapshot,
     combat: _NominalCombatStep,
     rng: RngState,
+    rank: int,
+    subrank: int,
 ) -> tuple[
     tuple[Bullet, ...],
     tuple[Bullet, ...],
@@ -1022,8 +1212,6 @@ def _step_hostile_bullets_after_effects(
     active: list[Bullet] = []
     despawning: list[Bullet] = []
     player_state = snapshot.player_state
-    rank = snapshot.rank
-    subrank = snapshot.subrank
     for bullet in bullets:
         advanced = step_bullet(bullet, player)
         if advanced.state != 1:
@@ -1144,6 +1332,12 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         forecast.continuation.rng_generation,
     )
     if combat is not None:
+        rank, subrank, current_power = _step_items_after_effects(
+            combat,
+            (x, y),
+            snapshot.player_state,
+            snapshot,
+        )
         (
             bullets,
             despawning_bullets,
@@ -1151,7 +1345,13 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             rank,
             subrank,
         ) = _step_hostile_bullets_after_effects(
-            bullets, (x, y), snapshot, combat, next_rng
+            bullets,
+            (x, y),
+            snapshot,
+            combat,
+            next_rng,
+            rank,
+            subrank,
         )
     else:
         bullets = tuple(step_bullet(bullet, (x, y)) for bullet in bullets)
@@ -1159,6 +1359,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         player_state = snapshot.player_state
         rank = snapshot.rank
         subrank = snapshot.subrank
+        current_power = snapshot.current_power
 
     emitters = forecast.continuation.emitters
     bodies = tuple(
@@ -1192,6 +1393,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         player_state=player_state,
         rank=rank,
         subrank=subrank,
+        current_power=current_power,
         player_attack=(combat.attack if combat is not None else attack),
         effect_active_upper_bound=(
             combat.effect_upper
@@ -1215,6 +1417,16 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         ),
         pending_effect_rng_ids=(
             tuple(combat.post_effect_ids) if combat is not None else ()
+        ),
+        item_states=(
+            tuple(combat.items[slot] for slot in sorted(combat.items))
+            if combat is not None
+            else snapshot.item_states
+        ),
+        item_next_index=(
+            combat.item_next_index
+            if combat is not None
+            else snapshot.item_next_index
         ),
     )
 
@@ -2400,6 +2612,11 @@ class PhysicalParity:
     first_combat_enemy_mismatch: str = ""
     first_combat_player_shot_mismatch: str = ""
     first_combat_rng_mismatch: str = ""
+    hostile_graze_transitions: int = 0
+    combat_graze_steps: int = 0
+    exact_combat_graze_steps: int = 0
+    exact_combat_rank_steps: int = 0
+    exact_combat_pending_effect_steps: int = 0
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -2441,6 +2658,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     first_combat_enemy_mismatch = ""
     first_combat_player_shot_mismatch = ""
     first_combat_rng_mismatch = ""
+    hostile_graze_transitions = 0
+    combat_graze_steps = 0
+    exact_combat_graze_steps = 0
+    exact_combat_rank_steps = 0
+    exact_combat_pending_effect_steps = 0
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -2751,6 +2973,43 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                     )
                 exact_combat_player_shot_steps += shot_exact
 
+                predicted_bullets = {
+                    bullet.slot: bullet for bullet in predicted_world.bullets
+                }
+                actual_bullets = {
+                    bullet.slot: bullet for bullet in right.bullets
+                }
+                prior_bullets = {
+                    bullet.slot: bullet for bullet in left.bullets
+                }
+                hostile_graze_transitions += sum(
+                    not prior_bullets[slot].is_grazed
+                    and actual_bullets[slot].is_grazed
+                    for slot in prior_bullets.keys() & actual_bullets.keys()
+                )
+                retained_bullet_slots = (
+                    prior_bullets.keys() & actual_bullets.keys()
+                )
+                graze_exact = (
+                    retained_bullet_slots <= predicted_bullets.keys()
+                    and all(
+                        predicted_bullets[slot].is_grazed
+                        == actual_bullets[slot].is_grazed
+                        for slot in retained_bullet_slots
+                    )
+                )
+                combat_graze_steps += 1
+                exact_combat_graze_steps += graze_exact
+                rank_exact = (
+                    predicted_world.rank == right.rank
+                    and predicted_world.subrank == right.subrank
+                )
+                exact_combat_rank_steps += rank_exact
+                pending_effect_exact = Counter(
+                    predicted_world.pending_effect_rng_ids
+                ) == Counter(right.pending_effect_rng_ids)
+                exact_combat_pending_effect_steps += pending_effect_exact
+
                 rng_exact = (
                     predicted_world.rng_seed == right.rng_seed
                     and predicted_world.rng_generation
@@ -2771,13 +3030,24 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                         f"from={left.rng_generation}"
                     )
                 if (
-                    not (enemy_exact and shot_exact and rng_exact)
+                    not (
+                        enemy_exact
+                        and shot_exact
+                        and graze_exact
+                        and rank_exact
+                        and pending_effect_exact
+                        and rng_exact
+                    )
                     and not first_combat_world_mismatch
                 ):
                     first_combat_world_mismatch = (
                         f"f{left.frame}->{right.frame} "
                         f"enemy={int(enemy_exact)} "
-                        f"shot={int(shot_exact)} rng={int(rng_exact)} "
+                        f"shot={int(shot_exact)} "
+                        f"graze={int(graze_exact)} "
+                        f"rank={int(rank_exact)} "
+                        f"pending_effect={int(pending_effect_exact)} "
+                        f"rng={int(rng_exact)} "
                         f"slots={sorted(predicted_emitters)}/"
                         f"{sorted(actual_emitters)} "
                         f"rng_generation="
@@ -2844,6 +3114,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         first_combat_enemy_mismatch,
         first_combat_player_shot_mismatch,
         first_combat_rng_mismatch,
+        hostile_graze_transitions,
+        combat_graze_steps,
+        exact_combat_graze_steps,
+        exact_combat_rank_steps,
+        exact_combat_pending_effect_steps,
     )
 
 
