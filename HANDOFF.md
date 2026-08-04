@@ -255,12 +255,21 @@ decision.
 
 ## Immediate experiment
 
-Return to Stage 1. Inspect the installed `ecldata1.ecl` timeline and the
-authoritative engine source, recover only useful evidence from the historical
-Stage 1 solver, and author the first minimal Hard/Reimu-A source phase. Keep
-the next source boundary explicitly unavailable. Then run Practice Stage 1
-with ordinary RNG and default fail-close to obtain the first integrated
-physical counterexample. Diagnose that phase before adding the next one.
+Stage 1 setup and the t128 sub0/sub1 body/resource stream are now authored and
+physically promoted. The ordinary-RNG default fail-close run completed both
+without HIT, Bomb, or Hard-authority loss and stopped exactly as designed at
+f641/t641 with `phase-unavailable` for
+`timeline:t640:subs2-3-aimed-stream`. The boundary retained all 18 Hard-safe
+actions at `(192,384)`, Power 2. The first phase used only three input
+transitions; its 528 route decisions measured 1.884 ms median, 4.307 ms p90,
+and 7.051 ms maximum.
+
+Use the captured f641 entry plus installed ECL to author only t640--t1219.
+Sub2 fires a Hard 9x2 aimed fan at local ECL t70; sub3 does not fire on Hard.
+Run stateful candidate-conditioned offline comparisons across source-valid
+warmups, then physically falsify the smallest publishable policy. Keep the
+t1220 random-coordinate sub0/sub1 insertion explicitly uncovered until the
+aimed-stream phase is promoted.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

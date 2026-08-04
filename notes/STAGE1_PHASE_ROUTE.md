@@ -39,3 +39,24 @@ single global effort rule. The current first run asks a smaller question:
 does the isolated body/resource policy reach t640 alive, with fresh authority,
 no Bomb, and a usable position/Power state? The resulting physical entry will
 seed stateful offline work for the t640 aimed stream.
+
+## Physical promotion of the first phase
+
+The ordinary-RNG default fail-close run at checkpoint `fd84165` reached the
+deliberate boundary exactly. It completed setup and the entire t128 sub0/sub1
+body/resource stream, then stopped alive at f641/t641 with
+`phase-unavailable` for `timeline:t640:subs2-3-aimed-stream`. There was no HIT,
+Bomb, or earlier Hard-authority loss. The boundary retained all 18 Hard-safe
+actions and a certified five-frame held action.
+
+The physical entry is `(192,384)` with Power 2, no current bullets, twelve
+ordinary enemies and the newly spawned t640 sub2 emitter. The route made only
+three input transitions. Across 528 non-lease route decisions, solve time was
+1.884 ms median, 4.307 ms p90, and 7.051 ms maximum. This promotes the first
+phase only; it does not validate the t640 aimed stream.
+
+The next experiment starts from this captured entry and advances the complete
+candidate-conditioned battle world through t640--t1219. It must compare small
+phase-local policies across source-valid RNG/action warmups, including the
+sub2 local-t70 aimed shots and player damage/kill state. The t1220
+random-coordinate insertion remains the next explicit uncovered boundary.
