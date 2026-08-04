@@ -302,13 +302,126 @@ class PeriodicBirthTests(unittest.TestCase):
                 character=0,
                 timeline_time=99,
                 timeline_instructions=instructions,
-                timeline_message_waits=(2,),
+                timeline_message_delays=((2, 1),),
             ),
             positions,
         )
 
         self.assertEqual(unproved.covered_frames, 3)
         self.assertEqual(proved.covered_frames, 4, proved.reason)
+
+    def test_timeline_interrupt_enters_captured_boss_subroutine(self):
+        boss_set = EclInstruction(
+            0x1000,
+            0,
+            101,
+            16,
+            0xFF,
+            (struct.pack("<ihhBBBB", 0, 101, 16, 0, 0xFF, 0, 0)
+             + struct.pack("<i", 0)).hex(),
+        )
+        interrupt_set = EclInstruction(
+            0x1010,
+            0,
+            109,
+            20,
+            0xFF,
+            (struct.pack("<ihhBBBB", 0, 109, 20, 0, 0xFF, 0, 0)
+             + struct.pack("<ii", 1, 0)).hex(),
+        )
+        waiting = EclInstruction(
+            0x1024,
+            60,
+            0,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", 60, 0, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        main_end = EclInstruction(
+            0x1030,
+            -1,
+            -1,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", -1, -1, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        bullet_args = struct.pack(
+            "<hhii ffff I",
+            0,
+            0,
+            1,
+            1,
+            4.0,
+            4.0,
+            0.0,
+            0.0,
+            4,
+        )
+        interrupt_shot = EclInstruction(
+            0x2000,
+            0,
+            68,
+            0x30,
+            0xFF,
+            (struct.pack("<ihhBBBB", 0, 68, 0x30, 0, 0xFF, 0, 0)
+             + bullet_args).hex(),
+        )
+        interrupt_end = EclInstruction(
+            0x2030,
+            -1,
+            -1,
+            12,
+            0xFF,
+            struct.pack("<ihhBBBB", -1, -1, 12, 0, 0xFF, 0, 0).hex(),
+        )
+        spawn_raw = struct.pack(
+            "<hhhhfffhhI",
+            100,
+            0,
+            0,
+            28,
+            192.0,
+            80.0,
+            0.0,
+            100,
+            -1,
+            0,
+        )
+        timeline = (
+            StageTimelineInstruction(
+                0x3000, 100, 0, 0, 28, spawn_raw.hex()
+            ),
+            StageTimelineInstruction(
+                0x301C,
+                101,
+                0,
+                10,
+                16,
+                struct.pack("<hhhhII", 101, 0, 10, 16, 0, 0).hex(),
+            ),
+        )
+
+        forecast = forecast_world_births(
+            snapshot(
+                100,
+                timeline_time=100,
+                timeline_instructions=timeline,
+                ecl_subroutines=(0x1000, 0x2000),
+                timeline_ecl_program=(
+                    boss_set,
+                    interrupt_set,
+                    waiting,
+                    main_end,
+                    interrupt_shot,
+                    interrupt_end,
+                ),
+                bullet_sizes=((3.0, 3.0),),
+            ),
+            ((100.0, 400.0),) * 3,
+        )
+
+        self.assertEqual(forecast.covered_frames, 3, forecast.reason)
+        self.assertEqual([len(frame) for frame in forecast.births], [0, 1, 0])
 
     def test_world_birth_projection_matches_scalar_source_motion(self):
         turning = Bullet(

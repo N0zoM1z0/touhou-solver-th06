@@ -128,6 +128,8 @@ ENEMY_ECL_CONTEXT_OFFSET = 0x990
 ENEMY_ECL_CONTEXT_SIZE = 0x4C
 ENEMY_ECL_STACK_CAPACITY = 8
 ENEMY_ECL_STACK_DEPTH_OFFSET = 0xC3C
+ENEMY_INTERRUPTS_OFFSET = 0xC48
+ENEMY_RUN_INTERRUPT_OFFSET = 0xC68
 ENEMY_POSITION_OFFSET = 0xC6C
 ENEMY_HITBOX_OFFSET = 0xC78
 ENEMY_AXIS_SPEED_OFFSET = 0xC84
@@ -164,6 +166,7 @@ ENEMY_TIMER_CALLBACK_SUB_OFFSET = 0xEB4
 ENEMY_DEATH_CALLBACK_SUB_OFFSET = 0xC44
 ENEMY_TIMELINE_INSTRUCTION_OFFSET = 0xEE5DC
 ENEMY_TIMELINE_TIMER_OFFSET = 0xEE5E0
+ENEMY_BOSSES_OFFSET = 0xEE598
 ECL_EX_COUNT = 17
 ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
@@ -174,8 +177,10 @@ MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
 GUI_IMPL_MSG_OFFSET = 0x2534
+GUI_MSG_INSTRUCTION_OFFSET = 0x4
 GUI_MSG_INDEX_OFFSET = 0x8
-GUI_MSG_SKIPPABLE_OFFSET = 0x6A7
+GUI_MSG_IGNORE_WAIT_OFFSET = 0x6A0
+GUI_MSG_SKIPPABLE_OFFSET = 0x6A4
 
 
 @dataclass(frozen=True)
@@ -760,47 +765,58 @@ def _read_message_program(
     )
 
 
+def _message_minimum_waits(
+    program: tuple[MessageInstruction, ...],
+    *,
+    current_instruction: int | None = None,
+) -> int:
+    """Return a source-proved lower bound on future priority-9 waits.
+
+    The lower bound assumes the fastest possible dialogue controls: WAITs may
+    be skipped and each GUI update may jump to the next instruction time.
+    Even then RunMsg checks Ctrl only once before its instruction loop, so one
+    GUI update cannot cross multiple positive-time groups.  EnemyManager runs
+    first on the next frame, yielding one mandatory MSGWAIT per group until
+    MSGDELETE or ECLRESUME.
+    """
+    if not program:
+        return 0
+    start = 0
+    opening = current_instruction is None
+    if current_instruction is not None:
+        for index, instruction in enumerate(program):
+            if instruction.address == current_instruction:
+                start = index
+                break
+        else:
+            return 0
+    waits = 0 if opening else 1
+    previous_time = 0 if opening else program[start].time
+    for instruction in program[start:]:
+        if instruction.time > previous_time:
+            waits += 1
+            previous_time = instruction.time
+        raw = bytes.fromhex(instruction.raw_hex)
+        if len(raw) != 4 + instruction.arg_size:
+            return 0
+        if instruction.opcode in (0, 6):  # MSGDELETE / ECLRESUME
+            return waits
+        elif instruction.opcode == 10:  # MSGHALT
+            return max(waits, MSG_PROGRAM_INSTRUCTION_LIMIT)
+    return 0
+
+
 def _message_opening_guarantees_wait(
     program: tuple[MessageInstruction, ...],
     *,
     skip_pressed: bool,
 ) -> bool:
-    """Prove that the first RunMsg leaves MsgWait true on the next frame.
-
-    MsgRead zeroes GuiMsgVm.  RunMsg can then consume every time-zero
-    instruction in priority 12.  The next priority-9 MSGWAIT is guaranteed to
-    stall only if that pass cannot delete the message or raise ECLRESUME's
-    ``ignoreWaitCounter``.  WAIT is a barrier on its opening pass when its
-    count is positive and Ctrl/Skip was not already held.
-    """
-    ignore_wait_counter = 0
-    dialogue_skippable = False
-    for instruction in program:
-        if instruction.time > 0:
-            return ignore_wait_counter == 0
-        raw = bytes.fromhex(instruction.raw_hex)
-        if len(raw) != 4 + instruction.arg_size:
-            return False
-        if instruction.opcode == 0:  # MSGDELETE
-            return False
-        if instruction.opcode == 4:  # WAIT
-            if instruction.arg_size < 4:
-                return False
-            wait_frames = struct.unpack_from("<i", raw, 4)[0]
-            if not (dialogue_skippable and skip_pressed) and wait_frames > 0:
-                return ignore_wait_counter == 0
-        elif instruction.opcode == 6:  # ECLRESUME
-            ignore_wait_counter += 1
-        elif instruction.opcode == 10:  # MSGHALT
-            return ignore_wait_counter == 0
-        elif instruction.opcode == 13:  # WAITSKIPPABLE
-            if instruction.arg_size < 4:
-                return False
-            dialogue_skippable = bool(struct.unpack_from("<i", raw, 4)[0])
-    return False
+    """Compatibility predicate for focused tests and older callers."""
+    del skip_pressed
+    return _message_minimum_waits(program) > 0
 
 
-def _timeline_message_waits(
+def _timeline_message_delays(
     process: NativeProcess,
     msg_file: int,
     instructions: tuple[StageTimelineInstruction, ...],
@@ -809,8 +825,9 @@ def _timeline_message_waits(
     difficulty: int,
     character: int,
     input_mask: int,
-) -> tuple[int, ...]:
-    """Compile proved one-frame MSGWAIT barriers for the visible timeline."""
+) -> tuple[tuple[int, int], ...]:
+    """Compile minimum MSGWAIT delays for visible timeline MSGREADs."""
+    del input_mask
     indices = {
         message_index
         for instruction in instructions
@@ -824,13 +841,37 @@ def _timeline_message_waits(
         ) is not None
     }
     return tuple(sorted(
-        message_index
+        (message_index, waits)
         for message_index in indices
-        if _message_opening_guarantees_wait(
-            _read_message_program(process, msg_file, message_index),
-            skip_pressed=bool(input_mask & 0x100),
-        )
+        if (waits := _message_minimum_waits(
+            _read_message_program(process, msg_file, message_index)
+        )) > 0
     ))
+
+
+def _current_message_waits(
+    process: NativeProcess,
+    msg_file: int,
+    current_index: int,
+    current_instruction: int,
+    ignore_wait_counter: int,
+) -> int:
+    """Prove remaining waits for an already-active captured message."""
+    if ignore_wait_counter > 0 or current_index < 0 or not current_instruction:
+        return 0
+    program = _read_message_program(process, msg_file, current_index)
+    # BulletManager's timer proves hazards through priority 11, while Gui runs
+    # at priority 12.  The same frame can therefore expose either the opening
+    # MsgRead state or the post-RunMsg state.  Take the smaller source-proved
+    # bound across both interpretations; this preserves safety without
+    # requiring an unavailable end-of-chain counter.
+    return min(
+        _message_minimum_waits(program),
+        _message_minimum_waits(
+            program,
+            current_instruction=current_instruction,
+        ),
+    )
 
 
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
@@ -1034,13 +1075,19 @@ def _read_snapshot_once(
     gui_impl = struct.unpack("<I", process.read(ADDR_GUI + 4, 4))[0]
     if gui_impl and not 0x10000 <= gui_impl < 0x80000000:
         raise RuntimeError(f"invalid GuiImpl pointer 0x{gui_impl:08X}")
-    msg_file = (
-        struct.unpack(
-            "<I", process.read(gui_impl + GUI_IMPL_MSG_OFFSET, 4)
+    if gui_impl:
+        msg_address = gui_impl + GUI_IMPL_MSG_OFFSET
+        msg_file, current_message_instruction, current_message_index = struct.unpack(
+            "<IIi", process.read(msg_address, 12)
+        )
+        ignore_wait_counter = struct.unpack(
+            "<I", process.read(msg_address + GUI_MSG_IGNORE_WAIT_OFFSET, 4)
         )[0]
-        if gui_impl
-        else 0
-    )
+    else:
+        msg_file = 0
+        current_message_instruction = 0
+        current_message_index = -1
+        ignore_wait_counter = 0
 
     player = process.read(ADDR_PLAYER + PLAYER_POSITION_OFFSET, PLAYER_SPEEDS_OFFSET + 16 - PLAYER_POSITION_OFFSET)
     relative = lambda absolute: absolute - PLAYER_POSITION_OFFSET
@@ -1100,7 +1147,7 @@ def _read_snapshot_once(
         process,
         timeline_instructions,
     )
-    timeline_message_waits = _timeline_message_waits(
+    timeline_message_delays = _timeline_message_delays(
         process,
         msg_file,
         timeline_instructions,
@@ -1108,6 +1155,13 @@ def _read_snapshot_once(
         difficulty=difficulty,
         character=character,
         input_mask=input_mask,
+    )
+    timeline_current_message_waits = _current_message_waits(
+        process,
+        msg_file,
+        current_message_index,
+        current_message_instruction,
+        ignore_wait_counter,
     )
 
     bullets: list[Bullet] = []
@@ -1209,6 +1263,16 @@ def _read_snapshot_once(
     )
     ex_index_by_address = {
         address: index for index, address in enumerate(ex_function_addresses)
+    }
+    boss_pointers = struct.unpack_from(
+        "<" + "I" * 8,
+        native_pools,
+        manager_relative(ENEMY_BOSSES_OFFSET),
+    )
+    boss_id_by_pointer = {
+        pointer: boss_id
+        for boss_id, pointer in enumerate(boss_pointers)
+        if pointer
     }
     enemies: list[EnemyBody] = []
     spawners: list[EnemySpawner] = []
@@ -1534,6 +1598,32 @@ def _read_snapshot_once(
                 program_by_address.setdefault(instruction.address, instruction)
         ecl_program = tuple(program_by_address.values())
 
+        interrupts = struct.unpack_from(
+            "<" + "i" * 8,
+            enemy_pool,
+            base + ENEMY_INTERRUPTS_OFFSET,
+        )
+        run_interrupt = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_RUN_INTERRUPT_OFFSET
+        )[0]
+        if (
+            any(not -1 <= sub_id < len(process.ecl_subroutines)
+                for sub_id in interrupts)
+            or not -1 <= run_interrupt < 8
+        ):
+            raise RuntimeError(
+                f"invalid ECL interrupt state at enemy slot {index}"
+            )
+        enemy_address = (
+            ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET + index * ENEMY_STRIDE
+        )
+        boss_id = boss_id_by_pointer.get(enemy_address, -1)
+        is_boss = bool(flags1 & 0x08)
+        if is_boss != (boss_id >= 0):
+            raise RuntimeError(
+                f"incoherent boss pointer at enemy slot {index}"
+            )
+
         spawners.append(EnemySpawner(
             index,
             *motion,
@@ -1579,12 +1669,15 @@ def _read_snapshot_once(
             life_callback_sub,
             timer_callback_threshold,
             timer_callback_sub,
-            bool(flags1 & 0x08),
+            is_boss,
             bool(flags2 & 0x10),
             bool(flags1 & 0x10),
             tuple(ex_floats),
             tuple(ex_ints),
             (flags1 >> 5) & 0x07,
+            boss_id,
+            tuple(interrupts),
+            run_interrupt,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,
@@ -1597,7 +1690,8 @@ def _read_snapshot_once(
         timeline_instructions, timeline_complete,
         timeline_emitter_subs, timeline_boss_subs,
         process.ecl_subroutines, timeline_ecl_program,
-        character, timeline_message_waits,
+        character, timeline_message_delays,
+        timeline_current_message_waits,
     )
 
 

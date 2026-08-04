@@ -11,6 +11,8 @@ from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import forecast_ecl_births, source_enemy_template
 from .rng import RngState
 from .timeline import (
+    TimelineBossInterrupt,
+    decode_boss_interrupt,
     decode_enemy_spawn,
     first_world_transition,
     scheduled_timeline,
@@ -57,7 +59,8 @@ def _limit_for_uninserted_timeline(
         stage=snapshot.stage,
         difficulty=snapshot.difficulty,
         character=snapshot.character,
-        message_waits=snapshot.timeline_message_waits,
+        message_delays=snapshot.timeline_message_delays,
+        current_message_waits=snapshot.timeline_current_message_waits,
     )
     if transition is None:
         return forecast
@@ -98,6 +101,119 @@ def _project_hazards(
     return tuple(tuple(frame) for frame in frames)
 
 
+def _scheduled_boss_interrupts(
+    snapshot: Snapshot,
+    horizon: int,
+) -> tuple[tuple[int, TimelineBossInterrupt | None], ...]:
+    result = []
+    for lead, instruction in scheduled_timeline(
+        snapshot.timeline_instructions,
+        snapshot.timeline_time,
+        stage=snapshot.stage,
+        difficulty=snapshot.difficulty,
+        character=snapshot.character,
+        message_delays=snapshot.timeline_message_delays,
+        current_message_waits=snapshot.timeline_current_message_waits,
+    ):
+        if lead >= horizon:
+            break
+        if instruction.opcode == 10:
+            result.append((lead, decode_boss_interrupt(instruction)))
+    return tuple(result)
+
+
+def _forecast_hard_emitter(
+    snapshot: Snapshot,
+    emitter: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    *,
+    start_lead: int = 0,
+    enemy_kill_all_is_noop: bool,
+) -> WorldBirthForecast:
+    """Advance one emitter across source timeline interrupt boundaries."""
+    horizon = len(player_positions)
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    events = tuple(
+        (lead, event)
+        for lead, event in _scheduled_boss_interrupts(snapshot, horizon)
+        if event is not None
+        and event.boss_id == emitter.boss_id
+        and lead >= start_lead
+    )
+    cursor = start_lead
+    state: EnemySpawner | None = emitter
+    for boundary, event in (*events, (horizon, None)):
+        if state is None:
+            if event is not None:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    boundary,
+                    f"timeline interrupt targets a finished boss {emitter.boss_id}",
+                    tuple(map(tuple, bodies)),
+                )
+            break
+        if boundary > cursor:
+            try:
+                forecast = forecast_ecl_births(
+                    state,
+                    player_positions[cursor:boundary],
+                    snapshot.difficulty,
+                    snapshot.rank,
+                    snapshot.bullet_sizes,
+                    snapshot.frame_multiplier,
+                    allow_player_variables=False,
+                    radial_births=True,
+                    abstract_rng=True,
+                    enemy_kill_all_is_noop=enemy_kill_all_is_noop,
+                )
+            except UnsupportedBirthModel as error:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    cursor,
+                    str(error),
+                    tuple(map(tuple, bodies)),
+                )
+            for offset, frame_births in enumerate(forecast.births, cursor):
+                births[offset].extend(frame_births)
+            for offset, frame_bodies in enumerate(
+                forecast.body_hazards, cursor
+            ):
+                bodies[offset].extend(frame_bodies)
+            if forecast.covered_frames < boundary - cursor:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    cursor + forecast.covered_frames,
+                    forecast.reason,
+                    tuple(map(tuple, bodies)),
+                )
+            state = forecast.next_spawner
+            if state is None and not forecast.finished:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    boundary,
+                    forecast.reason or "emitter continuation is unresolved",
+                    tuple(map(tuple, bodies)),
+                )
+            cursor = boundary
+        if event is not None:
+            if state is None:
+                continue
+            state = replace(state, run_interrupt=event.interrupt_id)
+    return WorldBirthForecast(
+        tuple(map(tuple, births)),
+        _project_hazards(births, True),
+        horizon,
+        body_hazards=tuple(map(tuple, bodies)),
+    )
+
+
 def _forecast_hard_timeline_births(
     snapshot: Snapshot,
     player_positions: tuple[tuple[float, float], ...],
@@ -108,25 +224,34 @@ def _forecast_hard_timeline_births(
         [] for _ in player_positions
     ]
     horizon = len(player_positions)
+    known_boss_ids = {
+        emitter.boss_id
+        for emitter in snapshot.spawners
+        if emitter.boss_id >= 0
+    }
     for lead, instruction in scheduled_timeline(
         snapshot.timeline_instructions,
         snapshot.timeline_time,
         stage=snapshot.stage,
         difficulty=snapshot.difficulty,
         character=snapshot.character,
-        message_waits=snapshot.timeline_message_waits,
+        message_delays=snapshot.timeline_message_delays,
+        current_message_waits=snapshot.timeline_current_message_waits,
     ):
         if lead >= horizon:
             break
         if instruction.opcode == 10:
-            return WorldBirthForecast(
-                tuple(map(tuple, births)),
-                _project_hazards(births, True),
-                lead,
-                "uninserted stage timeline boss interrupt opcode 10 "
-                f"at 0x{instruction.address:08x}",
-                tuple(map(tuple, bodies)),
-            )
+            event = decode_boss_interrupt(instruction)
+            if event is None or event.boss_id not in known_boss_ids:
+                return WorldBirthForecast(
+                    tuple(map(tuple, births)),
+                    _project_hazards(births, True),
+                    lead,
+                    "unresolved stage timeline boss interrupt opcode 10 "
+                    f"at 0x{instruction.address:08x}",
+                    tuple(map(tuple, bodies)),
+                )
+            continue
         spawn = decode_enemy_spawn(instruction)
         if spawn is None:
             if 0 <= instruction.opcode <= 7:
@@ -214,36 +339,25 @@ def _forecast_hard_timeline_births(
                 else inline.next_spawner.life
             ),
         )
-        ordinary = forecast_ecl_births(
+        if child.boss_id >= 0:
+            known_boss_ids.add(child.boss_id)
+        ordinary = _forecast_hard_emitter(
+            snapshot,
             child,
-            player_positions[lead:],
-            snapshot.difficulty,
-            snapshot.rank,
-            snapshot.bullet_sizes,
-            snapshot.frame_multiplier,
-            allow_player_variables=False,
-            radial_births=True,
-            abstract_rng=True,
+            player_positions,
+            start_lead=lead,
             enemy_kill_all_is_noop=False,
         )
-        for offset, frame_births in enumerate(ordinary.births, lead):
+        for offset, frame_births in enumerate(ordinary.births):
             births[offset].extend(frame_births)
-        for offset, frame_bodies in enumerate(ordinary.body_hazards, lead):
+        for offset, frame_bodies in enumerate(ordinary.body_hazards):
             bodies[offset].extend(frame_bodies)
-        if ordinary.covered_frames < horizon - lead:
+        if ordinary.covered_frames < horizon:
             return WorldBirthForecast(
                 tuple(map(tuple, births)),
                 _project_hazards(births, True),
-                lead + ordinary.covered_frames,
+                ordinary.covered_frames,
                 f"timeline emitter {spawn.sub_id}: {ordinary.reason}",
-                tuple(map(tuple, bodies)),
-            )
-        if ordinary.next_spawner is None and not ordinary.finished:
-            return WorldBirthForecast(
-                tuple(map(tuple, births)),
-                _project_hazards(births, True),
-                horizon,
-                f"timeline emitter {spawn.sub_id}: persistent state branches",
                 tuple(map(tuple, bodies)),
             )
     return WorldBirthForecast(
@@ -547,30 +661,18 @@ def forecast_world_births(
         covered_frames = len(player_positions)
         reason = ""
         for emitter in emitters:
-            try:
-                forecast = forecast_ecl_births(
-                    emitter,
-                    player_positions,
-                    snapshot.difficulty,
-                    snapshot.rank,
-                    snapshot.bullet_sizes,
-                    snapshot.frame_multiplier,
-                    allow_player_variables=False,
-                    radial_births=True,
-                    abstract_rng=True,
-                    enemy_kill_all_is_noop=enemy_kill_all_is_noop,
-                )
-            except UnsupportedBirthModel as error:
-                forecast = None
-                emitter_coverage = 0
-                emitter_reason = str(error)
-            else:
-                emitter_coverage = forecast.covered_frames
-                emitter_reason = forecast.reason
-                for frame_index, frame_births in enumerate(forecast.births):
-                    births[frame_index].extend(frame_births)
-                for frame_index, frame_bodies in enumerate(forecast.body_hazards):
-                    bodies[frame_index].extend(frame_bodies)
+            forecast = _forecast_hard_emitter(
+                snapshot,
+                emitter,
+                player_positions,
+                enemy_kill_all_is_noop=enemy_kill_all_is_noop,
+            )
+            emitter_coverage = forecast.covered_frames
+            emitter_reason = forecast.reason
+            for frame_index, frame_births in enumerate(forecast.births):
+                births[frame_index].extend(frame_births)
+            for frame_index, frame_bodies in enumerate(forecast.body_hazards):
+                bodies[frame_index].extend(frame_bodies)
             if emitter_coverage < covered_frames:
                 covered_frames = emitter_coverage
                 reason = f"emitter {emitter.slot}: {emitter_reason}"

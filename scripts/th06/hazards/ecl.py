@@ -158,10 +158,8 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_ANIMATION_POSES,
     OPCODE_ANIMATION_SLOT,
     OPCODE_ANIMATION_DEATH,
-    OPCODE_BOSS_SET,
     OPCODE_SPELL_EFFECT,
     OPCODE_EFFECT_SOUND,
-    OPCODE_INTERRUPT_SET,
     OPCODE_EFFECT_PARTICLE,
     OPCODE_ANIMATION_ROTATION,
     OPCODE_DROP_ITEM_ID,
@@ -186,7 +184,6 @@ FAIL_CLOSED_ECL_OPCODES = {
     OPCODE_LASER_CANCEL: "future ECL laser state mutation is not represented",
     OPCODE_ENEMY_CREATE: ENEMY_CREATE_WORLD_REASON,
     OPCODE_ENEMY_KILL_ALL: "ENEMYKILLALL can invoke another emitter callback",
-    OPCODE_INTERRUPT: "ECL interrupt table is not captured",
     OPCODE_EX_CALL: "ECL external instruction can mutate world hazards",
 }
 
@@ -198,6 +195,7 @@ MODELLED_ECL_OPCODES = frozenset(
      OPCODE_DAMAGEABLE_FLAG,
      OPCODE_DEATH_FLAG,
      OPCODE_DEATH_CALLBACK,
+     OPCODE_BOSS_SET, OPCODE_INTERRUPT_SET, OPCODE_INTERRUPT,
      OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
      OPCODE_TIMER_CALLBACK_SUB, OPCODE_LIFE_CALLBACK_THRESHOLD,
      OPCODE_LIFE_CALLBACK_SUB, OPCODE_INTERACTABLE_FLAG, OPCODE_DROP_ITEMS,
@@ -683,6 +681,9 @@ def _forecast_ecl_births_single(
     damageable = spawner.damageable
     death_mode = spawner.death_mode
     is_boss = spawner.is_boss
+    boss_id = spawner.boss_id
+    interrupts = list(spawner.interrupts)
+    run_interrupt = spawner.run_interrupt
     rank_speed_low = spawner.bullet_rank_speed_low
     rank_speed_high = spawner.bullet_rank_speed_high
     rank_amount1_low = spawner.bullet_rank_amount1_low
@@ -894,6 +895,47 @@ def _forecast_ecl_births_single(
                 return EclForecast(
                     tuple(map(tuple, births)), frame_index, "incomplete ECL instruction graph"
                 )
+            if run_interrupt >= 0:
+                if not 0 <= run_interrupt < len(interrupts):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"invalid ECL interrupt id {run_interrupt}",
+                    )
+                sub_id = interrupts[run_interrupt]
+                if not 0 <= sub_id < len(spawner.ecl_subroutines):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"ECL interrupt {run_interrupt} has no captured subroutine",
+                    )
+                if call_stack_disabled:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "ECL interrupt reaches a disabled call stack",
+                    )
+                if len(call_stack) > 7:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "invalid ECL interrupt stack depth",
+                    )
+                if len(call_stack) < 7:
+                    call_stack.append(EnemyEclContext(
+                        instruction.address + instruction.offset_to_next,
+                        current_time,
+                        current_time + time_subframe,
+                        tuple(integers),
+                        tuple(floats),
+                        compare_register,
+                        None,
+                    ))
+                instruction_address = spawner.ecl_subroutines[sub_id]
+                current_time = 0
+                time_subframe = 0.0
+                run_interrupt = -1
+                continue
             if instruction.time != current_time:
                 break
             execute = bool(instruction.skip_for_difficulty & (1 << difficulty))
@@ -1785,6 +1827,40 @@ def _forecast_ecl_births_single(
                 timer_callback_sub = death_callback_sub
                 boss_timer = 0
                 boss_timer_subframe = 0.0
+            elif instruction.opcode == OPCODE_BOSS_SET:
+                new_boss_id = struct.unpack_from("<i", raw, 0x0C)[0]
+                if new_boss_id >= 0:
+                    if new_boss_id >= 8:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            f"invalid source boss id {new_boss_id}",
+                        )
+                    is_boss = True
+                    boss_id = new_boss_id
+                else:
+                    is_boss = False
+                    boss_id = -1
+            elif instruction.opcode == OPCODE_INTERRUPT_SET:
+                interrupt_sub, interrupt_id = struct.unpack_from(
+                    "<ii", raw, 0x0C
+                )
+                if not 0 <= interrupt_id < 8:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"invalid source interrupt id {interrupt_id}",
+                    )
+                if not 0 <= interrupt_sub < len(spawner.ecl_subroutines):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        f"invalid source interrupt subroutine {interrupt_sub}",
+                    )
+                interrupts[interrupt_id] = interrupt_sub
+            elif instruction.opcode == OPCODE_INTERRUPT:
+                run_interrupt = struct.unpack_from("<i", raw, 0x0C)[0]
+                continue
             elif instruction.opcode == OPCODE_ENEMY_CREATE:
                 # SpawnEnemy first runs the newborn's time-zero ECL inline.
                 # A later free slot may then receive its ordinary update in
@@ -2177,6 +2253,10 @@ def _forecast_ecl_births_single(
             life_callback_sub=life_callback_sub,
             timer_callback_threshold=timer_callback_threshold,
             timer_callback_sub=timer_callback_sub,
+            is_boss=is_boss,
+            boss_id=boss_id,
+            interrupts=tuple(interrupts),
+            run_interrupt=run_interrupt,
             damageable=damageable,
             death_mode=death_mode,
             bullet_effect_floats=effect_floats,

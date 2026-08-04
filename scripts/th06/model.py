@@ -258,6 +258,9 @@ class EnemySpawner:
     bullet_effect_floats: tuple[float, float, float, float] = (0.0,) * 4
     bullet_effect_ints: tuple[int, int, int, int] = (0,) * 4
     death_mode: int = 0
+    boss_id: int = -1
+    interrupts: tuple[int, ...] = (-1,) * 8
+    run_interrupt: int = -1
 
 
 @dataclass(frozen=True)
@@ -300,7 +303,8 @@ class Snapshot:
     ecl_subroutines: tuple[int, ...] = ()
     timeline_ecl_program: tuple[EclInstruction, ...] = ()
     character: int = 0
-    timeline_message_waits: tuple[int, ...] = ()
+    timeline_message_delays: tuple[tuple[int, int], ...] = ()
+    timeline_current_message_waits: int = 0
 
 
 @dataclass(frozen=True)

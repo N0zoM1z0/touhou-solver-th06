@@ -74,8 +74,10 @@ from th06.native import (
     NativeDecodeError,
     PROCESS_ACCESS,
     RESULT_SCREEN_ON_UPDATE,
+    _current_message_waits,
     _decode_bullet_tail,
     _message_opening_guarantees_wait,
+    _message_minimum_waits,
     _read_message_program,
     _read_stage_timeline,
     _timeline_subroutine_traits,
@@ -180,7 +182,7 @@ class BaselineTests(unittest.TestCase):
         self.assertIs(_read_message_program(process, msg_file, 0), program)
         self.assertEqual(process.reads, first_read_count)
 
-    def test_message_opening_wait_requires_no_resume_or_immediate_delete(self):
+    def test_message_opening_bound_assumes_fastest_wait_skip(self):
         skippable = MessageInstruction(
             0x1000, 0, 13, 4, struct.pack("<HBBi", 0, 13, 4, 1).hex()
         )
@@ -197,15 +199,49 @@ class BaselineTests(unittest.TestCase):
             0x1024, 1, 0, 0, struct.pack("<HBB", 1, 0, 0).hex()
         )
 
-        self.assertTrue(_message_opening_guarantees_wait(
+        self.assertFalse(_message_opening_guarantees_wait(
             (skippable, wait, delete), skip_pressed=False
         ))
         self.assertFalse(_message_opening_guarantees_wait(
             (skippable, wait, delete), skip_pressed=True
         ))
-        self.assertFalse(_message_opening_guarantees_wait(
-            (resume, later), skip_pressed=False
-        ))
+        self.assertEqual(_message_minimum_waits((resume, later)), 0)
+
+    def test_message_time_groups_bound_fastest_dialogue_release(self):
+        program = tuple(
+            MessageInstruction(
+                0x2000 + index * 4,
+                time,
+                opcode,
+                0,
+                struct.pack("<HBB", time, opcode, 0).hex(),
+            )
+            for index, (time, opcode) in enumerate((
+                (0, 1),
+                (0, 13),
+                (60, 3),
+                (150, 3),
+                (240, 0),
+            ))
+        )
+
+        self.assertEqual(_message_minimum_waits(program), 3)
+        self.assertEqual(
+            _message_minimum_waits(
+                program,
+                current_instruction=program[3].address,
+            ),
+            2,
+        )
+        process = type("Process", (), {
+            "message_program_cache": {(0x10000, 0): program}
+        })()
+        self.assertEqual(
+            _current_message_waits(
+                process, 0x10000, 0, program[0].address, 0
+            ),
+            3,
+        )
 
     def test_source_stage_timeline_is_decoded_and_cached_by_pointer(self):
         first = struct.pack("<hhhh", 100, 7, 4, 0x18) + bytes(0x10)

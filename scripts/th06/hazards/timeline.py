@@ -33,19 +33,21 @@ def scheduled_timeline(
     stage: int = 0,
     difficulty: int = 0,
     character: int = 0,
-    message_waits: tuple[int, ...] = (),
+    message_delays: tuple[tuple[int, int], ...] = (),
+    current_message_waits: int = 0,
 ) -> tuple[tuple[int, StageTimelineInstruction], ...]:
     """Return earliest source-frame leads, including proved MSGWAIT stalls.
 
-    A message index in ``message_waits`` has been proved from its immutable
-    bytecode and the currently published input to remain active, with no
-    ECLRESUME, until the next EnemyManager update.  We use only that one-frame
-    lower bound.  Longer dialogue duration remains deliberately unassumed.
+    Each ``message_delays`` entry is the minimum number of priority-9 waits
+    proved from immutable bytecode even under maximally fast dialogue input.
+    ``current_message_waits`` applies when the captured pointer is already on
+    MSGWAIT and the initiating MSGREAD is no longer in the remaining stream.
     """
     result: list[tuple[int, StageTimelineInstruction]] = []
     delay = 0
-    pending_message_wait = False
-    proved_waits = frozenset(message_waits)
+    pending_message_waits = 0
+    proved_delays = dict(message_delays)
+    used_current_wait = False
     for instruction in instructions:
         if instruction.time < 0:
             break
@@ -58,11 +60,14 @@ def scheduled_timeline(
             character,
         )
         if message_index is not None:
-            pending_message_wait = message_index in proved_waits
+            pending_message_waits = proved_delays.get(message_index, 0)
         elif instruction.opcode == 9:
-            if pending_message_wait:
-                delay += 1
-            pending_message_wait = False
+            if pending_message_waits:
+                delay += pending_message_waits
+            elif not used_current_wait:
+                delay += max(0, current_message_waits)
+                used_current_wait = True
+            pending_message_waits = 0
     return tuple(result)
 
 
@@ -81,6 +86,33 @@ class TimelineEnemySpawn:
     random_y: bool
 
 
+@dataclass(frozen=True)
+class TimelineBossInterrupt:
+    """One source timeline write to ``bosses[id]->runInterrupt``."""
+
+    instruction_address: int
+    boss_id: int
+    interrupt_id: int
+
+
+def decode_boss_interrupt(
+    instruction: StageTimelineInstruction,
+) -> TimelineBossInterrupt | None:
+    if instruction.opcode != 10:
+        return None
+    raw = bytes.fromhex(instruction.raw_hex)
+    if len(raw) < 16:
+        return None
+    boss_id, interrupt_id = struct.unpack_from("<II", raw, 8)
+    if boss_id >= 8 or interrupt_id >= 8:
+        return None
+    return TimelineBossInterrupt(
+        instruction.address,
+        boss_id,
+        interrupt_id,
+    )
+
+
 def first_world_transition(
     instructions: tuple[StageTimelineInstruction, ...],
     current_time: int,
@@ -89,7 +121,8 @@ def first_world_transition(
     stage: int = 0,
     difficulty: int = 0,
     character: int = 0,
-    message_waits: tuple[int, ...] = (),
+    message_delays: tuple[tuple[int, int], ...] = (),
+    current_message_waits: int = 0,
 ) -> tuple[int, StageTimelineInstruction] | None:
     """Return the first uninserted hazard-world transition in the window.
 
@@ -108,7 +141,8 @@ def first_world_transition(
         stage=stage,
         difficulty=difficulty,
         character=character,
-        message_waits=message_waits,
+        message_delays=message_delays,
+        current_message_waits=current_message_waits,
     ):
         if lead >= horizon:
             return None
