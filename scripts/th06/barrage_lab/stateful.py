@@ -1089,14 +1089,37 @@ def _step_items_after_effects(
     player: tuple[float, float],
     player_state: int,
     snapshot: Snapshot,
+    bullets: list[Bullet] | None = None,
+    rng: RngState | None = None,
 ) -> tuple[int, int, int]:
     """Advance priority-11 ItemManager before hostile bullets."""
     rank = snapshot.rank
     subrank = snapshot.subrank
     power = snapshot.current_power
-    retained: dict[int, ItemState] = {}
-    for slot in sorted(combat.items):
-        item = combat.items[slot]
+    bullets = [] if bullets is None else bullets
+
+    def turn_bullets_into_points() -> None:
+        if rng is None:
+            raise UnsupportedStatefulModel(
+                "full-power conversion needs exact item allocation state"
+            )
+        retained_bullets = []
+        for bullet in sorted(bullets, key=lambda value: value.slot):
+            if bullet.state == 5:
+                retained_bullets.append(bullet)
+                continue
+            combat.spawn_item(
+                (bullet.x, bullet.y), 6, 1, rng
+            )
+        bullets[:] = retained_bullets
+
+    # Source iterates the live array.  A conversion-created point item in a
+    # later slot is updated in this same pass; one allocated into an already
+    # visited slot waits until the following frame.
+    for slot in range(512):
+        item = combat.items.get(slot)
+        if item is None:
+            continue
         x = _f32(item.x)
         y = _f32(item.y)
         start_x = _f32(item.start_x)
@@ -1139,6 +1162,7 @@ def _step_items_after_effects(
                     rank, subrank, snapshot.min_rank, 3
                 )
                 combat.item_upper -= 1
+                combat.items.pop(slot)
                 continue
             if start_y < 3.0:
                 # Source adds before the next frame's else-clamp, so a value
@@ -1157,9 +1181,8 @@ def _step_items_after_effects(
                 if power < 128:
                     power += 1
                     if power >= 128:
-                        raise UnsupportedStatefulModel(
-                            "item acquisition reaches full-power bullet conversion"
-                        )
+                        power = 128
+                        turn_bullets_into_points()
                 rank, subrank = _increase_subrank(
                     rank, subrank, snapshot.max_rank, 1
                 )
@@ -1172,29 +1195,26 @@ def _step_items_after_effects(
                 )
             elif item.item_type == 2:
                 if power < 128:
-                    old_power = power
                     power = min(128, power + 8)
-                    if old_power < 128 <= power:
-                        raise UnsupportedStatefulModel(
-                            "item acquisition reaches full-power bullet conversion"
-                        )
+                    if power >= 128:
+                        turn_bullets_into_points()
             elif item.item_type == 3:
                 rank, subrank = _increase_subrank(
                     rank, subrank, snapshot.max_rank, 5
                 )
             elif item.item_type == 4:
                 if power < 128:
-                    raise UnsupportedStatefulModel(
-                        "full-power item needs bullet conversion"
-                    )
+                    power = 128
+                    turn_bullets_into_points()
             elif item.item_type == 5:
                 rank, subrank = _increase_subrank(
                     rank, subrank, snapshot.max_rank, 200
                 )
             combat.item_upper -= 1
+            combat.items.pop(slot)
             continue
 
-        retained[slot] = replace(
+        combat.items[slot] = replace(
             item,
             x=x,
             y=y,
@@ -1205,7 +1225,6 @@ def _step_items_after_effects(
             timer=item.timer + 1,
             timer_float=_f32(item.timer_float + 1.0),
         )
-    combat.items = retained
     return rank, subrank, power
 
 
@@ -1353,6 +1372,8 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             (x, y),
             snapshot.player_state,
             snapshot,
+            bullets,
+            next_rng,
         )
         (
             bullets,

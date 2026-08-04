@@ -12,6 +12,7 @@ from th06.barrage_lab.stateful import (
 from th06.hazards.ecl import source_enemy_template
 from th06.hazards.rng import RngState
 from th06.model import (
+    Bullet,
     EclInstruction,
     ItemState,
     PlayerAttackState,
@@ -457,6 +458,57 @@ class PlayerAttackTests(unittest.TestCase):
 
         self.assertEqual(collect_rank, (19, 4, 0))
         self.assertEqual(collect_combat.items, {})
+
+    def test_reaching_full_power_converts_bullets_into_live_point_items(self):
+        attack = _attack_with_shot(1)
+        power_item = ItemState(
+            slot=0,
+            x=192.0,
+            y=402.2,
+            start_x=0.0,
+            start_y=-2.2,
+            target_x=0.0,
+            target_y=0.0,
+            timer_previous=9,
+            timer=10,
+            timer_float=10.0,
+            item_type=0,
+            state=0,
+        )
+        root = replace(
+            _snapshot(attack),
+            current_power=127,
+            item_states=(power_item,),
+            item_active_upper_bound=1,
+            item_next_index=1,
+        )
+        combat = _NominalCombatStep(root, attack)
+        bullets = [Bullet(
+            x=100.0,
+            y=100.0,
+            vx=1.0,
+            vy=0.0,
+            half_width=2.0,
+            half_height=2.0,
+            state=1,
+            slot=7,
+        )]
+
+        following = _step_items_after_effects(
+            combat,
+            (root.x, root.y),
+            root.player_state,
+            root,
+            bullets,
+            RngState(0x1234, 0),
+        )
+
+        self.assertEqual(following, (0, 1, 128))
+        self.assertEqual(bullets, [])
+        self.assertEqual(tuple(combat.items), (1,))
+        point = combat.items[1]
+        self.assertEqual((point.item_type, point.state, point.timer), (6, 1, 1))
+        self.assertEqual(combat.item_upper, 1)
 
 
 if __name__ == "__main__":
