@@ -1129,7 +1129,12 @@ def _step_items_after_effects(
                 )
                 combat.item_upper -= 1
                 continue
-            start_y = _f32(min(3.0, _f32(start_y + 0.03)))
+            if start_y < 3.0:
+                # Source adds before the next frame's else-clamp, so a value
+                # just below three overshoots for exactly one update.
+                start_y = _f32(start_y + 0.03)
+            else:
+                start_y = 3.0
 
         acquired = (
             player_state in (PLAYER_ALIVE, PLAYER_INVULNERABLE)
@@ -2617,6 +2622,11 @@ class PhysicalParity:
     exact_combat_graze_steps: int = 0
     exact_combat_rank_steps: int = 0
     exact_combat_pending_effect_steps: int = 0
+    item_slot_births: int = 0
+    item_slot_removals: int = 0
+    combat_item_steps: int = 0
+    exact_combat_item_steps: int = 0
+    exact_combat_power_steps: int = 0
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -2663,6 +2673,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     exact_combat_graze_steps = 0
     exact_combat_rank_steps = 0
     exact_combat_pending_effect_steps = 0
+    item_slot_births = 0
+    item_slot_removals = 0
+    combat_item_steps = 0
+    exact_combat_item_steps = 0
+    exact_combat_power_steps = 0
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -3010,6 +3025,39 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                 ) == Counter(right.pending_effect_rng_ids)
                 exact_combat_pending_effect_steps += pending_effect_exact
 
+                predicted_items = {
+                    item.slot: item for item in predicted_world.item_states
+                }
+                actual_items = {
+                    item.slot: item for item in right.item_states
+                }
+                item_exact = predicted_items.keys() == actual_items.keys()
+                if item_exact:
+                    item_exact = all(
+                        math.hypot(
+                            predicted_items[slot].x - actual.x,
+                            predicted_items[slot].y - actual.y,
+                        ) <= 1e-4
+                        and math.hypot(
+                            predicted_items[slot].start_x - actual.start_x,
+                            predicted_items[slot].start_y - actual.start_y,
+                        ) <= 1e-4
+                        and math.hypot(
+                            predicted_items[slot].target_x - actual.target_x,
+                            predicted_items[slot].target_y - actual.target_y,
+                        ) <= 1e-4
+                        and predicted_items[slot].timer == actual.timer
+                        and predicted_items[slot].item_type == actual.item_type
+                        and predicted_items[slot].state == actual.state
+                        for slot, actual in actual_items.items()
+                    )
+                combat_item_steps += 1
+                exact_combat_item_steps += item_exact
+                power_exact = (
+                    predicted_world.current_power == right.current_power
+                )
+                exact_combat_power_steps += power_exact
+
                 rng_exact = (
                     predicted_world.rng_seed == right.rng_seed
                     and predicted_world.rng_generation
@@ -3036,6 +3084,8 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                         and graze_exact
                         and rank_exact
                         and pending_effect_exact
+                        and item_exact
+                        and power_exact
                         and rng_exact
                     )
                     and not first_combat_world_mismatch
@@ -3047,6 +3097,8 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                         f"graze={int(graze_exact)} "
                         f"rank={int(rank_exact)} "
                         f"pending_effect={int(pending_effect_exact)} "
+                        f"item={int(item_exact)} "
+                        f"power={int(power_exact)} "
                         f"rng={int(rng_exact)} "
                         f"slots={sorted(predicted_emitters)}/"
                         f"{sorted(actual_emitters)} "
@@ -3075,6 +3127,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
             else:
                 spawning_bullet_steps += 1
                 exact_spawning_bullet_steps += error <= 1e-4
+
+        left_items = {item.slot for item in left.item_states}
+        right_items = {item.slot for item in right.item_states}
+        item_slot_births += len(right_items - left_items)
+        item_slot_removals += len(left_items - right_items)
 
     return PhysicalParity(
         adjacent_pairs,
@@ -3119,6 +3176,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         exact_combat_graze_steps,
         exact_combat_rank_steps,
         exact_combat_pending_effect_steps,
+        item_slot_births,
+        item_slot_removals,
+        combat_item_steps,
+        exact_combat_item_steps,
+        exact_combat_power_steps,
     )
 
 

@@ -619,3 +619,79 @@ on physical battle states, but this sample proves neither survival benefit nor
 an online-affordable implementation.  Keep it offline, enlarge the physical
 conditioned corpus, and diagnose the earliest causal differences before any
 production ranking or native combat-kernel promotion.
+
+## Deferred graze RNG and item-state closure (2026-08-04)
+
+The 31 RNG mismatches above had a discrete residual vocabulary: +1, +4, +6,
+and +8 source generations, never a negative residual.  Authoritative source
+inspection identified the missing chain.  BulletManager priority 11 moves a
+fired bullet, performs the one-shot `isGrazed` check, then calls `ScoreGraze`.
+That call creates effect 8, adds 500 score, and calls `IncreaseSubrank(6)`.
+`SpawnParticles` immediately executes the effect ANM, whose time-zero random
+sprite costs one u16 generation.  EffectManager has already run at priority
+10, so the new effect retains timer `(-999, 0)` at the frame boundary; its
+random-splash callback consumes two f32 values, or four u16 generations, on
+the following update.  This explains the residual shape without a recorded
+draw tape or correction constant.
+
+Checkpoint `4006e3f` captures the physical state needed by this transition:
+the bullet `isGrazed` byte, GameManager rank/subrank bounds and remainder, the
+actual occupied effect-slot count, and the IDs of effects whose timer proves a
+post-priority-10 birth.  The offline world now executes deferred callback RNG,
+candidate-conditioned graze collision, the one-shot flag, rank carry, and the
+same-frame ANM draw.  It also models the later-than-EffectManager player-death
+effect timing for branches that enter a collision.  Visual effect state is not
+copied into the model.
+
+The first ordinary-RNG default fail-close Stage 5 run after that checkpoint
+stopped alive at f2034 on `hard-safe-set-empty`.  Its 124 supported adjacent
+combat steps matched enemy state, complete player-shot state, pending effect
+state, and RNG 124/124; the former first RNG mismatch disappeared.  Detailed
+rank parity then exposed three independent item transitions (-3, -3, +3), not
+a remaining graze defect.  Source says ItemManager runs before the hostile
+bullet loop, decreases subrank by three when an item exits at y=464, and
+changes rank/power according to the acquired item type.
+
+Checkpoint `2a5c25c` therefore adds compact occupied `Item` records and the
+source pool cursor.  The one-frame battle world now advances interpolation,
+falling and gravity, full-power attraction, candidate-conditioned collection,
+out-of-bounds removal, power, and rank/subrank; enemy-death drops are inserted
+through source slot allocation.  ECL item events that expose only a count but
+not yet type/position remain explicit unsupported state, as do acquisitions
+that newly trigger `TurnAllBulletsIntoPoints`.  They are future insertion work,
+not silently neutral events.
+
+A second ordinary-RNG default fail-close Stage 5 run used the exact EXE and
+native-C++ Hard solver, stopped alive at f2024 on `hard-safe-set-empty`, then
+released all keys and stopped exact PID 43236.  No game, agent, or high-CPU
+trial process remained.  In its retained 100 adjacent combat steps:
+
+- fired hostile motion matched 16,583/16,583 and spawning motion matched
+  2,792/2,792; maximum hostile error was 1.19e-7;
+- complete player-shot world state, enemy world state, RNG, graze flags,
+  rank/subrank, pending effects, current power, and item slots each matched
+  100/100;
+- the sample contains five physical `isGrazed` transitions, four item-slot
+  births, three item-slot removals, and 59 enemy life/occupancy transition
+  frames;
+- item position/state initially matched 98/100.  Both errors were the same
+  source detail: velocity 2.989996 receives +0.03 and overshoots to 3.019996
+  for one update before the next frame's `else` clamps it to 3.  Reproducing
+  that order raised item parity to 100/100 on the same physical sample.
+
+The latest trace has 1,572 rows: 1,560 `ok`, 11 stale retries, and one
+fail-close stop.  Mean recorded solve time was 9.82 ms, p95 16.32 ms, maximum
+35.32 ms.  The effect and item pool reads enlarge sensing and should not be
+promoted as free: this single trajectory does not isolate their latency from
+barrage/solver cost.  Their purpose is currently high-fidelity physical corpus
+capture and offline causal replay.  Any permanent online use should be
+measured against a tail-latency baseline or moved to a small native extraction
+kernel once the offline causal solver proves useful decisions.
+
+These transition results validate a substantially more faithful offline
+fuzzer world; neither run is a Stage clear.  The terminal Hard-empty states are
+effects and have not been used as the diagnosis for this slice.  The next
+model boundary is source-complete future item insertion (including ECL drops
+and full-power bullet conversion), followed by future laser state and a
+measured use of the enlarged causal corpus to find an earlier consequential
+solver decision.
