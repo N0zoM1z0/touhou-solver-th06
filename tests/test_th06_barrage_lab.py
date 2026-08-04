@@ -496,6 +496,94 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(second.pending_effect_rng_ids, ())
         self.assertEqual(second.effect_active_upper_bound, 2)
 
+    def test_ecl_dropitems_inserts_typed_rng_conditioned_item_slots(self):
+        def instruction(address, time, opcode, value):
+            raw = struct.pack(
+                "<ihhBBBBi", time, opcode, 16, 0, 4, 0, 0, value
+            )
+            return EclInstruction(address, time, opcode, 16, 4, raw.hex())
+
+        drop = instruction(0x1000, 0, 119, 2)
+        explicit = instruction(0x1010, 0, 124, 3)
+        wait = instruction(0x1020, 999, 0, 0)
+        emitter = source_enemy_template(
+            (drop, explicit, wait),
+            (drop.address,),
+            0,
+            100.0,
+            100.0,
+            100,
+        )
+        self.assertIsNotNone(emitter)
+        emitter = replace(
+            emitter,
+            slot=0,
+            has_been_in_bounds=True,
+            sprite_half_width=8.0,
+            sprite_half_height=8.0,
+        )
+        attack = PlayerAttackState(
+            shots=(),
+            last_enemy_hit_x=-999.0,
+            last_enemy_hit_y=-999.0,
+            orb_state=1,
+            is_focus=True,
+            focus_timer_previous=0,
+            focus_timer=1,
+            focus_timer_float=1.0,
+            fire_timer_previous=0,
+            fire_timer=1,
+            fire_timer_float=1.0,
+            orb_positions=((76.0, 400.0), (124.0, 400.0)),
+            shot_type=0,
+            bomb_active=False,
+            spell_active=False,
+        )
+        root = Snapshot(
+            frame=10,
+            stage=5,
+            player_state=0,
+            x=192.0,
+            y=400.0,
+            half_width=1.25,
+            half_height=1.25,
+            normal_speed=4.0,
+            focus_speed=2.0,
+            normal_diagonal_speed=2.828427,
+            focus_diagonal_speed=1.414214,
+            frame_multiplier=1.0,
+            input_mask=0x05,
+            bullets=(),
+            laser_count=0,
+            in_menu=False,
+            time_stopped=False,
+            replay_or_demo=False,
+            spawners=(emitter,),
+            timeline_complete=True,
+            rng_seed=0x1234,
+            rng_generation=10,
+            current_power=128,
+            player_attack=attack,
+            effect_active_upper_bound=0,
+            item_active_upper_bound=0,
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        following = step_nominal_battle_world(root, stay)
+
+        # DROPITEMS draws two f32 offsets per item (four u16 each).  At full
+        # power both requests become point items before ItemManager moves them.
+        self.assertEqual(following.rng_generation, 18)
+        self.assertEqual(
+            tuple(item.item_type for item in following.item_states),
+            (1, 1, 3),
+        )
+        self.assertEqual(
+            tuple(item.timer for item in following.item_states),
+            (1, 1, 1),
+        )
+        self.assertEqual(following.item_next_index, 3)
+
     def test_nominal_battle_corpus_is_derived_through_stateful_play(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         base = generate_barrage_case(

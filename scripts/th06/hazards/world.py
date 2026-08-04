@@ -668,7 +668,11 @@ def _forecast_nominal_from_state(
             if combat is not None and inline.effect_spawns:
                 combat.observe_effect_spawns(inline.effect_spawns[0])
             if combat is not None and inline.item_spawns:
-                combat.observe_item_spawns(inline.item_spawns[0])
+                combat.observe_item_spawns(
+                    inline.item_births[0] if inline.item_births else (),
+                    inline.item_spawns[0],
+                    rng,
+                )
             if combat is not None and (
                 inline.enemy_kill_all and inline.enemy_kill_all[0]
             ):
@@ -745,7 +749,11 @@ def _forecast_nominal_from_state(
             if combat is not None and forecast.effect_spawns:
                 combat.observe_effect_spawns(forecast.effect_spawns[0])
             if combat is not None and forecast.item_spawns:
-                combat.observe_item_spawns(forecast.item_spawns[0])
+                combat.observe_item_spawns(
+                    forecast.item_births[0] if forecast.item_births else (),
+                    forecast.item_spawns[0],
+                    rng,
+                )
             if combat is not None and (
                 forecast.enemy_kill_all
                 and forecast.enemy_kill_all[0]

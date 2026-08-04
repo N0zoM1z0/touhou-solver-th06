@@ -26,6 +26,10 @@ from .enemies import finish_motion_values, interpolation_progress
 from .rng import RngState
 
 
+def _f32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
 OPCODE_NOP = 0
 OPCODE_JUMP = 2
 OPCODE_JUMPDEC = 3
@@ -218,6 +222,17 @@ assert (
 
 
 @dataclass(frozen=True)
+class EclItemBirth:
+    """One source ECL item request before ItemManager's same-frame pass."""
+
+    x: float
+    y: float
+    below_full_type: int
+    full_power_type: int
+    state: int = 0
+
+
+@dataclass(frozen=True)
 class EclForecast:
     births: tuple[tuple[Bullet, ...], ...]
     covered_frames: int
@@ -229,6 +244,7 @@ class EclForecast:
     created_emitters: tuple[EnemySpawner, ...] = ()
     effect_spawns: tuple[tuple[int, ...], ...] = ()
     item_spawns: tuple[int, ...] = ()
+    item_births: tuple[tuple[EclItemBirth, ...], ...] = ()
     enemy_kill_all: tuple[bool, ...] = ()
 
 
@@ -676,6 +692,9 @@ def _forecast_ecl_births_single(
     ]
     effect_spawns: list[list[int]] = [[] for _ in player_positions]
     item_spawns = [0 for _ in player_positions]
+    item_births: list[list[EclItemBirth]] = [
+        [] for _ in player_positions
+    ]
     enemy_kill_all = [False for _ in player_positions]
     if not spawner.ecl_program or spawner.next_instruction is None:
         return EclForecast(tuple(map(tuple, births)), 0, "missing ECL instruction graph")
@@ -847,6 +866,7 @@ def _forecast_ecl_births_single(
                         tuple(frame) for frame in effect_spawns
                     ),
                     item_spawns=tuple(item_spawns),
+                    item_births=tuple(tuple(frame) for frame in item_births),
                     enemy_kill_all=tuple(enemy_kill_all),
                 )
         if interactable and not invisible and life <= 0:
@@ -1868,11 +1888,30 @@ def _forecast_ecl_births_single(
                         tuple(map(tuple, births)), frame_index, "negative DROPITEMS count"
                     )
                 if rng is not None:
-                    for _ in range(count):
-                        rng.f32_in_range(144.0)
-                        rng.f32_in_range(144.0)
+                    for index in range(count):
+                        offset_x = _f32(rng.f32_in_range(144.0) - 72.0)
+                        offset_y = _f32(rng.f32_in_range(144.0) - 72.0)
+                        item_births[frame_index].append(EclItemBirth(
+                            _f32(enemy_x + offset_x),
+                            _f32(enemy_y + offset_y),
+                            2 if index == 0 else 0,
+                            1,
+                        ))
                 item_spawns[frame_index] += count
             elif instruction.opcode == OPCODE_DROP_ITEM_ID:
+                item_type = struct.unpack_from("<i", raw, 0x0C)[0]
+                if item_type not in range(7):
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "invalid DROPITEMID type",
+                    )
+                item_births[frame_index].append(EclItemBirth(
+                    _f32(enemy_x),
+                    _f32(enemy_y),
+                    item_type,
+                    item_type,
+                ))
                 item_spawns[frame_index] += 1
             elif instruction.opcode == OPCODE_EX_REPEAT:
                 index = struct.unpack_from("<i", raw, 0x0C)[0]
@@ -2028,6 +2067,8 @@ def _forecast_ecl_births_single(
                     )
                 if newborn.item_spawns:
                     item_spawns[frame_index] += newborn.item_spawns[0]
+                if newborn.item_births:
+                    item_births[frame_index].extend(newborn.item_births[0])
                 if nominal_insertion:
                     if newborn.created_emitters:
                         return EclForecast(
@@ -2074,6 +2115,8 @@ def _forecast_ecl_births_single(
                         )
                     if updated.item_spawns:
                         item_spawns[frame_index] += updated.item_spawns[0]
+                    if updated.item_births:
+                        item_births[frame_index].extend(updated.item_births[0])
                     if updated.body_hazards:
                         body_hazards[frame_index].extend(
                             updated.body_hazards[0]
@@ -2401,6 +2444,7 @@ def _forecast_ecl_births_single(
         created_emitters=tuple(created_emitters),
         effect_spawns=tuple(tuple(frame) for frame in effect_spawns),
         item_spawns=tuple(item_spawns),
+        item_births=tuple(tuple(frame) for frame in item_births),
         enemy_kill_all=tuple(enemy_kill_all),
     )
 

@@ -649,6 +649,7 @@ class _NominalCombatStep:
         self.item_next_index = snapshot.item_next_index
         if not 0 <= self.item_next_index < 512:
             raise UnsupportedStatefulModel("source item next index is invalid")
+        self.current_power = snapshot.current_power
         self.random_spawn_index = snapshot.random_item_spawn_index
         self.random_table_index = snapshot.random_item_table_index
         self.allocated_effects: list[int] = []
@@ -670,10 +671,20 @@ class _NominalCombatStep:
         self.effect_upper += len(effect_ids)
         self.allocated_effects.extend(effect_ids)
 
-    def observe_item_spawns(self, count: int) -> None:
-        if count:
+    def observe_item_spawns(self, births, count: int, rng: RngState) -> None:
+        births = tuple(births)
+        if len(births) != count:
             raise UnsupportedStatefulModel(
                 "ECL item birth needs its type and position, not only a count"
+            )
+        for birth in births:
+            item_type = (
+                birth.full_power_type
+                if self.current_power >= 128
+                else birth.below_full_type
+            )
+            self.spawn_item(
+                (birth.x, birth.y), item_type, birth.state, rng
             )
 
     def spawn_item(
