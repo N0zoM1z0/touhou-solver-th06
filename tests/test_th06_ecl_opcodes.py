@@ -841,6 +841,119 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual((laser.x, laser.y), (30.0, 60.0))
         self.assertEqual((laser.state, laser.timer, laser.timer_float), (2, 0, 0.0))
 
+    def test_hard_world_applies_same_frame_laser_mutations_before_manager(self):
+        create = instruction(
+            0x1000,
+            85,
+            struct.pack(
+                "<hhffffffiiiiii",
+                0, 6, 0.0, 0.0, 0.0, 20.0, 100.0, 16.0,
+                0, 60, 8, 0, 8, 0,
+            ),
+            0x40,
+        )
+        rotate = instruction(
+            0x1040, 88, struct.pack("<ifff", 0, math.pi / 2.0, 0.0, 0.0),
+            0x1C,
+        )
+        offset = instruction(
+            0x105C, 90, struct.pack("<ifff", 0, 20.0, 40.0, 0.0), 0x1C
+        )
+        sentinel = EclInstruction(0x1078, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(create, sentinel),
+            ecl_program=(create, rotate, offset, sentinel),
+        )
+        state = Snapshot(
+            frame=10,
+            stage=4,
+            player_state=0,
+            x=100.0,
+            y=400.0,
+            half_width=1.25,
+            half_height=1.25,
+            normal_speed=4.0,
+            focus_speed=2.0,
+            normal_diagonal_speed=2.8284270763397217,
+            focus_diagonal_speed=1.4142135381698608,
+            frame_multiplier=1.0,
+            input_mask=5,
+            bullets=(),
+            laser_count=0,
+            in_menu=False,
+            time_stopped=False,
+            replay_or_demo=False,
+            spawners=(source,),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+        )
+
+        forecast = forecast_world_births(
+            state, ((100.0, 400.0),) * 4
+        )
+
+        self.assertEqual(forecast.covered_frames, 4, forecast.reason)
+        self.assertEqual(forecast.laser_births, 1)
+        self.assertTrue(all(forecast.body_hazards))
+        laser_box = max(
+            forecast.body_hazards[0], key=lambda box: box[3]
+        )
+        # Offset uses the emitter position and LASERROTATE precedes the same
+        # frame BulletManager collision phase: a vertical segment starts at
+        # (30, 60), not at the create origin (10, 20).
+        self.assertLess(laser_box[0], 30.0)
+        self.assertGreater(laser_box[2], 30.0)
+        self.assertLess(laser_box[1], 61.0)
+        self.assertGreater(laser_box[3], 79.0)
+
+        aimed_create = replace(
+            instruction(
+                0x1000,
+                86,
+                struct.pack(
+                    "<hhffffffiiiiii",
+                    0, 6, 0.0, 0.0, 0.0, 20.0, 100.0, 16.0,
+                    0, 60, 8, 0, 8, 0,
+                ),
+                0x40,
+            ),
+            time=create.time,
+        )
+        aimed_source = replace(
+            source,
+            next_instruction=aimed_create,
+            ecl_program=(aimed_create, rotate, offset, sentinel),
+        )
+        aimed = forecast_world_births(
+            replace(state, spawners=(aimed_source,)),
+            ((100.0, 400.0),) * 4,
+        )
+        aimed_box = max(aimed.body_hazards[0], key=lambda box: box[3])
+        # Candidate-independent Hard keeps the all-angle union even after a
+        # later fixed rotation; it never borrows the repeated root position.
+        self.assertLess(aimed_box[0], 11.0)
+        self.assertGreater(aimed_box[2], 49.0)
+
+        stale_rotate = instruction(
+            0x2000, 88, struct.pack("<ifff", 0, 0.25, 0.0, 0.0), 0x1C
+        )
+        stale_end = EclInstruction(
+            0x201C, -1, 0, 0, 0, bytes(12).hex()
+        )
+        stale_owner = replace(
+            emitter(stale_rotate, stale_end),
+            slot=1,
+            ecl_program=(stale_rotate, stale_end),
+            laser_slots=(0,) + (-1,) * 31,
+        )
+        stale = forecast_world_births(
+            replace(state, spawners=(replace(source, slot=0), stale_owner)),
+            ((100.0, 400.0),) * 4,
+        )
+        self.assertEqual(stale.covered_frames, 0)
+        self.assertIn("stale ECL pointer", stale.reason)
+
     def test_boss_timer_setup_remains_covered_before_its_callback(self):
         timer = instruction(0x1000, 112, struct.pack("<i", 0), 0x10)
         threshold = instruction(0x1010, 115, struct.pack("<i", 1200), 0x10)

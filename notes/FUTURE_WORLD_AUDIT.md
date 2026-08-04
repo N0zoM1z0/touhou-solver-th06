@@ -1,7 +1,8 @@
 # TH06 Future-World And Offline/Online Audit
 
-Snapshot refreshed 2026-08-04 through repository checkpoint `20e7ae5` and the
-following measured physical-battle experiment.  Authoritative source remains
+Snapshot refreshed 2026-08-04 through repository checkpoint `9eaef20` and the
+following measured physical-battle experiments and source-grounded work.
+Authoritative source remains
 `cc475a0bc3fef38683b0f02224c87ddba0a021d9`.
 
 This is a source-coverage audit, not an implementation roadmap and not clear
@@ -84,9 +85,12 @@ The concise rule is: precompute the source program, not a future trajectory.
   immutable message bytecode. The forecast takes the safe minimum across the
   snapshot priority-11 / GUI priority-12 boundary rather than treating
   dialogue duration as a fixed stage constant.
-- A future-created laser may be skipped only when source timers prove it
-  cannot become collidable inside the requested window.  Otherwise creation
-  fails closed; future laser geometry is not yet inserted.
+- Future-created lasers now retain source pointer/store state, execute
+  create/aim/store/rotate/re-aim/offset/test/cancel/clear in ECL order, then
+  enter the later BulletManager phase. Hard uses rotated AABBs for fixed
+  angles and an all-angle union for candidate-dependent aim. Cross-emitter
+  stale-pointer/pool aliases that cannot be composed exactly still fail
+  closed.
 
 ### Physical evidence
 
@@ -201,8 +205,10 @@ implemented, reachable-state deduplication cannot use player endpoint alone.
   shared ECL RNG stream.
 - A newborn that itself creates another enemy inline still stops coverage;
   exact future slot occupancy also needs enemy retirement and player damage.
-- Future laser create/aim/store/rotate/test/cancel lacks a persistent laser
-  world state and exact geometry.
+- The persistent future-laser world now covers the source create/mutation and
+  BulletManager transition sequence. It remains per-emitter for Hard, with
+  explicit cross-emitter pool/alias guards; candidate-specific rotated aim is
+  still proposal-only because shared Hard must retain the all-angle union.
 - Random-coordinate stage records remain fail-closed in Hard even though the
   nominal proposal path can instantiate their captured RNG branch.
 
@@ -786,3 +792,64 @@ The focused 65-unit regression produces offsets 0, 32, and 64 in item slots
 before its later BulletManager pass.  This boundary still lacks a naturally
 captured 127-to-128 physical transition and therefore retains source/unit,
 not physical-parity, status.
+
+## Mutable Hard future-laser world and Stage 4 probe (2026-08-04)
+
+The first default fail-close Stage 4 capture after pointer insertion stopped
+alive at f2607 with no live laser. Its 176 adjacent roots retained exact
+combat-world parity, including the newly captured default laser pointer/store
+state. This was a capture smoke, not future-laser physical parity and not a
+diagnosis of the terminal empty Hard set.
+
+An explicit ordinary-RNG `--continue-on-failure` Stage 4 diagnostic then ran
+to f5601. It recorded eight Hard authority losses and two physical HITs, so it
+is diagnostic evidence only. The full 4,265-row trace contained no live laser
+at all (`max_lasers=0`); it therefore cannot validate laser creation or
+mutation. The final sensor error, `incoherent boss pointer at enemy slot 6`,
+is a separate capture-authority observation. The launcher released all input,
+stopped exact PID 22184, and left no game or high-CPU trial process behind.
+
+The authoritative ST.DAT sequence audit explains why the remaining mutation
+boundary matters even though that physical route did not reach a beam. Stage
+1 sub 18 is six aimed creates eight ECL ticks apart and is normally handed to
+fresh physical roots. Stage 4 subs 28--35 instead perform create, rotate, and
+store writes in the same ECL update; Stage 7 also contains same-update
+create/rotate/offset and next-frame cancel sequences. Waiting for the next
+snapshot cannot certify those priority-9 writes before the priority-11 laser
+collision pass.
+
+Hard now first tries the existing batched forecast and switches to a compact
+mutable laser world only when a reachable laser mutation stops that batch.
+The retry runs one source frame at a time:
+
+```text
+candidate-independent ECL state
+    -> pointer/store create and mutation in instruction order
+    -> BulletManager segment/phase/timer update
+    -> conservative Hard AABB for that same collision phase
+```
+
+Fixed-angle mutations retain rotated geometry. Aimed create, re-aim, or an
+abstract angle remains an all-angle union; no repeated current-player position
+is promoted into Hard fact. Pool exhaustion, two emitters mutating one current
+aliased beam, a dereferenced stale pointer that may alias a future allocation,
+or cross-emitter allocation after a future retirement fails closed. This
+keeps the implementation smaller than a second global battle simulator while
+making the represented paths source-ordered and conservative.
+
+A focused integrated regression proves same-frame create -> rotate -> offset
+places the first BulletManager hitbox at the mutated origin/angle and keeps an
+aimed beam angle-independent. Direct execution of installed
+`ecldata4.ecl` subs 28--35 now covers all four requested Hard frames for every
+subroutine; each reachable path creates four source beams and no longer stops
+at opcode 88. Stage 7 sub 58 still fails earlier on the uncaptured ECL Z
+coordinate, so no laser result is claimed across that authority boundary.
+
+The laser-state refactor preserves the retained physical Stage 1 report:
+658/658 stable adjacent laser transitions still match with maximum numerical
+error zero and six observed births. On 64 laser-bearing physical Stage 1
+roots, 640 repeated Hard-4 forecasts all retained coverage four; mean isolated
+birth-forecast time was 0.131 ms on this host. The full focused suite passes
+343 tests with 28 skipped. These are source, unit, asset, and retained physical
+transition results. A naturally reached physical same-frame ECL laser
+creation/mutation remains the required adjacent-frame parity experiment.

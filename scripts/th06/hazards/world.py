@@ -8,7 +8,7 @@ from typing import Literal
 from ..model import Bullet, EnemySpawner, Snapshot, StageTimelineInstruction
 from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
-from .ecl import forecast_ecl_births, source_enemy_template
+from .ecl import HardLaserWorld, forecast_ecl_births, source_enemy_template
 from .rng import RngState
 from .timeline import (
     TimelineBossInterrupt,
@@ -34,6 +34,10 @@ class WorldBirthForecast:
     reason: str = ""
     body_hazards: tuple[tuple[tuple[float, float, float, float], ...], ...] = ()
     continuation: "WorldForecastContinuation | None" = None
+    laser_births: int = 0
+    mutated_initial_lasers: tuple[int, ...] = ()
+    missing_laser_dereferences: tuple[int, ...] = ()
+    retired_future_laser: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,7 +104,7 @@ def _scheduled_boss_interrupts(
     return tuple(result)
 
 
-def _forecast_hard_emitter(
+def _forecast_hard_emitter_batched(
     snapshot: Snapshot,
     emitter: EnemySpawner,
     player_positions: tuple[tuple[float, float], ...],
@@ -192,6 +196,123 @@ def _forecast_hard_emitter(
     )
 
 
+def _forecast_hard_emitter_with_lasers(
+    snapshot: Snapshot,
+    emitter: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    *,
+    start_lead: int,
+    enemy_kill_all_is_noop: bool,
+    laser_world: HardLaserWorld,
+) -> WorldBirthForecast:
+    """Advance ECL then the shared BulletManager phase one frame at a time."""
+    horizon = len(player_positions)
+    births: list[list[Bullet]] = [[] for _ in player_positions]
+    bodies: list[list[tuple[float, float, float, float]]] = [
+        [] for _ in player_positions
+    ]
+    events_by_lead = {
+        lead: event
+        for lead, event in _scheduled_boss_interrupts(snapshot, horizon)
+        if event is not None
+        and event.boss_id == emitter.boss_id
+        and lead >= start_lead
+    }
+    state: EnemySpawner | None = emitter
+
+    def result(covered: int, reason: str = "") -> WorldBirthForecast:
+        return WorldBirthForecast(
+            tuple(map(tuple, births)),
+            _project_hazards(births, True),
+            covered,
+            reason,
+            tuple(map(tuple, bodies)),
+            laser_births=laser_world.created_count,
+            mutated_initial_lasers=tuple(sorted(
+                laser_world.mutated_initial_slots
+            )),
+            missing_laser_dereferences=tuple(sorted(
+                laser_world.missing_dereferences
+            )),
+            retired_future_laser=laser_world.retired_created,
+        )
+
+    for frame_index in range(start_lead, horizon):
+        event = events_by_lead.get(frame_index)
+        if event is not None:
+            if state is None:
+                return result(
+                    frame_index,
+                    f"timeline interrupt targets a finished boss {emitter.boss_id}",
+                )
+            state = replace(state, run_interrupt=event.interrupt_id)
+        if state is not None:
+            try:
+                forecast = forecast_ecl_births(
+                    state,
+                    (player_positions[frame_index],),
+                    snapshot.difficulty,
+                    snapshot.rank,
+                    snapshot.bullet_sizes,
+                    snapshot.frame_multiplier,
+                    allow_player_variables=False,
+                    radial_births=True,
+                    abstract_rng=True,
+                    enemy_kill_all_is_noop=enemy_kill_all_is_noop,
+                    laser_world=laser_world,
+                )
+            except UnsupportedBirthModel as error:
+                return result(frame_index, str(error))
+            births[frame_index].extend(forecast.births[0])
+            if forecast.body_hazards:
+                bodies[frame_index].extend(forecast.body_hazards[0])
+            if forecast.covered_frames < 1:
+                return result(frame_index, forecast.reason)
+            state = forecast.next_spawner
+            if state is None and not forecast.finished:
+                return result(
+                    frame_index + 1,
+                    forecast.reason or "emitter continuation is unresolved",
+                )
+        # EnemyManager/ECL priority 9 precedes BulletManager priority 11.
+        bodies[frame_index].extend(laser_world.advance_hazards())
+    return result(horizon)
+
+
+def _forecast_hard_emitter(
+    snapshot: Snapshot,
+    emitter: EnemySpawner,
+    player_positions: tuple[tuple[float, float], ...],
+    *,
+    start_lead: int = 0,
+    enemy_kill_all_is_noop: bool,
+    laser_world: HardLaserWorld | None = None,
+) -> WorldBirthForecast:
+    """Use the compact mutable world only when a reachable laser op needs it."""
+    if laser_world is None:
+        batched = _forecast_hard_emitter_batched(
+            snapshot,
+            emitter,
+            player_positions,
+            start_lead=start_lead,
+            enemy_kill_all_is_noop=enemy_kill_all_is_noop,
+        )
+        if (
+            batched.covered_frames == len(player_positions)
+            or "laser" not in batched.reason.lower()
+        ):
+            return batched
+        laser_world = HardLaserWorld(snapshot.lasers)
+    return _forecast_hard_emitter_with_lasers(
+        snapshot,
+        emitter,
+        player_positions,
+        start_lead=start_lead,
+        enemy_kill_all_is_noop=enemy_kill_all_is_noop,
+        laser_world=laser_world,
+    )
+
+
 def _forecast_hard_timeline_births(
     snapshot: Snapshot,
     player_positions: tuple[tuple[float, float], ...],
@@ -202,6 +323,10 @@ def _forecast_hard_timeline_births(
         [] for _ in player_positions
     ]
     horizon = len(player_positions)
+    laser_births = 0
+    mutated_initial_lasers: list[int] = []
+    missing_laser_dereferences: list[int] = []
+    retired_future_laser = False
     known_boss_ids = {
         emitter.boss_id
         for emitter in snapshot.spawners
@@ -274,6 +399,7 @@ def _forecast_hard_timeline_births(
         # slot loop at zero, so every timeline child receives one ordinary
         # update in the same source frame. The template's initial movement is
         # zero, making the first forecast step equivalent to the inline call.
+        laser_world = HardLaserWorld(snapshot.lasers)
         inline = forecast_ecl_births(
             child,
             (player_positions[lead],),
@@ -288,6 +414,7 @@ def _forecast_hard_timeline_births(
             # do not prove ENEMYKILLALL neutral from only the live root.
             enemy_kill_all_is_noop=False,
             model_player_damage=False,
+            laser_world=laser_world,
         )
         if inline.covered_frames < 1:
             return WorldBirthForecast(
@@ -300,6 +427,18 @@ def _forecast_hard_timeline_births(
         births[lead].extend(inline.births[0])
         if inline.next_spawner is None:
             if inline.finished:
+                for frame_index in range(lead, horizon):
+                    bodies[frame_index].extend(
+                        laser_world.advance_hazards()
+                    )
+                laser_births += laser_world.created_count
+                mutated_initial_lasers.extend(
+                    laser_world.mutated_initial_slots
+                )
+                missing_laser_dereferences.extend(
+                    laser_world.missing_dereferences
+                )
+                retired_future_laser |= laser_world.retired_created
                 continue
             return WorldBirthForecast(
                 tuple(map(tuple, births)),
@@ -327,11 +466,18 @@ def _forecast_hard_timeline_births(
             player_positions,
             start_lead=lead,
             enemy_kill_all_is_noop=False,
+            laser_world=laser_world,
         )
         for offset, frame_births in enumerate(ordinary.births):
             births[offset].extend(frame_births)
         for offset, frame_bodies in enumerate(ordinary.body_hazards):
             bodies[offset].extend(frame_bodies)
+        laser_births += ordinary.laser_births
+        mutated_initial_lasers.extend(ordinary.mutated_initial_lasers)
+        missing_laser_dereferences.extend(
+            ordinary.missing_laser_dereferences
+        )
+        retired_future_laser |= ordinary.retired_future_laser
         if ordinary.covered_frames < horizon:
             return WorldBirthForecast(
                 tuple(map(tuple, births)),
@@ -345,6 +491,12 @@ def _forecast_hard_timeline_births(
         _project_hazards(births, True),
         horizon,
         body_hazards=tuple(map(tuple, bodies)),
+        laser_births=laser_births,
+        mutated_initial_lasers=tuple(sorted(mutated_initial_lasers)),
+        missing_laser_dereferences=tuple(sorted(
+            missing_laser_dereferences
+        )),
+        retired_future_laser=retired_future_laser,
     )
 
 
@@ -905,6 +1057,11 @@ def forecast_world_births(
         )
         covered_frames = len(player_positions)
         reason = ""
+        laser_births = 0
+        laser_creating_worlds = 0
+        mutated_initial_lasers: list[int] = []
+        missing_laser_dereferences: list[int] = []
+        retired_future_laser = False
         for emitter in emitters:
             forecast = _forecast_hard_emitter(
                 snapshot,
@@ -918,6 +1075,13 @@ def forecast_world_births(
                 births[frame_index].extend(frame_births)
             for frame_index, frame_bodies in enumerate(forecast.body_hazards):
                 bodies[frame_index].extend(frame_bodies)
+            laser_births += forecast.laser_births
+            laser_creating_worlds += int(forecast.laser_births > 0)
+            mutated_initial_lasers.extend(forecast.mutated_initial_lasers)
+            missing_laser_dereferences.extend(
+                forecast.missing_laser_dereferences
+            )
+            retired_future_laser |= forecast.retired_future_laser
             if emitter_coverage < covered_frames:
                 covered_frames = emitter_coverage
                 reason = f"emitter {emitter.slot}: {emitter_reason}"
@@ -929,15 +1093,54 @@ def forecast_world_births(
             births[frame_index].extend(frame_births)
         for frame_index, frame_bodies in enumerate(timeline.body_hazards):
             bodies[frame_index].extend(frame_bodies)
+        laser_births += timeline.laser_births
+        laser_creating_worlds += int(timeline.laser_births > 0)
+        mutated_initial_lasers.extend(timeline.mutated_initial_lasers)
+        missing_laser_dereferences.extend(
+            timeline.missing_laser_dereferences
+        )
+        retired_future_laser |= timeline.retired_future_laser
         if timeline.covered_frames < covered_frames:
             covered_frames = timeline.covered_frames
             reason = timeline.reason
+        active_laser_slots = {laser.slot for laser in snapshot.lasers}
+        allocated_future_slots = set(
+            slot
+            for slot in range(64)
+            if slot not in active_laser_slots
+        )
+        allocated_future_slots = set(sorted(allocated_future_slots)[:laser_births])
+        stale_alias = bool(
+            allocated_future_slots.intersection(missing_laser_dereferences)
+        )
+        aliased_mutation = (
+            len(mutated_initial_lasers)
+            != len(set(mutated_initial_lasers))
+        )
+        if stale_alias:
+            covered_frames = 0
+            reason = "future laser allocation may alias a stale ECL pointer"
+        elif snapshot.laser_count + laser_births > 64:
+            covered_frames = 0
+            reason = "future laser allocation exceeds the source pool"
+        elif aliased_mutation:
+            covered_frames = 0
+            reason = "multiple emitters mutate one aliased source laser"
+        elif retired_future_laser and laser_creating_worlds > 1:
+            covered_frames = 0
+            reason = "future laser retirement may change cross-emitter allocation"
         return WorldBirthForecast(
             tuple(tuple(frame) for frame in births),
             _project_hazards(births, True),
             covered_frames,
             reason,
             tuple(tuple(frame) for frame in bodies),
+            laser_births=laser_births,
+            mutated_initial_lasers=tuple(sorted(mutated_initial_lasers)),
+            missing_laser_dereferences=tuple(sorted(
+                missing_laser_dereferences
+            )),
+            retired_future_laser=retired_future_laser,
         )
     return _forecast_nominal_from_state(
         snapshot,

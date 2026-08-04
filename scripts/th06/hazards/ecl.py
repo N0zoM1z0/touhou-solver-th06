@@ -24,7 +24,7 @@ from ..model import (
 )
 from .births import UnsupportedBirthModel, spawn_pattern, spawn_pattern_envelope
 from .enemies import finish_motion_values, interpolation_progress
-from .lasers import LaserHazard, future_hazards
+from .lasers import LaserHazard, advance_laser, future_hazards
 from .rng import RngState
 
 
@@ -199,6 +199,151 @@ def _future_laser_aabb(
         center_x + extent_x,
         center_y + extent_y,
     )
+
+
+@dataclass
+class _HardLaserState:
+    laser: Laser
+    angle_unconstrained: bool = False
+    uncertainty_x: float = 0.0
+    uncertainty_y: float = 0.0
+    contributes_hazards: bool = False
+
+
+class HardLaserWorld:
+    """Per-emitter exact phase state with conservative Hard geometry.
+
+    ECL owns pointer writes and BulletManager owns the later timer/segment
+    update.  This compact world keeps that ordering without using the current
+    player position as a nominal answer for an aimed future beam.
+    """
+
+    def __init__(self, lasers: tuple[Laser, ...]):
+        if (
+            len({laser.slot for laser in lasers}) != len(lasers)
+            or any(not 0 <= laser.slot < 64 for laser in lasers)
+        ):
+            raise UnsupportedBirthModel("source laser slots are incomplete")
+        self._states = {
+            laser.slot: _HardLaserState(replace(
+                laser,
+                angular_velocity=0.0,
+                motion_known=True,
+            ))
+            for laser in lasers
+        }
+        self._initial_slots = frozenset(self._states)
+        self._created_slots: set[int] = set()
+        self.mutated_initial_slots: set[int] = set()
+        self.missing_dereferences: set[int] = set()
+        self.retired_created = False
+        self.created_count = 0
+
+    def spawn_laser_hard(
+        self,
+        laser: Laser,
+        *,
+        aimed: bool,
+        uncertainty_x: float,
+        uncertainty_y: float,
+    ) -> int:
+        slot = next(
+            (index for index in range(64) if index not in self._states),
+            None,
+        )
+        if slot is None:
+            raise UnsupportedBirthModel("source laser pool is full")
+        self._states[slot] = _HardLaserState(
+            replace(
+                laser,
+                slot=slot,
+                angular_velocity=0.0,
+                motion_known=True,
+            ),
+            aimed,
+            max(0.0, uncertainty_x),
+            max(0.0, uncertainty_y),
+            True,
+        )
+        self._created_slots.add(slot)
+        self.created_count += 1
+        return slot
+
+    def spawn_laser(self, laser: Laser) -> int:
+        return self.spawn_laser_hard(
+            laser,
+            aimed=False,
+            uncertainty_x=0.0,
+            uncertainty_y=0.0,
+        )
+
+    def laser_at(self, slot: int) -> Laser | None:
+        state = self._states.get(slot)
+        return state.laser if state is not None else None
+
+    def observe_laser_dereference(self, slot: int, present: bool) -> None:
+        if slot >= 0 and not present:
+            self.missing_dereferences.add(slot)
+
+    def replace_laser_hard(
+        self,
+        slot: int,
+        laser: Laser,
+        *,
+        angle_unconstrained: bool = False,
+        uncertainty_x: float | None = None,
+        uncertainty_y: float | None = None,
+    ) -> None:
+        state = self._states.get(slot)
+        if state is None:
+            return
+        if slot in self._initial_slots:
+            self.mutated_initial_slots.add(slot)
+        self._states[slot] = _HardLaserState(
+            replace(
+                laser,
+                slot=slot,
+                angular_velocity=0.0,
+                motion_known=True,
+            ),
+            state.angle_unconstrained or angle_unconstrained,
+            (
+                state.uncertainty_x
+                if uncertainty_x is None else max(0.0, uncertainty_x)
+            ),
+            (
+                state.uncertainty_y
+                if uncertainty_y is None else max(0.0, uncertainty_y)
+            ),
+            True,
+        )
+
+    def replace_laser(self, slot: int, laser: Laser) -> None:
+        self.replace_laser_hard(slot, laser)
+
+    def advance_hazards(
+        self,
+    ) -> tuple[tuple[float, float, float, float], ...]:
+        boxes = []
+        for slot, state in tuple(sorted(self._states.items())):
+            following, hazards = advance_laser(state.laser)
+            if state.contributes_hazards:
+                boxes.extend(
+                    _future_laser_aabb(
+                        hazard,
+                        state.angle_unconstrained,
+                        state.uncertainty_x,
+                        state.uncertainty_y,
+                    )
+                    for hazard in hazards
+                )
+            if following is None:
+                if slot in self._created_slots:
+                    self.retired_created = True
+                del self._states[slot]
+            else:
+                state.laser = following
+        return tuple(boxes)
 
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
@@ -2346,6 +2491,9 @@ def _forecast_ecl_births_single(
                             for hazard in frame_hazards
                         )
                 else:
+                    hard_spawn = getattr(
+                        laser_world, "spawn_laser_hard", None
+                    )
                     try:
                         values = tuple(
                             _float_var(
@@ -2387,6 +2535,18 @@ def _forecast_ecl_births_single(
                     ) = struct.unpack_from("<iiiiii", raw, 0x28)
                     origin_x = _float_add(enemy_x, shoot_offset_x)
                     origin_y = _float_add(enemy_y, shoot_offset_y)
+                    uncertainty_x = uncertainty_y = position_uncertainty
+                    if hard_spawn is not None:
+                        if isinstance(origin_x, FloatInterval):
+                            uncertainty_x += (
+                                origin_x.high - origin_x.low
+                            ) / 2.0
+                            origin_x = (origin_x.low + origin_x.high) / 2.0
+                        if isinstance(origin_y, FloatInterval):
+                            uncertainty_y += (
+                                origin_y.high - origin_y.low
+                            ) / 2.0
+                            origin_y = (origin_y.low + origin_y.high) / 2.0
                     numbers = (
                         laser_angle,
                         laser_speed,
@@ -2398,8 +2558,7 @@ def _forecast_ecl_births_single(
                         origin_y,
                     )
                     if (
-                        any(isinstance(value, FloatInterval) for value in numbers)
-                        or not all(math.isfinite(value) for value in numbers)
+                        not all(math.isfinite(value) for value in numbers)
                         or width <= 0.0
                         or start_length < 0.0
                         or any(value < 0 for value in (
@@ -2412,10 +2571,11 @@ def _forecast_ecl_births_single(
                     ):
                         return EclForecast(
                             tuple(map(tuple, births)), frame_index,
-                            "invalid exact ECL laser request",
+                            "invalid ECL laser request",
                         )
                     laser_angle = _f32(laser_angle)
-                    if instruction.opcode == OPCODE_LASER_CREATE_AIMED:
+                    aimed = instruction.opcode == OPCODE_LASER_CREATE_AIMED
+                    if aimed and hard_spawn is None:
                         laser_angle = _f32(
                             laser_angle
                             + _f32(math.atan2(
@@ -2423,7 +2583,9 @@ def _forecast_ecl_births_single(
                                 player[0] - origin_x,
                             ))
                         )
-                    laser_slot = laser_world.spawn_laser(Laser(
+                    elif aimed:
+                        laser_angle = 0.0
+                    created_laser = Laser(
                         x=_f32(origin_x),
                         y=_f32(origin_y),
                         angle=laser_angle,
@@ -2442,7 +2604,16 @@ def _forecast_ecl_births_single(
                         flags=flags & 0xFFFF,
                         state=1 if start_time == 0 else 0,
                         motion_known=True,
-                    ))
+                    )
+                    if hard_spawn is None:
+                        laser_slot = laser_world.spawn_laser(created_laser)
+                    else:
+                        laser_slot = hard_spawn(
+                            created_laser,
+                            aimed=aimed,
+                            uncertainty_x=uncertainty_x,
+                            uncertainty_y=uncertainty_y,
+                        )
                     laser_slots[laser_store] = laser_slot
             elif instruction.opcode == OPCODE_LASER_INDEX:
                 laser_store = _int_var(
@@ -2486,6 +2657,14 @@ def _forecast_ecl_births_single(
                     laser_world.laser_at(pointer_slot)
                     if pointer_slot >= 0 else None
                 )
+                observe_dereference = getattr(
+                    laser_world, "observe_laser_dereference", None
+                )
+                if observe_dereference is not None:
+                    observe_dereference(pointer_slot, pointed is not None)
+                hard_replace = getattr(
+                    laser_world, "replace_laser_hard", None
+                )
                 if instruction.opcode == OPCODE_LASER_TEST:
                     compare_register = int(pointed is None)
                 elif pointed is not None:
@@ -2508,35 +2687,82 @@ def _forecast_ecl_births_single(
                             return EclForecast(
                                 tuple(map(tuple, births)), frame_index, str(error)
                             )
-                        if isinstance(delta, FloatInterval):
+                        if (
+                            isinstance(delta, FloatInterval)
+                            and hard_replace is None
+                        ):
                             return EclForecast(
                                 tuple(map(tuple, births)), frame_index,
                                 "uncertain ECL laser rotation",
                             )
-                        next_angle = (
-                            pointed.angle + delta
-                            if instruction.opcode == OPCODE_LASER_ROTATE
-                            else _f32(math.atan2(
-                                player[1] - pointed.y,
-                                player[0] - pointed.x,
-                            )) + delta
+                        unconstrained = (
+                            isinstance(delta, FloatInterval)
+                            or instruction.opcode
+                                == OPCODE_LASER_ROTATE_FROM_PLAYER
                         )
-                        laser_world.replace_laser(
-                            pointer_slot,
-                            replace(pointed, angle=_f32(next_angle)),
+                        if unconstrained and hard_replace is not None:
+                            next_angle = 0.0
+                        else:
+                            next_angle = (
+                                pointed.angle + delta
+                                if instruction.opcode == OPCODE_LASER_ROTATE
+                                else _f32(math.atan2(
+                                    player[1] - pointed.y,
+                                    player[0] - pointed.x,
+                                )) + delta
+                            )
+                        updated = replace(
+                            pointed, angle=_f32(next_angle)
                         )
+                        if hard_replace is None:
+                            laser_world.replace_laser(pointer_slot, updated)
+                        else:
+                            hard_replace(
+                                pointer_slot,
+                                updated,
+                                angle_unconstrained=unconstrained,
+                            )
                     elif instruction.opcode == OPCODE_LASER_OFFSET:
                         offset_x, offset_y = struct.unpack_from(
                             "<ff", raw, 0x10
                         )
-                        laser_world.replace_laser(
-                            pointer_slot,
-                            replace(
-                                pointed,
-                                x=_f32(enemy_x + offset_x),
-                                y=_f32(enemy_y + offset_y),
-                            ),
+                        next_x = _float_add(enemy_x, offset_x)
+                        next_y = _float_add(enemy_y, offset_y)
+                        uncertainty_x = uncertainty_y = position_uncertainty
+                        if isinstance(next_x, FloatInterval):
+                            if hard_replace is None:
+                                return EclForecast(
+                                    tuple(map(tuple, births)), frame_index,
+                                    "uncertain exact ECL laser offset",
+                                )
+                            uncertainty_x += (
+                                next_x.high - next_x.low
+                            ) / 2.0
+                            next_x = (next_x.low + next_x.high) / 2.0
+                        if isinstance(next_y, FloatInterval):
+                            if hard_replace is None:
+                                return EclForecast(
+                                    tuple(map(tuple, births)), frame_index,
+                                    "uncertain exact ECL laser offset",
+                                )
+                            uncertainty_y += (
+                                next_y.high - next_y.low
+                            ) / 2.0
+                            next_y = (next_y.low + next_y.high) / 2.0
+                        updated = replace(
+                            pointed,
+                            x=_f32(next_x),
+                            y=_f32(next_y),
                         )
+                        if hard_replace is None:
+                            laser_world.replace_laser(pointer_slot, updated)
+                        else:
+                            hard_replace(
+                                pointer_slot,
+                                updated,
+                                uncertainty_x=uncertainty_x,
+                                uncertainty_y=uncertainty_y,
+                            )
                     elif (
                         instruction.opcode == OPCODE_LASER_CANCEL
                         and pointed.state < 2
@@ -3328,6 +3554,36 @@ def forecast_ecl_births(
             enemy_kill_all_is_noop,
             model_player_damage=model_player_damage,
             record_enemy_kill_all=True,
+            laser_world=laser_world,
+        )
+    if laser_world is not None:
+        if len(player_positions) != 1:
+            raise ValueError("a mutable laser world advances one source frame")
+        if (
+            _life_callback_can_branch(spawner, 1, abstract_rng)
+            or _death_callback_can_branch(spawner, 1, abstract_rng)
+        ):
+            return EclForecast(
+                ((),),
+                0,
+                "future laser world branches on candidate player damage",
+            )
+        # A mutable pool cannot be unioned after the fact. Run the ordinary
+        # one-frame interpreter directly; an unresolved integer/RNG branch
+        # remains an explicit fail-closed boundary.
+        return _forecast_ecl_births_single(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            rng,
+            allow_player_variables,
+            radial_births,
+            abstract_rng,
+            enemy_kill_all_is_noop,
+            model_player_damage=model_player_damage,
             laser_world=laser_world,
         )
     if (

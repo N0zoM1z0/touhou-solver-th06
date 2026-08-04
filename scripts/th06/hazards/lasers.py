@@ -83,91 +83,113 @@ def _geometry(
     )
 
 
-def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
+def advance_laser(
+    laser: Laser,
+) -> tuple[Laser | None, tuple[LaserHazard, ...]]:
+    """Run one source BulletManager laser update and retain its next state."""
     start_offset = laser.start_offset
     end_offset = laser.end_offset
     state = laser.state
     timer = laser.timer
     timer_float = laser.timer_float
-    angle = laser.angle
+    # EclManager's LASERROTATE instruction updates the stored angle before
+    # BulletManager builds and tests this frame's laser hitbox.  For a live
+    # native root, ``angular_velocity`` is the measured ECL write per update;
+    # an exact ECL world applies that write itself and stores zero here.
+    angle = laser.angle + laser.angular_velocity
     active = True
-    result: list[tuple[LaserHazard, ...]] = []
+    end_offset += laser.speed
+    if laser.start_length < end_offset - start_offset:
+        start_offset = end_offset - laser.start_length
+    start_offset = max(0.0, start_offset)
+    full_length = max(0.0, end_offset - start_offset)
+    frame_hazards: list[LaserHazard] = []
+    state_one_size_x = full_length
 
-    for _frame in range(horizon):
-        if not active:
-            result.append(())
-            continue
-        # EclManager's LASERROTATE instruction updates the stored angle before
-        # BulletManager builds and tests this frame's laser hitbox.
-        angle += laser.angular_velocity
-        end_offset += laser.speed
-        if laser.start_length < end_offset - start_offset:
-            start_offset = end_offset - laser.start_length
-        start_offset = max(0.0, start_offset)
-        full_length = max(0.0, end_offset - start_offset)
-        frame_hazards: list[LaserHazard] = []
-        state_one_size_x = full_length
-
-        if state == 0:
-            if laser.flags & 1:
-                size_x = full_length
+    if state == 0:
+        if laser.flags & 1:
+            size_x = full_length
+        else:
+            res = min(laser.start_time, 30)
+            if laser.start_time - res < timer:
+                width_now = timer_float * laser.width / max(1, laser.start_time)
             else:
-                res = min(laser.start_time, 30)
-                if laser.start_time - res < timer:
-                    width_now = timer_float * laser.width / max(1, laser.start_time)
-                else:
-                    width_now = 1.2
-                # Shipped bug: BulletManager assigns this to laserSize.x,
-                # producing a small midpoint hitbox during warmup.
-                size_x = width_now / 2.0
-            if timer >= laser.hitbox_start_time:
-                frame_hazards.append(_geometry(laser, angle, start_offset, end_offset, size_x))
-            if timer >= laser.start_time:
-                state = 1
-                timer = 0
-                timer_float = 0.0
-                # Shipped switch fallthrough does not restore the full length
-                # after the warmup branch overwrites laserSize.x.
-                state_one_size_x = size_x
-            else:
-                timer += 1
-                timer_float += 1.0
-                result.append(tuple(frame_hazards))
-                continue
+                width_now = 1.2
+            # Shipped bug: BulletManager assigns this to laserSize.x,
+            # producing a small midpoint hitbox during warmup.
+            size_x = width_now / 2.0
+        if timer >= laser.hitbox_start_time:
+            frame_hazards.append(
+                _geometry(laser, angle, start_offset, end_offset, size_x)
+            )
+        if timer >= laser.start_time:
+            state = 1
+            timer = 0
+            timer_float = 0.0
+            # Shipped switch fallthrough does not restore the full length
+            # after the warmup branch overwrites laserSize.x.
+            state_one_size_x = size_x
+        else:
+            return replace(
+                laser,
+                angle=angle,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                timer=timer + 1,
+                timer_float=timer_float + 1.0,
+            ), tuple(frame_hazards)
 
-        if state == 1:
-            frame_hazards.append(_geometry(
-                laser, angle, start_offset, end_offset, state_one_size_x
-            ))
-            if timer >= laser.duration:
-                state = 2
-                timer = 0
-                timer_float = 0.0
-                if laser.despawn_duration == 0:
-                    active = False
-
-        if state == 2 and active:
-            if laser.flags & 1:
-                size_x = full_length
-            else:
-                width_now = laser.width
-                if laser.despawn_duration > 0:
-                    width_now -= timer_float * laser.width / laser.despawn_duration
-                # Same shipped midpoint-hitbox bug during despawn.
-                size_x = width_now / 2.0
-            if timer < laser.hitbox_end_delay:
-                frame_hazards.append(_geometry(
-                    laser, angle, start_offset, end_offset, size_x
-                ))
-            if timer >= laser.despawn_duration:
+    if state == 1:
+        frame_hazards.append(
+            _geometry(laser, angle, start_offset, end_offset, state_one_size_x)
+        )
+        if timer >= laser.duration:
+            state = 2
+            timer = 0
+            timer_float = 0.0
+            if laser.despawn_duration == 0:
                 active = False
 
-        if start_offset >= 640.0:
+    if state == 2 and active:
+        if laser.flags & 1:
+            size_x = full_length
+        else:
+            width_now = laser.width
+            if laser.despawn_duration > 0:
+                width_now -= timer_float * laser.width / laser.despawn_duration
+            # Same shipped midpoint-hitbox bug during despawn.
+            size_x = width_now / 2.0
+        if timer < laser.hitbox_end_delay:
+            frame_hazards.append(
+                _geometry(laser, angle, start_offset, end_offset, size_x)
+            )
+        if timer >= laser.despawn_duration:
             active = False
-        if active:
-            timer += 1
-            timer_float += 1.0
-        result.append(tuple(frame_hazards))
+
+    if start_offset >= 640.0:
+        active = False
+    if not active:
+        return None, tuple(frame_hazards)
+    return replace(
+        laser,
+        angle=angle,
+        start_offset=start_offset,
+        end_offset=end_offset,
+        state=state,
+        timer=timer + 1,
+        timer_float=timer_float + 1.0,
+    ), tuple(frame_hazards)
+
+
+def future_hazards(laser: Laser, horizon: int) -> list[tuple[LaserHazard, ...]]:
+    active: Laser | None = laser
+    result: list[tuple[LaserHazard, ...]] = []
+    for _frame in range(horizon):
+        if active is None:
+            result.append(())
+            continue
+        active, hazards = advance_laser(active)
+        result.append(hazards)
     return result
 
 
