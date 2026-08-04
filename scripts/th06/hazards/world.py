@@ -10,7 +10,11 @@ from .births import UnsupportedBirthModel
 from .bullets import hazard_boxes, radial_hazard_box
 from .ecl import forecast_ecl_births, source_enemy_template
 from .rng import RngState
-from .timeline import decode_enemy_spawn, first_world_transition
+from .timeline import (
+    decode_enemy_spawn,
+    first_world_transition,
+    scheduled_timeline,
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,10 @@ def _limit_for_uninserted_timeline(
         snapshot.timeline_instructions,
         snapshot.timeline_time,
         len(forecast.births),
+        stage=snapshot.stage,
+        difficulty=snapshot.difficulty,
+        character=snapshot.character,
+        message_waits=snapshot.timeline_message_waits,
     )
     if transition is None:
         return forecast
@@ -100,10 +108,14 @@ def _forecast_hard_timeline_births(
         [] for _ in player_positions
     ]
     horizon = len(player_positions)
-    for instruction in snapshot.timeline_instructions:
-        if instruction.time < 0:
-            break
-        lead = max(0, instruction.time - snapshot.timeline_time)
+    for lead, instruction in scheduled_timeline(
+        snapshot.timeline_instructions,
+        snapshot.timeline_time,
+        stage=snapshot.stage,
+        difficulty=snapshot.difficulty,
+        character=snapshot.character,
+        message_waits=snapshot.timeline_message_waits,
+    ):
         if lead >= horizon:
             break
         if instruction.opcode == 10:

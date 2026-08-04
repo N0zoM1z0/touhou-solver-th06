@@ -255,6 +255,61 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertEqual(forecast.covered_frames, 0)
         self.assertIn("opcode 10", forecast.reason)
 
+    def test_proved_message_wait_moves_interrupt_beyond_hard_four(self):
+        instructions = (
+            StageTimelineInstruction(
+                0x3000,
+                100,
+                2,
+                8,
+                8,
+                struct.pack("<hhhh", 100, 2, 8, 8).hex(),
+            ),
+            StageTimelineInstruction(
+                0x3008,
+                101,
+                0,
+                9,
+                8,
+                struct.pack("<hhhh", 101, 0, 9, 8).hex(),
+            ),
+            StageTimelineInstruction(
+                0x3010,
+                102,
+                0,
+                10,
+                16,
+                struct.pack("<hhhhII", 102, 0, 10, 16, 0, 3).hex(),
+            ),
+        )
+        positions = ((100.0, 400.0),) * 4
+        unproved = forecast_world_births(
+            snapshot(
+                99,
+                stage=4,
+                difficulty=2,
+                character=0,
+                timeline_time=99,
+                timeline_instructions=instructions,
+            ),
+            positions,
+        )
+        proved = forecast_world_births(
+            snapshot(
+                99,
+                stage=4,
+                difficulty=2,
+                character=0,
+                timeline_time=99,
+                timeline_instructions=instructions,
+                timeline_message_waits=(2,),
+            ),
+            positions,
+        )
+
+        self.assertEqual(unproved.covered_frames, 3)
+        self.assertEqual(proved.covered_frames, 4, proved.reason)
+
     def test_world_birth_projection_matches_scalar_source_motion(self):
         turning = Bullet(
             10.0,

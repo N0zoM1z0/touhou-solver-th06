@@ -10,6 +10,7 @@ BUTTON_UP = 0x10
 BUTTON_DOWN = 0x20
 BUTTON_LEFT = 0x40
 BUTTON_RIGHT = 0x80
+BUTTON_SKIP = 0x100
 
 PLAYER_ALIVE = 0
 PLAYER_SPAWNING = 1
@@ -165,6 +166,17 @@ class StageTimelineInstruction:
 
 
 @dataclass(frozen=True)
+class MessageInstruction:
+    """One immutable instruction from the stage's loaded ``.msg`` file."""
+
+    address: int
+    time: int
+    opcode: int
+    arg_size: int
+    raw_hex: str
+
+
+@dataclass(frozen=True)
 class EnemyEclContext:
     instruction_address: int
     time: int
@@ -287,6 +299,8 @@ class Snapshot:
     timeline_boss_subs: tuple[int, ...] = ()
     ecl_subroutines: tuple[int, ...] = ()
     timeline_ecl_program: tuple[EclInstruction, ...] = ()
+    character: int = 0
+    timeline_message_waits: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

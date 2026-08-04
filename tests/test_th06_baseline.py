@@ -19,6 +19,7 @@ from th06.model import (
     EnemyBody,
     EclInstruction,
     Laser,
+    MessageInstruction,
     SafeAction,
     Snapshot,
     StageTimelineInstruction,
@@ -74,6 +75,8 @@ from th06.native import (
     PROCESS_ACCESS,
     RESULT_SCREEN_ON_UPDATE,
     _decode_bullet_tail,
+    _message_opening_guarantees_wait,
+    _read_message_program,
     _read_stage_timeline,
     _timeline_subroutine_traits,
     read_result_screen,
@@ -142,6 +145,68 @@ def enemy_body(**changes):
 
 
 class BaselineTests(unittest.TestCase):
+    def test_loaded_message_program_is_decoded_and_cached(self):
+        msg_file = 0x10000
+        program_address = 0x11000
+        wait = struct.pack("<HBBi", 0, 4, 4, 120)
+        delete = struct.pack("<HBB", 1, 0, 0)
+        regions = {
+            msg_file: struct.pack("<iI", 1, program_address),
+            program_address: wait + delete,
+        }
+
+        class Process:
+            message_program_cache = {}
+
+            def __init__(self):
+                self.reads = 0
+
+            def read(self, address, size):
+                self.reads += 1
+                for start, data in regions.items():
+                    if start <= address and address + size <= start + len(data):
+                        offset = address - start
+                        return data[offset:offset + size]
+                raise AssertionError(f"unexpected read 0x{address:x}+{size}")
+
+        process = Process()
+        program = _read_message_program(process, msg_file, 0)
+        first_read_count = process.reads
+
+        self.assertEqual(
+            [(item.time, item.opcode, item.arg_size) for item in program],
+            [(0, 4, 4), (1, 0, 0)],
+        )
+        self.assertIs(_read_message_program(process, msg_file, 0), program)
+        self.assertEqual(process.reads, first_read_count)
+
+    def test_message_opening_wait_requires_no_resume_or_immediate_delete(self):
+        skippable = MessageInstruction(
+            0x1000, 0, 13, 4, struct.pack("<HBBi", 0, 13, 4, 1).hex()
+        )
+        wait = MessageInstruction(
+            0x1008, 0, 4, 4, struct.pack("<HBBi", 0, 4, 4, 120).hex()
+        )
+        delete = MessageInstruction(
+            0x1010, 0, 0, 0, struct.pack("<HBB", 0, 0, 0).hex()
+        )
+        resume = MessageInstruction(
+            0x1020, 0, 6, 0, struct.pack("<HBB", 0, 6, 0).hex()
+        )
+        later = MessageInstruction(
+            0x1024, 1, 0, 0, struct.pack("<HBB", 1, 0, 0).hex()
+        )
+
+        self.assertTrue(_message_opening_guarantees_wait(
+            (skippable, wait, delete), skip_pressed=False
+        ))
+        self.assertFalse(_message_opening_guarantees_wait(
+            (skippable, wait, delete), skip_pressed=True
+        ))
+        self.assertFalse(_message_opening_guarantees_wait(
+            (resume, later), skip_pressed=False
+        ))
+
     def test_source_stage_timeline_is_decoded_and_cached_by_pointer(self):
         first = struct.pack("<hhhh", 100, 7, 4, 0x18) + bytes(0x10)
         second = struct.pack("<hhhh", 120, 8, 9, 0x08)

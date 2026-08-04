@@ -21,11 +21,13 @@ from .model import (
     EnemySpawner,
     EclInstruction,
     Laser,
+    MessageInstruction,
     PLAYER_ALIVE,
     PLAYER_INVULNERABLE,
     Snapshot,
     StageTimelineInstruction,
 )
+from .hazards.timeline import timeline_message_index
 
 
 TARGET_EXE = "th06.exe"
@@ -67,6 +69,7 @@ GAME_FRAMES_OFFSET = 0x1A30
 GAME_STAGE_OFFSET = 0x1A34
 GAME_RANK_OFFSET = 0x1A70
 GAME_CURRENT_POWER_OFFSET = 0x1810
+GAME_CHARACTER_OFFSET = 0x181D
 PLAYER_POSITION_OFFSET = 0x440
 PLAYER_HITBOX_TOP_LEFT_OFFSET = 0x458
 PLAYER_HITBOX_BOTTOM_RIGHT_OFFSET = 0x464
@@ -166,6 +169,7 @@ ECL_PROGRAM_INSTRUCTION_LIMIT = 256
 ECL_SUBROUTINE_LIMIT = 512
 ECL_TIMELINE_INSTRUCTION_LIMIT = 4096
 ECL_TIMELINE_SNAPSHOT_LIMIT = 96
+MSG_PROGRAM_INSTRUCTION_LIMIT = 4096
 MAIN_MENU_CURSOR_OFFSET = 0x81A0
 MAIN_MENU_STATE_OFFSET = 0x81F0
 MAIN_MENU_TIMER_OFFSET = 0x81F4
@@ -384,6 +388,9 @@ class NativeProcess:
         self.ecl_cache_stage: int | None = None
         self.ecl_subroutines: tuple[int, ...] = ()
         self.ecl_subroutine_traits: dict[int, tuple[bool, bool]] = {}
+        self.message_program_cache: dict[
+            tuple[int, int], tuple[MessageInstruction, ...]
+        ] = {}
 
     def close(self) -> None:
         if self.handle:
@@ -697,6 +704,135 @@ def _timeline_ecl_program(
     return program
 
 
+def _read_message_program(
+    process: NativeProcess,
+    msg_file: int,
+    msg_index: int,
+) -> tuple[MessageInstruction, ...]:
+    """Read one immutable ``.msg`` program from Gui's relocated table."""
+    if not msg_file:
+        return ()
+    if not 0x10000 <= msg_file < 0x80000000:
+        raise RuntimeError(f"invalid GUI message file pointer 0x{msg_file:08X}")
+    cache = getattr(process, "message_program_cache", None)
+    key = (msg_file, msg_index)
+    if cache is not None and key in cache:
+        return cache[key]
+    num_programs = struct.unpack("<i", process.read(msg_file, 4))[0]
+    if not 0 <= num_programs <= 1024:
+        raise RuntimeError(f"invalid GUI message program count {num_programs}")
+    if not 0 <= msg_index < num_programs:
+        return ()
+    address = struct.unpack(
+        "<I", process.read(msg_file + 4 + msg_index * 4, 4)
+    )[0]
+    if not 0x10000 <= address < 0x80000000:
+        raise RuntimeError(
+            f"invalid GUI message {msg_index} pointer 0x{address:08X}"
+        )
+    result: list[MessageInstruction] = []
+    for _ in range(MSG_PROGRAM_INSTRUCTION_LIMIT):
+        header = process.read(address, 4)
+        time_value, opcode, arg_size = struct.unpack("<HBB", header)
+        raw = header + (process.read(address + 4, arg_size) if arg_size else b"")
+        result.append(
+            MessageInstruction(
+                address,
+                time_value,
+                opcode,
+                arg_size,
+                raw.hex(),
+            )
+        )
+        if opcode == 0:
+            program = tuple(result)
+            if cache is not None:
+                cache[key] = program
+            return program
+        address += 4 + arg_size
+        if not 0x10000 <= address < 0x80000000:
+            raise RuntimeError(
+                f"GUI message {msg_index} walked to invalid address "
+                f"0x{address:08X}"
+            )
+    raise RuntimeError(
+        f"GUI message {msg_index} exceeds bounded instruction limit"
+    )
+
+
+def _message_opening_guarantees_wait(
+    program: tuple[MessageInstruction, ...],
+    *,
+    skip_pressed: bool,
+) -> bool:
+    """Prove that the first RunMsg leaves MsgWait true on the next frame.
+
+    MsgRead zeroes GuiMsgVm.  RunMsg can then consume every time-zero
+    instruction in priority 12.  The next priority-9 MSGWAIT is guaranteed to
+    stall only if that pass cannot delete the message or raise ECLRESUME's
+    ``ignoreWaitCounter``.  WAIT is a barrier on its opening pass when its
+    count is positive and Ctrl/Skip was not already held.
+    """
+    ignore_wait_counter = 0
+    dialogue_skippable = False
+    for instruction in program:
+        if instruction.time > 0:
+            return ignore_wait_counter == 0
+        raw = bytes.fromhex(instruction.raw_hex)
+        if len(raw) != 4 + instruction.arg_size:
+            return False
+        if instruction.opcode == 0:  # MSGDELETE
+            return False
+        if instruction.opcode == 4:  # WAIT
+            if instruction.arg_size < 4:
+                return False
+            wait_frames = struct.unpack_from("<i", raw, 4)[0]
+            if not (dialogue_skippable and skip_pressed) and wait_frames > 0:
+                return ignore_wait_counter == 0
+        elif instruction.opcode == 6:  # ECLRESUME
+            ignore_wait_counter += 1
+        elif instruction.opcode == 10:  # MSGHALT
+            return ignore_wait_counter == 0
+        elif instruction.opcode == 13:  # WAITSKIPPABLE
+            if instruction.arg_size < 4:
+                return False
+            dialogue_skippable = bool(struct.unpack_from("<i", raw, 4)[0])
+    return False
+
+
+def _timeline_message_waits(
+    process: NativeProcess,
+    msg_file: int,
+    instructions: tuple[StageTimelineInstruction, ...],
+    *,
+    stage: int,
+    difficulty: int,
+    character: int,
+    input_mask: int,
+) -> tuple[int, ...]:
+    """Compile proved one-frame MSGWAIT barriers for the visible timeline."""
+    indices = {
+        message_index
+        for instruction in instructions
+        if (
+            message_index := timeline_message_index(
+                instruction,
+                stage,
+                difficulty,
+                character,
+            )
+        ) is not None
+    }
+    return tuple(sorted(
+        message_index
+        for message_index in indices
+        if _message_opening_guarantees_wait(
+            _read_message_program(process, msg_file, message_index),
+            skip_pressed=bool(input_mask & 0x100),
+        )
+    ))
+
+
 def _process_candidates(exe_name: str) -> list[tuple[int, str]]:
     api = _kernel32()
 
@@ -793,6 +929,7 @@ def _read_snapshot_once(
         process.ecl_timeline_cache.clear()
         process.ecl_timeline_program_cache.clear()
         process.ecl_subroutine_traits.clear()
+        process.message_program_cache.clear()
         process.ecl_cache_stage = stage
         process.ecl_subroutines = _read_ecl_subroutines(process)
     # The source layouts place EnemyManager's runtime array, BulletManager's
@@ -889,6 +1026,21 @@ def _read_snapshot_once(
     current_power = struct.unpack(
         "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
     )[0]
+    character = process.read(
+        ADDR_GAME_MANAGER + GAME_CHARACTER_OFFSET, 1
+    )[0]
+    if character not in (0, 1):
+        raise RuntimeError(f"invalid player character {character}")
+    gui_impl = struct.unpack("<I", process.read(ADDR_GUI + 4, 4))[0]
+    if gui_impl and not 0x10000 <= gui_impl < 0x80000000:
+        raise RuntimeError(f"invalid GuiImpl pointer 0x{gui_impl:08X}")
+    msg_file = (
+        struct.unpack(
+            "<I", process.read(gui_impl + GUI_IMPL_MSG_OFFSET, 4)
+        )[0]
+        if gui_impl
+        else 0
+    )
 
     player = process.read(ADDR_PLAYER + PLAYER_POSITION_OFFSET, PLAYER_SPEEDS_OFFSET + 16 - PLAYER_POSITION_OFFSET)
     relative = lambda absolute: absolute - PLAYER_POSITION_OFFSET
@@ -947,6 +1099,15 @@ def _read_snapshot_once(
     timeline_ecl_program = _timeline_ecl_program(
         process,
         timeline_instructions,
+    )
+    timeline_message_waits = _timeline_message_waits(
+        process,
+        msg_file,
+        timeline_instructions,
+        stage=stage,
+        difficulty=difficulty,
+        character=character,
+        input_mask=input_mask,
     )
 
     bullets: list[Bullet] = []
@@ -1436,6 +1597,7 @@ def _read_snapshot_once(
         timeline_instructions, timeline_complete,
         timeline_emitter_subs, timeline_boss_subs,
         process.ecl_subroutines, timeline_ecl_program,
+        character, timeline_message_waits,
     )
 
 

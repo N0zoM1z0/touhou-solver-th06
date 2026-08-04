@@ -637,6 +637,14 @@ def run(args: argparse.Namespace) -> int:
                                     asdict(instruction)
                                     for instruction in process.ecl_timeline_instruction_cache.values()
                                 ],
+                                "message_program_cache": {
+                                    f"0x{msg_file:08x}:{msg_index}": [
+                                        asdict(instruction)
+                                        for instruction in program
+                                    ]
+                                    for (msg_file, msg_index), program
+                                    in process.message_program_cache.items()
+                                },
                             },
                             indent=2,
                             sort_keys=True,

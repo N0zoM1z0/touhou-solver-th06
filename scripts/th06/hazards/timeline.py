@@ -12,6 +12,60 @@ from ..model import StageTimelineInstruction
 WORLD_TRANSITION_OPCODES = frozenset((*range(8), 10))
 
 
+def timeline_message_index(
+    instruction: StageTimelineInstruction,
+    stage: int,
+    difficulty: int,
+    character: int,
+) -> int | None:
+    """Apply EnemyManager::RunEclTimeline's source-defined MSGREAD index."""
+    if instruction.opcode != 8:
+        return None
+    if difficulty == 0 and stage == 5 and instruction.arg0 == 1:
+        return character * 10 + 3
+    return instruction.arg0 + character * 10
+
+
+def scheduled_timeline(
+    instructions: tuple[StageTimelineInstruction, ...],
+    current_time: int,
+    *,
+    stage: int = 0,
+    difficulty: int = 0,
+    character: int = 0,
+    message_waits: tuple[int, ...] = (),
+) -> tuple[tuple[int, StageTimelineInstruction], ...]:
+    """Return earliest source-frame leads, including proved MSGWAIT stalls.
+
+    A message index in ``message_waits`` has been proved from its immutable
+    bytecode and the currently published input to remain active, with no
+    ECLRESUME, until the next EnemyManager update.  We use only that one-frame
+    lower bound.  Longer dialogue duration remains deliberately unassumed.
+    """
+    result: list[tuple[int, StageTimelineInstruction]] = []
+    delay = 0
+    pending_message_wait = False
+    proved_waits = frozenset(message_waits)
+    for instruction in instructions:
+        if instruction.time < 0:
+            break
+        lead = max(0, instruction.time - current_time) + delay
+        result.append((lead, instruction))
+        message_index = timeline_message_index(
+            instruction,
+            stage,
+            difficulty,
+            character,
+        )
+        if message_index is not None:
+            pending_message_wait = message_index in proved_waits
+        elif instruction.opcode == 9:
+            if pending_message_wait:
+                delay += 1
+            pending_message_wait = False
+    return tuple(result)
+
+
 @dataclass(frozen=True)
 class TimelineEnemySpawn:
     """The route-neutral source semantics of one timeline spawn opcode."""
@@ -31,6 +85,11 @@ def first_world_transition(
     instructions: tuple[StageTimelineInstruction, ...],
     current_time: int,
     horizon: int,
+    *,
+    stage: int = 0,
+    difficulty: int = 0,
+    character: int = 0,
+    message_waits: tuple[int, ...] = (),
 ) -> tuple[int, StageTimelineInstruction] | None:
     """Return the first uninserted hazard-world transition in the window.
 
@@ -43,10 +102,14 @@ def first_world_transition(
     """
     if horizon <= 0:
         return None
-    for instruction in instructions:
-        if instruction.time < 0:
-            return None
-        lead = max(0, instruction.time - current_time)
+    for lead, instruction in scheduled_timeline(
+        instructions,
+        current_time,
+        stage=stage,
+        difficulty=difficulty,
+        character=character,
+        message_waits=message_waits,
+    ):
         if lead >= horizon:
             return None
         if instruction.opcode in WORLD_TRANSITION_OPCODES:
