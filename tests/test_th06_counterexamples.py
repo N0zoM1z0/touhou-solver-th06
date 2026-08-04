@@ -14,13 +14,17 @@ from th06.input_lease import (
     required_changed_action_delivery_delay,
 )
 from th06.hazards.world import forecast_world_births
+from th06.hazards.timeline import scheduled_timeline
 from th06.model import (
     ACTIONS,
     CONTROL_ACTIONS,
+    MessageInstruction,
     SafeAction,
     Snapshot,
+    StageTimelineInstruction,
     action_from_input,
 )
+from th06.native import _message_minimum_waits
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.safety import certify_actions
@@ -32,6 +36,41 @@ from th06.viability import (
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_timeline_schedule_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "timeline_schedule"
+        )
+        self.assertTrue(cases, "timeline schedule corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                message = tuple(
+                    MessageInstruction(**instruction)
+                    for instruction in values["message_program"]
+                )
+                waits = _message_minimum_waits(message)
+                self.assertEqual(waits, case["expect"]["message_waits"])
+                timeline = tuple(
+                    StageTimelineInstruction(**instruction)
+                    for instruction in values["timeline"]
+                )
+                schedule = scheduled_timeline(
+                    timeline,
+                    values["current_time"],
+                    stage=values["stage"],
+                    difficulty=values["difficulty"],
+                    character=values["character"],
+                    message_delays=((values["message_index"], waits),),
+                )
+                self.assertEqual(
+                    [
+                        {"lead": lead, "opcode": instruction.opcode}
+                        for lead, instruction in schedule
+                    ],
+                    case["expect"]["schedule"],
+                )
+
     def test_repeated_pickup_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

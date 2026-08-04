@@ -208,39 +208,60 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(_message_minimum_waits((resume, later)), 0)
 
     def test_message_time_groups_bound_fastest_dialogue_release(self):
-        program = tuple(
+        program = (
             MessageInstruction(
-                0x2000 + index * 4,
-                time,
-                opcode,
-                0,
-                struct.pack("<HBB", time, opcode, 0).hex(),
-            )
-            for index, (time, opcode) in enumerate((
-                (0, 1),
-                (0, 13),
-                (60, 3),
-                (150, 3),
-                (240, 0),
-            ))
+                0x2000, 0, 1, 0, struct.pack("<HBB", 0, 1, 0).hex()
+            ),
+            MessageInstruction(
+                0x2004, 0, 13, 4,
+                struct.pack("<HBBi", 0, 13, 4, 0).hex(),
+            ),
+            MessageInstruction(
+                0x200C, 60, 3, 0, struct.pack("<HBB", 60, 3, 0).hex()
+            ),
+            MessageInstruction(
+                0x2010, 150, 3, 0, struct.pack("<HBB", 150, 3, 0).hex()
+            ),
+            MessageInstruction(
+                0x2014, 240, 0, 0, struct.pack("<HBB", 240, 0, 0).hex()
+            ),
         )
 
-        self.assertEqual(_message_minimum_waits(program), 3)
+        self.assertEqual(_message_minimum_waits(program), 240)
         self.assertEqual(
             _message_minimum_waits(
                 program,
                 current_instruction=program[3].address,
+                timer=150,
+                dialogue_skippable=False,
             ),
-            2,
+            90,
         )
         process = type("Process", (), {
             "message_program_cache": {(0x10000, 0): program}
         })()
         self.assertEqual(
             _current_message_waits(
-                process, 0x10000, 0, program[0].address, 0
+                process, 0x10000, 0, program[0].address, 0,
+                0, 0, True,
             ),
-            3,
+            240,
+        )
+
+    def test_message_wait_uses_source_eight_frame_shoot_floor(self):
+        wait = MessageInstruction(
+            0x3000, 0, 4, 4, struct.pack("<HBBi", 0, 4, 4, 120).hex()
+        )
+        delete = MessageInstruction(
+            0x3008, 0, 0, 0, struct.pack("<HBB", 0, 0, 0).hex()
+        )
+
+        self.assertEqual(
+            _message_minimum_waits(
+                (wait, delete),
+                dialogue_skippable=False,
+            ),
+            8,
         )
 
     def test_source_stage_timeline_is_decoded_and_cached_by_pointer(self):

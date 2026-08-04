@@ -1,0 +1,41 @@
+{
+  "id": "stage5-f3372-message-wait-interrupt",
+  "runner": "timeline_schedule",
+  "evidence": {
+    "kind": "physical-adjacent-frame",
+    "rng_seed": 25474,
+    "observed": "timeline 3373 remained stalled through physical frame 3613, advanced to 3374 at 3614, and executed the boss interrupt by 3615"
+  },
+  "input": {
+    "stage": 5,
+    "difficulty": 2,
+    "character": 0,
+    "current_time": 3372,
+    "message_index": 2,
+    "message_program": [
+      {"address": 165883568, "time": 0, "opcode": 1, "arg_size": 4, "raw_hex": "0000010401000000"},
+      {"address": 165883576, "time": 0, "opcode": 2, "arg_size": 4, "raw_hex": "0000020401000000"},
+      {"address": 165883584, "time": 0, "opcode": 5, "arg_size": 4, "raw_hex": "0000050401000100"},
+      {"address": 165883592, "time": 0, "opcode": 13, "arg_size": 4, "raw_hex": "00000d0400000000"},
+      {"address": 165883600, "time": 60, "opcode": 3, "arg_size": 32, "raw_hex": "3c0003200100000082a0815b814182a8917c8f9c82aa906982dc82c882a2814900000000"},
+      {"address": 165883636, "time": 150, "opcode": 3, "arg_size": 36, "raw_hex": "960003240100000082a88fec976c82c9937b82e782ea82e982b682e182c882a28149814900000000"},
+      {"address": 165883676, "time": 150, "opcode": 2, "arg_size": 4, "raw_hex": "9600020401000100"},
+      {"address": 165883684, "time": 240, "opcode": 0, "arg_size": 0, "raw_hex": "f0000000"}
+    ],
+    "timeline": [
+      {"address": 165475112, "time": 3372, "arg0": 12, "opcode": 0, "size": 28, "raw_hex": "2c0d0c0000001c00000000000000000000000000983afeff400d0300"},
+      {"address": 165475140, "time": 3372, "arg0": 2, "opcode": 8, "size": 8, "raw_hex": "2c0d020008000800"},
+      {"address": 165475148, "time": 3373, "arg0": 0, "opcode": 9, "size": 8, "raw_hex": "2d0d000009000800"},
+      {"address": 165475156, "time": 3374, "arg0": 0, "opcode": 10, "size": 16, "raw_hex": "2e0d00000a0010000000000000000000"}
+    ]
+  },
+  "expect": {
+    "message_waits": 240,
+    "schedule": [
+      {"lead": 0, "opcode": 0},
+      {"lead": 0, "opcode": 8},
+      {"lead": 1, "opcode": 9},
+      {"lead": 242, "opcode": 10}
+    ]
+  }
+}
