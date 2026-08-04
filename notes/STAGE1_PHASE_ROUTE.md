@@ -965,3 +965,21 @@ keys. The exact physical t5278 root has 18 Hard-safe actions under this policy,
 including the six-update message delay and future sub10 world. A no-boss t5280
 snapshot and every newborn sub10 state remain fail-visible. The next physical
 run must stop at the first stable sub10 root.
+
+That run did not reach this phase. It failed closed earlier at f5060 in the
+resource formation, with no HIT or Bomb, after the item target had held down
+toward a live enemy body. The first consequential mismatch is already visible
+at f5054: down is Hard-4 and uniquely closest to the bottom fallback, but has
+h8 policy volume 8 while the best fresh set has volume 9. At f5056/f5058 down
+has no constant h8 continuation; the eventual f5059 reversal was stale and
+f5060 had no delivery-robust Hard-4 action. One physical enemy body preserves
+this relation after the other 19 bodies and all bullets are removed.
+
+The resource candidate now computes policy-volume h8 first and applies the
+dynamic Power target only inside its strongest fresh set. Common Hard-4 is
+unchanged. From physical f5020, old h4 targeting has four lease-authority stops
+across 16 delivery seeds; h8/h12/h16 all survive 16/16. Additional h8 replay
+from f5048, f5052, and f5054 survives 32/32 seeds for 64 updates per root.
+Across all 255 retained resource snapshots, the production budgeted h8 rung
+completes 255/255 with no policy timeout. This remains an offline candidate
+until a default fail-close run reaches t5278 and the first sub10 root.

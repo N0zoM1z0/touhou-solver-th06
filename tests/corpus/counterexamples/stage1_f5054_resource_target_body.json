@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "id": "stage1-f5054-resource-target-body",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 5054,
+    "failure_frame": 5060
+  },
+  "runner": "policy_horizon_divergence",
+  "contract": "A Power-collection target may break ties only after fresh survival continuation evidence; it cannot select a merely Hard-4 action over a stronger h8 set.",
+  "summary": "At physical f5054 bottom targeting uniquely selected down, whose h8 policy volume was 8 instead of the best 9. The agent continued down toward a source enemy body, could not publish the late reversal at f5059, and failed closed at f5060. One of the 20 physical bodies is sufficient to preserve the relation.",
+  "input": {
+    "segment_length": 4,
+    "horizons": [8],
+    "target": [192.0, 380.0],
+    "snapshot": {
+      "frame": 5054,
+      "stage": 1,
+      "player_state": 0,
+      "x": 201.63238525390625,
+      "y": 96.9705810546875,
+      "half_width": 1.25,
+      "half_height": 1.25,
+      "normal_speed": 4.0,
+      "focus_speed": 2.0,
+      "normal_diagonal_speed": 2.8284270763397217,
+      "focus_diagonal_speed": 1.4142135381698608,
+      "frame_multiplier": 1.0,
+      "input_mask": 37,
+      "bullets": [],
+      "laser_count": 0,
+      "in_menu": false,
+      "time_stopped": false,
+      "replay_or_demo": false,
+      "lasers": [],
+      "enemies": [
+        {
+          "x": 198.88015747070312,
+          "y": 119.20362854003906,
+          "half_width": 9.333333333333334,
+          "half_height": 9.333333333333334,
+          "velocity_x": 1.9138811826705933,
+          "velocity_y": -0.5805676579475403,
+          "angle": -0.2945234179496765,
+          "angular_velocity": 0.019634954631328583,
+          "speed": 2.0,
+          "acceleration": 0.0,
+          "movement_mode": 1,
+          "movement_ease": 0,
+          "invert_x": true,
+          "move_interp_x": 0.0,
+          "move_interp_y": 0.0,
+          "move_start_x": 0.0,
+          "move_start_y": 0.0,
+          "move_timer": 0,
+          "move_timer_float": 0.0,
+          "move_start_time": 0
+        }
+      ],
+      "despawning_bullets": []
+    }
+  },
+  "expect": {
+    "best_score_by_horizon": {"8": 9},
+    "actions_by_horizon": {
+      "8": [
+        "stay", "up", "right", "up_right", "down_right"
+      ]
+    },
+    "hard_target_actions": ["down"],
+    "deep_target_actions": ["down_right"],
+    "observed_shallow_action": "down"
+  }
+}

@@ -30,7 +30,7 @@ from th06.model import (
     action_from_input,
 )
 from th06.native import _message_minimum_waits
-from th06.ranking import ProposalRanker
+from th06.ranking import ProposalRanker, preferred_target_actions
 from th06.kernels.safety import NativeSafetyKernel
 from th06.routes.stage4_hard_reimu_a import timeline_phase
 from th06.routes.stage1_hard_reimu_a import RANDOM_BODY_STREAM
@@ -1049,6 +1049,30 @@ class CounterexampleCorpusTests(unittest.TestCase):
                             ]
                         ),
                     )
+                target = case["input"].get("target")
+                if target is not None:
+                    all_hard = frozenset(candidate.action for candidate in hard)
+                    shallow = preferred_target_actions(
+                        hard, all_hard, tuple(target)
+                    )
+                    deep_horizon = max(case["input"]["horizons"])
+                    deep_scores = scores_by_horizon[deep_horizon]
+                    deep_best = max(deep_scores.values(), default=0)
+                    deep = frozenset(
+                        action for action, score in deep_scores.items()
+                        if score == deep_best and deep_best > 0
+                    )
+                    targeted = preferred_target_actions(
+                        hard, deep, tuple(target)
+                    )
+                    self.assertEqual(
+                        sorted(action.name for action in shallow),
+                        sorted(case["expect"]["hard_target_actions"]),
+                    )
+                    self.assertEqual(
+                        sorted(action.name for action in targeted),
+                        sorted(case["expect"]["deep_target_actions"]),
+                    )
                 shortlist_expect = case["expect"].get("deep_shortlist")
                 if shortlist_expect is not None:
                     lower_scores = scores_by_horizon[
@@ -1204,6 +1228,30 @@ class CounterexampleCorpusTests(unittest.TestCase):
                                 str(horizon)
                             ]
                         ),
+                    )
+                target = case["input"].get("target")
+                if target is not None:
+                    all_hard = frozenset(candidate.action for candidate in hard)
+                    shallow = preferred_target_actions(
+                        hard, all_hard, tuple(target)
+                    )
+                    deep_horizon = max(case["input"]["horizons"])
+                    deep_scores = scores_by_horizon[deep_horizon]
+                    deep_best = max(deep_scores.values(), default=0)
+                    deep = frozenset(
+                        action for action, score in deep_scores.items()
+                        if score == deep_best and deep_best > 0
+                    )
+                    targeted = preferred_target_actions(
+                        hard, deep, tuple(target)
+                    )
+                    self.assertEqual(
+                        sorted(action.name for action in shallow),
+                        sorted(case["expect"]["hard_target_actions"]),
+                    )
+                    self.assertEqual(
+                        sorted(action.name for action in targeted),
+                        sorted(case["expect"]["deep_target_actions"]),
                     )
                 shortlist_expect = case["expect"].get("deep_shortlist")
                 if shortlist_expect is not None:

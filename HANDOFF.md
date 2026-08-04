@@ -811,6 +811,21 @@ with the future message delay and sub10 insertion present. Sub10 itself remains
 uncovered, so the next default fail-close run should stop on its first stable
 snapshot rather than entering the boss pattern.
 
+The first attempt stopped before dialogue at f5060 in the resource phase. The
+terminal empty Hard set was an effect: at f5054 bottom/item targeting still
+selected down although its h8 policy volume was 8 versus the fresh best 9; by
+f5056/f5058 down had no constant h8 continuation, and the f5059 reversal could
+not be published from the stale snapshot. This relation shrinks to one physical
+enemy body and is stored as an independent corpus case.
+
+The repaired resource candidate uses h8 policy volume, then the dynamic Power
+target only as a tie-break. Hard remains unchanged. Physical-battle replay from
+f5020 changes 4/16 h4 lease stops into 16/16 h8 survival; three later roots each
+survive 32/32 delivery seeds for 64 updates. Production-budget evaluation
+completes h8 on all 255 retained resource snapshots with no policy timeout.
+Run default fail-close again; dialogue and sub10 are still deliberately bounded
+exactly as above and have not yet been physically promoted.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
