@@ -390,6 +390,54 @@ class BaselineTests(unittest.TestCase):
 
         self.assertIs(coherent, coherent_state)
 
+    def test_snapshot_pool_phase_witness_rejects_cross_manager_tear(self):
+        game = bytearray(
+            native.GAME_STAGE_OFFSET + 4 - native.GAME_FLAGS_OFFSET
+        )
+        struct.pack_into(
+            "<I",
+            game,
+            native.GAME_FRAMES_OFFSET - native.GAME_FLAGS_OFFSET,
+            3063,
+        )
+        struct.pack_into(
+            "<i",
+            game,
+            native.GAME_STAGE_OFFSET - native.GAME_FLAGS_OFFSET,
+            1,
+        )
+        pool_start = native.ADDR_ENEMY_MANAGER + native.ENEMY_ARRAY_OFFSET
+        pool_end = native.ADDR_BULLET_MANAGER + native.BULLET_MANAGER_SIZE
+        pools = bytearray(pool_end - pool_start)
+        bullet_timer = native.ADDR_BULLET_MANAGER - pool_start
+        bullet_timer += native.BULLET_MANAGER_TIME_OFFSET
+        struct.pack_into("<ifi", pools, bullet_timer, 3062, 0.0, 3063)
+
+        class Process:
+            ecl_cache_stage = 1
+
+            @staticmethod
+            def read(address, _size):
+                if address == native.ADDR_GAME_MANAGER + native.GAME_FLAGS_OFFSET:
+                    return bytes(game)
+                if address == (
+                    native.ADDR_BULLET_MANAGER
+                    + native.BULLET_MANAGER_TIME_OFFSET
+                    + 8
+                ):
+                    return struct.pack("<i", 3062)
+                if address == pool_start:
+                    return bytes(pools)
+                if address == native.ADDR_ECL_EX_TABLE:
+                    return bytes(native.ECL_EX_COUNT * 4)
+                raise AssertionError(f"unexpected read at 0x{address:08X}")
+
+        with self.assertRaisesRegex(
+            native._SnapshotReadTorn,
+            "3062->3063",
+        ):
+            native._read_snapshot_once(Process())
+
     def test_stale_timeline_boss_pointer_does_not_make_nonboss_incoherent(self):
         enemy_pool = bytearray(
             native.ENEMY_STRIDE * native.ENEMY_COUNT

@@ -159,13 +159,27 @@ laser, and collision work.  At the supported 1x rate, a controllable complete
 hazard root therefore requires equality; `gameFrames == bulletTime + 1` is the
 otherwise invisible mid-chain phase.
 
-The implementation copies the BulletManager timer with the native hazard
-pools, rejects a mismatched active phase, and reads separately stored player
-and global state only after that pool witness. The f3613--f3615 dialogue and
-interrupt transition retained fresh Hard authority across the expected source
-phase. Broader adjacent parity is still required for each newly inserted
-enemy/laser transition; one successful boundary does not validate all of
-them.
+The first Stage 1 random-movement promotion disproved the assumption that one
+large `ReadProcessMemory` call is itself atomic. At f3063 the copied
+EnemyManager prefix showed the sub8 life callback after `CallEclSub` but before
+sub9's first opcode, while the later bullet/item region already reflected the
+same update's opcode-93 conversion and completed BulletManager pass. Source
+orders `HandleLifeCallback` immediately before `RunEcl`, so that combination
+cannot be a complete calc-chain boundary. Adjacent nominal replay accordingly
+predicted the completed sub9 state while the torn enemy prefix still exposed
+local t0/nonspell.
+
+The sensor now reads `BulletManager.time` before copying the approximately
+1.9-MiB EnemyManager-to-BulletManager interval and requires that leading
+witness to equal the timer copied at the interval tail. A change during the
+copy discards the entire root and retries; the existing game-frame and final
+timer equality checks remain in force. The ordinary-RNG rerun crossed the same
+candidate-conditioned callback without publishing its transient nonspell
+state, reached the intended local-t331 boundary, and retained exact adjacent
+parity across the final 255 pairs. The earlier f3613--f3615 dialogue/interrupt
+evidence remains valid, but broader adjacent parity is still required for each
+newly inserted enemy/laser transition; one successful boundary does not
+validate all of them.
 
 ### 3. Deep exact search runs on a partly nominal future world
 

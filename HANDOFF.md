@@ -552,10 +552,30 @@ eight exact movement cycles. A 32-world high-pressure corpus derived through
 h8 has no survival win. Only `211 <= ecl_time < 331` is now authored as
 target-free h6 `random-movement`.
 
-Run ordinary RNG/default fail-close and require an alive stop at exact local
-t331 before the rewind. Validate RNG-conditioned heading/movement, accumulated
-aimed circles, combat, and RNG with adjacent parity. Keep the t331 rewind and
-any later spell-end callback fail-visible.
+The first promotion run stopped earlier on a torn f3063 native root. Its
+EnemyManager prefix was between `HandleLifeCallback` and sub9 `RunEcl`, while
+the later bullet/item pool already represented the completed same-frame spell
+start. This was not a route phase: source places both operations in one
+EnemyManager update. Native sensing now reads `BulletManager.time` before the
+large EnemyManager-to-BulletManager copy and requires it to equal the copied
+tail timer, retrying the whole root if the calc chain advanced during the
+copy.
+
+The ordinary-RNG rerun physically promoted `random-movement` and stopped alive
+exactly at f3822/local t331 before the rewind. There was no HIT, Bomb, stale
+authority stop, timeout, or earlier fail-close. The boundary has all 18
+Hard-safe actions at `(236.052,379.228)`, Power 7, 70 bullets, no laser, and
+boss life 308. All 119 fresh movement decisions measured
+3.078/4.747/6.154 ms median/p90/maximum. Retained adjacent parity is exact for
+all 255 combat/RNG/item/Power pairs, 19,453 fired-bullet steps, 4,242 spawning
+steps, 2,132 player-shot steps, all 182 laser transitions, and both laser
+removals.
+
+Use exact local-t331 next. Audit only opcode 2's rewind to local t120 and the
+same-update source instructions which recreate the Hard pattern/laser cycle.
+Require a physical adjacent boundary before reusing the already promoted
+`laser-pattern-start`; do not generalize over later cycles or the eventual
+spell-end callback.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

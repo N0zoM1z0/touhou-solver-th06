@@ -1370,8 +1370,19 @@ def _read_snapshot_once(
         process.ecl_subroutines = _read_ecl_subroutines(process)
     # The source layouts place EnemyManager's runtime array, BulletManager's
     # templates/bullets, lasers, and trailing timer in one mapped interval.
-    # Copy them together so the source timer is a phase witness for the same
-    # bytes that contain every native hazard pool.
+    # Read the trailing timer once before that large copy as well.  A single
+    # ReadProcessMemory call is not an atomic snapshot: the calc chain can run
+    # from EnemyManager into BulletManager while Windows is copying the range,
+    # leaving an early enemy state beside later bullets and a completed timer.
+    # Requiring the leading witness to match the copied trailing witness
+    # rejects that otherwise invisible same-game-frame tear.
+    bullet_time_before_pool = struct.unpack(
+        "<i",
+        process.read(
+            ADDR_BULLET_MANAGER + BULLET_MANAGER_TIME_OFFSET + 8,
+            4,
+        ),
+    )[0]
     pool_start = ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET
     pool_end = ADDR_BULLET_MANAGER + BULLET_MANAGER_SIZE
     native_pools = process.read(pool_start, pool_end - pool_start)
@@ -1425,6 +1436,11 @@ def _read_snapshot_once(
         or bullet_time >= 10_000_000
     ):
         raise RuntimeError("invalid source bullet-manager timer")
+    if bullet_time_before_pool != bullet_time:
+        raise _SnapshotReadTorn(
+            "bullet-manager phase changed while copying enemy/hazard pools: "
+            f"{bullet_time_before_pool}->{bullet_time}"
+        )
 
     game = process.read(
         ADDR_GAME_MANAGER + GAME_FLAGS_OFFSET,

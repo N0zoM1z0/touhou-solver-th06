@@ -583,3 +583,31 @@ clearance from 7.42 to 8.69 without changing survival.
 The smallest falsifier is therefore target-free policy-volume h6 for
 `211 <= ecl_time < 331`, state `random-movement`. Local t331 remains explicit
 `phase-unavailable` before the rewind into the already authored t120 cycle.
+
+The first ordinary-RNG promotion attempt exposed a sensor counterexample
+before it could test this state. At f3063 a sub8 life callback crossed while a
+single large native pool copy was in progress: its early EnemyManager bytes
+showed installed sub9 at local t0 before opcode 93, while its later bullet/item
+bytes already reflected the completed spell-start update. The source executes
+`HandleLifeCallback` and then `RunEcl` in the same EnemyManager pass, so this
+was a torn same-game-frame root rather than a new nonspell phase. A leading
+BulletManager timer witness now must match the timer copied at the pool tail;
+otherwise the whole snapshot is retried. No route condition was added for the
+transient state.
+
+The rerun physically promoted `random-movement`. It crossed the callback as a
+complete `sub9/.../spell` snapshot, traversed the already promoted spell
+states, and stopped alive exactly at f3822/local t331 before opcode 2 rewinds
+the source clock. There was no HIT, Bomb, stale authority stop, timeout, or
+earlier fail-close. The boundary retained all 18 Hard-safe actions at
+`(236.052,379.228)`, Power 7, with 70 bullets, no laser, and boss life 308 at
+`(304.316,53.748)`. The preceding frame was exact local t330.
+
+All 119 fresh movement decisions measured 3.078 ms median, 4.747 ms p90, and
+6.154 ms maximum. The retained 255 adjacent pairs match every player,
+combat-enemy, player-shot, RNG, graze, rank, pending-effect, item, and Power
+transition. They also match all 19,453 fired-bullet steps, 4,242 spawning
+steps, 252 births, 263 removals, 2,132 player-shot steps, all 182 retained
+laser transitions (152 with ECL mutation), and both source laser removals with
+zero error. The next exact root is local t331; only its rewind/update into the
+already authored local-t120 state should be exposed next.
