@@ -1877,7 +1877,7 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[:3] for call in kernel.calls],
         )
 
-        coalesced_kernel = DeepViabilityKernel(
+        measured_kernel = DeepViabilityKernel(
             clock,
             hard,
             delivery_scores={candidate.action: 1 for candidate in hard},
@@ -1900,34 +1900,43 @@ class AnytimePolicyTests(unittest.TestCase):
             },
             flexible_completed_horizon=20,
         )
-        coalesced_solver = self.solver(
-            coalesced_kernel,
+        measured_solver = self.solver(
+            measured_kernel,
             clock,
             budget=100.0,
         )
-        coalesced_solver.effort.choose_limit = lambda *_args: 20
-        coalesced_solver.effort.projection_ms_per_work = 0.0
+        measured_solver.effort.choose_limit = lambda *_args: 20
+        measured_solver.effort.projection_ms_per_work = 0.0
 
-        coalesced = coalesced_solver.decide(state)
+        measured = measured_solver.decide(state)
 
-        self.assertEqual(coalesced.action, deep_robust)
+        self.assertEqual(measured.action, deep_robust)
         self.assertEqual(
             [
-                call[1:3] for call in coalesced_kernel.calls
+                call[1:3] for call in measured_kernel.calls
                 if call[0] == "repeated_pickup"
             ],
             [(12, 12), (16, 16), (20, 20)],
         )
-        coalesced_calls = [
-            call[:3] for call in coalesced_kernel.calls
+        measured_calls = [
+            call[:3] for call in measured_kernel.calls
             if call[0] in {
+                "prepare",
                 "repeated_pickup",
                 "terminal_progressive",
             }
         ]
         self.assertLess(
-            coalesced_calls.index(("terminal_progressive", 12, 12)),
-            coalesced_calls.index(("repeated_pickup", 16, 16)),
+            measured_calls.index(("prepare", 12)),
+            measured_calls.index(("terminal_progressive", 12, 12)),
+        )
+        self.assertLess(
+            measured_calls.index(("terminal_progressive", 12, 12)),
+            measured_calls.index(("prepare", 20)),
+        )
+        self.assertLess(
+            measured_calls.index(("terminal_progressive", 12, 12)),
+            measured_calls.index(("repeated_pickup", 16, 16)),
         )
 
         class BudgetConsumingGateKernel(DeepViabilityKernel):

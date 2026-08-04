@@ -1607,42 +1607,15 @@ class Solver:
                 ),
                 None,
             )
-            prepare_remaining_ms = (
-                self.effort.budget_ms()
-                - (self.clock() - started) * 1000.0
-                - TERMINAL_DEADLINE_GUARD_MS
-            )
-            coalesced_exact_horizon = (
-                next_exact_horizon
-                if (
-                    full_publication_budget
-                    and repeated_pickup_native is not None
-                    and next_exact_horizon is not None
-                    and self.effort.projection_ms_per_work is not None
-                    and self.effort.projection_ms_per_work
-                        * self.effort.projection_work(
-                            snapshot,
-                            next_exact_horizon,
-                        )
-                        <= prepare_remaining_ms
-                            * PROMOTION_BUDGET_FRACTION
-                )
-                else None
-            )
             # Prepare only the next ordinary turn-capable rung.  Building the
-            # whole predicted projection up front can consume a shortened
-            # publication deadline before h12 gets any search time.  The one
-            # exception is a measured-affordable shared h20 preparation for
-            # the progressive repeated-pickup gate: building it once avoids
-            # re-flattening h12 and h16, while the native search still
-            # publishes only its deepest completed exact rung.
+            # whole predicted projection up front can consume the publication
+            # deadline before h12 membership and ranking become publishable.
+            # Even a measured-affordable deeper build is only a prediction;
+            # extend the shared projection after each complete rung instead.
             soft_prepare_horizon = (
-                coalesced_exact_horizon
-                or (
-                    nominal_minimum_horizon
-                    if progressive_terminal_ready
-                    else limit
-                )
+                nominal_minimum_horizon
+                if progressive_terminal_ready
+                else limit
             )
             operation_started = self.clock()
             self._prepare_soft(snapshot, soft_prepare_horizon)
