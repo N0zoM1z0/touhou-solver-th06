@@ -97,3 +97,21 @@ policy-volume h8. A private state boundary at t1080 names the compressed
 sub2 tail whose t1080/t1100/t1110 parents fire at t1150/t1170/t1180. The
 algorithm is unchanged across that boundary. Random-coordinate insertion at
 t1220 remains explicit `phase-unavailable`.
+
+The ordinary-RNG default fail-close run physically promoted this phase. It
+completed every t640 sub2 aimed fan and the compressed tail without HIT,
+Bomb, or Hard-authority loss, then stopped exactly at the deliberate
+f1220/t1220 random-insertion boundary. The boundary retained all 18 Hard-safe
+actions at `(174.444,242.929)`, Power 2, with 80 live bullets.
+
+There was one stale retry at f1034 and no publication failure. Across 511
+fresh phase decisions, h8 solve time was 4.943 ms median, 10.251 ms p90, and
+22.474 ms maximum. The compressed tail was the more expensive state at 6.480
+ms median and 15.102 ms p90. Its occasional over-frame calls remained
+publishable in this run, but should be kept in later timing comparisons.
+
+Adjacent replay of the final 241 physical transitions matched every player,
+combat, player-shot, RNG, graze/rank, item/Power, and enemy transition. It
+also matched all 9,691 fired-bullet and 774 spawning-bullet steps, including
+72 births, with no unsupported transition or positional error. This promotes
+target-free h8 only for t640--t1219.

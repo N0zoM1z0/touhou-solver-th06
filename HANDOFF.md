@@ -273,10 +273,19 @@ clearance for essentially the same command count as h7. Target-free h8 also
 survived all eight complete roots and 32/32 warmup-derived delivery cases,
 with materially fewer commands than the bottom target.
 
-Physically falsify this candidate with ordinary RNG and default fail-close.
-Expected success is an alive `phase-unavailable` stop at t1220; any earlier
-failure belongs to the exact t640 route state named in the trace. Do not
-author the t1220 random-coordinate sub0/sub1 phase before this run.
+The ordinary-RNG default fail-close run physically promoted the t640 aimed
+stream. It completed all aimed fans and the compressed tail without HIT,
+Bomb, or Hard-authority loss, then stopped exactly at f1220/t1220 with
+`phase-unavailable`. The entry is `(174.444,242.929)`, Power 2, 80 bullets,
+and all 18 Hard-safe actions. There was one stale retry; 511 fresh h8 calls
+measured 4.943 ms median, 10.251 ms p90, and 22.474 ms maximum. All final 241
+adjacent combat/RNG transitions and 10,465 bullet steps matched exactly.
+
+Use this physical entry to author only the random-coordinate t1220--t1599
+sub0/sub1 body stream. Its source routines do not fire on Hard, but the entry
+retains the previous aimed bullets and the future body coordinates consume
+the shared RNG stream. Compare target/target-free and the smallest viable
+rung in the exact battle world; keep t1600 explicitly uncovered.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
