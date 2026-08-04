@@ -304,10 +304,10 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             target=None,
             commitment_frames=4,
             provenance=(
-                "physical f5350 sub11 root; source installs life/timer "
-                "callbacks 22, enables collision and damage, then calls "
-                "sub12 at local t100; exact stateful delivery sweeps select "
-                "terminal-count then clearance at h8"
+                "physical f5350 sub11 root and f5629 promotion run; source "
+                "installs life/timer callbacks 22, enables collision and "
+                "damage, then calls sub12 at local t100; stateful delivery "
+                "sweeps select terminal-count then clearance at h8"
             ),
         )
     if subroutine == 12 and not spell_active and boss.ecl_time < 180:
@@ -319,9 +319,10 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             target=None,
             commitment_frames=4,
             provenance=(
-                "installed sub12 local t12-t60 Hard aimed fan groups; exact "
-                "candidate-conditioned battle sweeps cover player attack, "
-                "boss damage, ECL movement, RNG, and delivery through t179"
+                "physical f5629 run crossed all seven sub12 local t12-t60 "
+                "Hard aimed fans (130 births); exact candidate-conditioned "
+                "sweeps and adjacent parity cover player attack, boss "
+                "damage, ECL movement, RNG, and delivery through t179"
             ),
         )
     return uncovered(

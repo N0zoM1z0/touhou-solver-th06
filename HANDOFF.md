@@ -887,7 +887,9 @@ whole nonspell.
 That audit now selects the first main-boss nonspell candidate. Sub11 enables
 damage/collision, installs life 7000 and Hard callbacks 22/22, then calls sub12
 at local t100. Sub12 starts a 60-tick random-in-bounds move and emits seven Hard
-aimed-fan groups at t12--t60, totaling 200 bullets. At t180 it consumes the RNG
+aimed-fan groups at t12--t60. Hard difficulty mask 0x04 gives group sizes
+10/10/10/10/20/30/40, totaling 130 bullets at base speed 5; the earlier
+200-bullet count was the mask-0x08 Lunatic stream. At t180 it consumes the RNG
 branch that may call sub13 or sub14 before always calling sub15; that transition
 and all later pattern states remain uncovered.
 
@@ -914,6 +916,31 @@ then stopping alive at the first stable sub12 t180 or sub13/sub14/sub15 source
 identity. Require adjacent physical parity for the t100 CALL, random movement,
 all births/motion, player attack, boss damage, and RNG before extending the
 branch.
+
+That default run physically promotes both states. It crossed sub11 and all 130
+Hard sub12 births, then stopped exactly at f5629 on stable sub14 local t1 with
+all 18 Hard actions available. The full run contains no dead state, Bomb,
+timeout, or earlier authority stop. In the 279-frame authored window there
+were 246 fresh count-clearance decisions, 33 one-frame input-lease checks, zero
+stale decisions, and zero timeouts. Every fresh decision retained all 18 Hard
+actions; solve time was 3.196 ms median, 4.375 ms p90, 5.655 ms p99, and 12.424
+ms maximum. Peak hostile bullet count was 130 and measured minimum current-
+bullet clearance in the retained window was 27.882.
+
+The retained 254 adjacent pairs are exact for player state, all 254 Reimu-A
+attack transitions, 159 player-shot births, 5,691 player-shot steps, 130
+hostile births, 13,135 mature-bullet steps, and 1,950 spawning-bullet steps.
+The ordinary parity command correctly labels full combat unsupported while the
+timeline still holds opcode 12. Under the source-proved phase shaping that
+removes only this boss-removal wait, all 254 combat/enemy/damage/RNG/rank/item/
+Power transitions and all 49 boss-life changes are exact with no unsupported
+state. The f5628->f5629 transition consumes the modeled RNG and enters sub14;
+no unaudited route decision is issued there.
+
+Use exact f5629 next. Audit sub14's time-zero movement and first Hard attack,
+plus the subsequent unconditional sub15 call/return structure, before opening
+another bounded state. Keep sub13 as a separate RNG sibling even though this
+physical run selected sub14.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

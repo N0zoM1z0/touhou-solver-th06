@@ -1077,8 +1077,10 @@ the following bounded source contract:
 - sub12 time zero selects a source random-in-bounds direction, speed 3, and a
   60-tick movement duration;
 - sub12 emits opcode-67 aimed fans at local t12, t20, t28, t36, t44, t52, and
-  t60. Their first counts are 1, 2, 2, 3, 3, 4, and 5, each with ten secondary
-  lanes, for 200 bullets before rank-defined count/speed adjustment;
+  t60. Hard mask `0x04` gives first counts 1, 1, 1, 1, 2, 3, and 4, each with
+  ten secondary lanes, for 130 bullets at base speeds 5 and 1. The 1, 2, 2,
+  3, 3, 4, 5 / 200-bullet sequence belongs to Lunatic mask `0x08`; the first
+  audit incorrectly conflated these masks;
 - sub12 local t180 draws a three-way integer, conditionally calls sub13 or
   sub14 for values zero/one, and then unconditionally calls sub15.
 
@@ -1133,3 +1135,34 @@ The physical candidate therefore authors only sub11 `ecl_time <= 100` as
 fail-close run must stop at the first stable t180 branch identity. Promotion
 also requires exact adjacent parity for sub11's CALL, sub12 movement and all
 fan births, Reimu-A shots, boss damage/life, bullets, and RNG.
+
+The ordinary-RNG/default fail-close run physically promotes this candidate. It
+crossed the sub11 t100 CALL and all seven Hard sub12 groups, then stopped at
+f5629 on `boss:0:sub14:life_cb22:timer_cb22:nonspell` local t1. The final state
+is `(108.811,331.571)`, Power 34, boss life 4634, 61 live bullets, and all 18
+Hard-safe actions. There is no player-dead state, native/desired Bomb bit,
+policy timeout, or earlier authority stop anywhere in the full CSV; exact PID
+60964 was stopped and all inputs were released.
+
+From f5349 through f5627, all 246 fresh route decisions used count-clearance,
+retained all 18 Hard actions, and recorded zero stale retry. Another 33 updates
+were already-issued one-frame input leases. Fresh solve time was 3.196 ms
+median, 4.375 ms p90, 5.655 ms p99, and 12.424 ms maximum, with no timeout.
+The physical peak was 130 hostile bullets and the retained minimum current-
+bullet clearance was 27.882.
+
+Raw physical parity covers 254/254 player and Reimu-A attack transitions, 159
+exact player-shot births, 5,691 player-shot steps, 130 exact hostile births,
+13,135 mature-bullet steps, and 1,950 spawning-bullet steps. It reports the
+full combat rung unsupported solely because timeline opcode 12 is waiting for
+boss removal. Applying the already documented, source-proved phase-local
+shaping gives 254/254 exact combat enemy, player-shot, RNG, graze, rank, pending
+effect, item, and Power transitions; all 49 boss-life changes match and no
+combat state is unsupported. This shaping remains invalid after boss removal.
+
+At f5628 sub12 is still local t180 while a previously issued action completes
+its one-frame Hard lease. The f5628->f5629 update then consumes the modeled RNG
+and publishes sub14 local t1; the route issues no sub14 strategy action. Audit
+sub14's movement/first attack and the following sub15 call structure next.
+Sub13 remains an independent RNG sibling and must be audited separately rather
+than inheriting sub14 policy.
