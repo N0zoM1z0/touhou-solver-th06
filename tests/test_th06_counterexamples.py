@@ -26,6 +26,7 @@ from th06.model import (
 from th06.native import _message_minimum_waits
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
+from th06.routes.stage4_hard_reimu_a import timeline_phase
 from th06.safety import certify_actions
 from th06.viability import (
     delivery_segment_viability_scores,
@@ -34,6 +35,23 @@ from th06.viability import (
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_stage4_phase_policy_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "stage4_phase_policy"
+        )
+        self.assertTrue(cases, "Stage 4 phase-policy corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                source_time = case["input"]["timeline_time"]
+                machine = timeline_phase(source_time)
+                state = machine.state(source_time)
+                expected = case["expect"]
+                self.assertEqual(machine.phase_id, expected["phase_id"])
+                self.assertEqual(state.state_id, expected["policy_state"])
+                self.assertEqual(state.algorithm, expected["algorithm"])
+                self.assertEqual(state.horizon, expected["horizon"])
+
     def test_timeline_schedule_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

@@ -95,9 +95,20 @@ TIMELINE_PHASES = (
             6,
             "physical f1931 CE; 4/4 static/causal h6 entry agreement",
         ),
-        # Do not extrapolate the sub3 result across the source transition.
-        # Timeline t2108 changes the spawned ECL routine to sub2.
-        state(2108, "sub2-aimed-stream", 12, "timeline switches to sub2"),
+        # Do not extrapolate the sub3 h6 result across the source transition.
+        # Timeline t2108 changes the spawned ECL routine to sub2.  Its own
+        # ordinary-RNG f2227 CE measured repeated h12 timeout/stale holds.
+        # h8 survived 10/10 retained 64-frame battle roots with about half the
+        # commands. A 64-case warmup screen showed stronger but unpublishable
+        # or causally disagreeing alternatives; candidate-conditioned h8
+        # rejected the consequential f2138 h12 right-fast proposal in favor
+        # of the same upward direction as static h8.
+        state(
+            2108,
+            "sub2-aimed-stream",
+            8,
+            "physical f2227 h12 timeout CE; h8 causal/publishable falsifier",
+        ),
         state(2239, "tail", 8, "last immediate fan spawned at t2238"),
     ),
     phase(

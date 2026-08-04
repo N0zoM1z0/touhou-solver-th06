@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "stage4-f2227-sub2-publishable-rung",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 4,
+    "decision_frame": 2138,
+    "failure_frame": 2227,
+    "rng": "ordinary"
+  },
+  "runner": "stage4_phase_policy",
+  "contract": "The source-defined t2108 sub2 stream owns its measured h8 policy independently of the preceding sub3 h6 state; common Hard-4 eligibility is unchanged.",
+  "summary": "The ordinary-RNG default fail-close run retained 11 repairable actions at the terminal f2227 Hard loss. Earlier h12 queries repeatedly timed out at 18--23 ms; at f2138 physical h12 chose right-fast, while static h8 chose up-right and the candidate-conditioned h8 world chose up-right-fast. On ten retained physical roots, h8 and h12 both survived 64 frames, but h8 used 7.8 mean commands versus 15.3. A later 64-case stateful warmup screen did not claim h8 was strongest: h8 survived 56/62 versus h12's 59/62, but h12 was already physically unpublishable; h9/h10 and h8 replanning-count selected the causally rejected rightward direction at f2138, while h11 had weaker corpus survival and near-h12 effort. h8 policy-volume is therefore the smallest publishable physical falsifier, not an offline proof or evidence for applying the preceding sub3 h6 rung.",
+  "input": {
+    "timeline_time": 2138
+  },
+  "expect": {
+    "phase_id": "timeline:t1878:subs3-2",
+    "policy_state": "sub2-aimed-stream",
+    "algorithm": "policy-volume",
+    "horizon": 8
+  }
+}

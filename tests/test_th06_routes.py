@@ -143,7 +143,7 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(stream.state(1878).state_id, "sub3-aimed-stream")
         self.assertEqual(stream.state(2107).horizon, 6)
         self.assertEqual(stream.state(2108).state_id, "sub2-aimed-stream")
-        self.assertEqual(stream.state(2108).horizon, 12)
+        self.assertEqual(stream.state(2108).horizon, 8)
 
     def test_phase_state_machine_can_seek_without_cross_phase_history(self):
         machine = TimelineStateMachine(

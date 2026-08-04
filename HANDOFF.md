@@ -100,10 +100,10 @@ Retained algorithm tests cover source physics, Hard and delivery semantics,
 future world behavior, native/reference parity, and local primitives that a
 phase may deliberately select.
 
-Current checks after the horizontal-band primitive extraction:
+Current checks after the sub2 phase-policy corpus addition:
 
-- Linux: 275 tests passed, 25 skipped;
-- Windows/native: 275 tests passed, no skips/failures;
+- Linux: 276 tests passed, 25 skipped;
+- Windows/native: 276 tests passed, no skips/failures;
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
@@ -137,7 +137,7 @@ between the static native policy and the candidate-conditioned compact combat
 world on 4/4 roots. h8 disagreed on 2/4. The causal queries cost 7.20 seconds
 for four roots versus 0.265 seconds for the static queries, confirming that
 they belong offline. Only the t1878 sub3 state is now h6; the source transition
-to sub2 at t2108 remains h12 and awaits its own evidence.
+to sub2 at t2108 was deliberately kept separate pending its own evidence.
 
 The next ordinary-RNG default fail-close run crossed both t1878/sub3 and
 t2108/sub2, then stopped alive without a HIT or Bomb at f2649 in
@@ -158,6 +158,36 @@ versus 10.0. Across 20 paired delivery seeds, policy-volume survived 18/20;
 constant-frontier survived 20/20, won the two differing seeds, and never lost.
 The offline result is not a clear; it selects the next physical falsifier.
 
+A subsequent ordinary-RNG default fail-close run did not reach t2388. It
+stopped alive without a HIT or Bomb at f2227 in the separate
+`t2108/sub2-aimed-stream`, with 11 actions repairable after the terminal Hard
+loss. The sub2 h12 queries repeatedly took 18--23 ms and produced timeout or
+stale holds. The earliest policy divergence retained for adjudication is
+f2138: physical/static h12 chose `right_fast`, static h8 chose `up_right`, and
+the candidate-conditioned h8 battle world chose `up_right_fast`. Thus both h8
+models reject the consequential horizontal move while agreeing on the upward
+direction.
+
+Sub2 is an immediate Hard 8x2 aimed fan, distinct from sub3's 9x2 fan. On ten
+retained physical sub2 roots, exact 64-frame battle replay kept h8 and h12
+alive on 10/10 roots; h8 used 7.8 mean commands versus h12's 15.3. h6 lost one
+root, so the preceding sub3 h6 result is not copied across the source
+transition. Only `sub2-aimed-stream` now uses h8; the target-free t2388
+constant-frontier falsifier remains pending.
+
+A higher-pressure screen derived 56 new complete battle worlds from eight
+physical roots through 697 Hard-safe warmup updates, including 450 source
+births, 19 enemy-combat states, 53 player-attack states, and 35 RNG states.
+Across 62 viable 96-frame cases, h8 policy-volume survived 56 and h12 survived
+59, with neither dominating all seeds. h12 is not promoted because the
+physical run already measured it repeatedly missing publication. h9/h10 each
+survived 58 but selected `right` at f2138; h11 selected the causal direction
+but survived 57 and retains near-h12 effort. h8 replanning-count survived 59
+but likewise selected `right`, used 22.16 mean commands, and cost about 1.5x
+the h8 policy offline. Constant-reserve won one paired seed and lost two. h8
+policy-volume is therefore the smallest publishable, causal-aligned physical
+falsifier, not the offline survival champion.
+
 ## Immediate experiment
 
 Run exactly:
@@ -167,7 +197,7 @@ run_th06_practice.bat --practice-stage 4 --seconds 300
 ```
 
 Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
-Expected outcomes after the t2388 constant-frontier correction:
+Expected outcomes after the t2108 h8 and t2388 constant-frontier corrections:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
    `route_id`, `phase_id`, and `policy_state`; or

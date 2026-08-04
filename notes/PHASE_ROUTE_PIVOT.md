@@ -224,3 +224,47 @@ not reproduce all compute/publication timing, so the result remains soft.
 Only `t2388/horizontal-band` now selects target-free h6
 `constant-frontier`; common Hard-4 authority and all other phase states are
 unchanged. The next default physical run is the falsifier.
+
+## Sub2 aimed-stream publication correction
+
+The next ordinary-RNG default fail-close run followed a different physical
+branch and did not reach t2388. It stopped alive without a HIT or Bomb at
+f2227 in `t2108/sub2-aimed-stream`; the terminal state had 11 repairable
+actions. From f2119 onward, h12 queries repeatedly took approximately 18--23
+ms, returning timeout or stale holds. At f2138 the last newly published h12
+proposal selected `right_fast`, and delivery plus later corrections traversed
+large horizontal and vertical distances before the terminal stop.
+
+This is not grounds to copy the preceding sub3 h6 policy. Installed ECL makes
+the source distinction concrete: on Hard, sub2 emits an immediate 8x2 aimed
+fan while sub3 emits 9x2. Ten retained sub2 physical roots were replayed for
+64 frames in the complete compact battle world. h8 and h12 each survived
+10/10, but h8 used 7.8 mean commands versus h12's 15.3; h6 failed one root.
+At the earliest retained divergence f2138, static h8 selected `up_right` and
+candidate-conditioned h8 selected `up_right_fast`, while both rejected the
+physical/static h12 `right_fast` direction. One causal h8 query took 20.97
+seconds, confirming its role as an offline discriminator only.
+
+The smallest falsifier changes only `sub2-aimed-stream` from h12 to h8. The
+preceding sub3 state remains h6, the following horizontal-band state remains
+target-free h6 constant-frontier, and common Hard-4 authority is unchanged.
+
+Before physical promotion, a higher-pressure phase corpus derived 56 complete
+battle worlds from eight captured roots using 697 varied Hard-safe warmup
+updates. Those worlds contained 450 source-valid births and covered 19 unique
+enemy-combat, 53 player-attack, and 35 RNG states. Across 62 viable 96-frame
+delivery cases, policy-volume survived 56 at h8, 58 at h9, 58 at h10, 57 at
+h11, and 59 at h12. The deeper result is not directly promotable: h12 already
+failed its physical publication deadline, and the sets were not monotonic in
+seed identity.
+
+The same paired corpus screened local primitives at h8. Replanning-count
+survived 59/62 but used 22.16 mean commands versus policy-volume's 13.56,
+cost about 1.5x offline, and selected the causally rejected `right` direction
+at f2138. Constant-reserve survived 55/62, winning one policy-volume seed and
+losing two. h9/h10 also selected `right` at f2138; h11 selected
+`up_right_fast` but had lower corpus survival and near-h12 effort. Thus the
+screen did not prove h8 policy-volume globally best. It eliminated the known
+alternatives and retained h8 as the only lower-cost candidate that agrees
+with the f2138 candidate-conditioned upward direction. Physical play remains
+the required falsifier.
