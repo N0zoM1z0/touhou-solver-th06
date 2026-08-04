@@ -4,10 +4,13 @@ from dataclasses import asdict, replace
 
 from th06.barrage_lab.corpus import decode_snapshot
 from th06.barrage_lab.stateful import (
+    _NominalCombatStep,
     step_reimu_a_player_attack,
     step_reimu_a_player_shot,
 )
-from th06.model import PlayerAttackState, Snapshot
+from th06.hazards.ecl import source_enemy_template
+from th06.hazards.rng import RngState
+from th06.model import EclInstruction, PlayerAttackState, PlayerShot, Snapshot
 from th06.native import (
     ANM_VM_SCRIPT_OFFSET,
     ANM_VM_SPRITE_OFFSET,
@@ -59,7 +62,73 @@ def _snapshot(attack: PlayerAttackState) -> Snapshot:
         time_stopped=False,
         replay_or_demo=False,
         player_attack=attack,
+        effect_active_upper_bound=0,
+        item_active_upper_bound=0,
     )
+
+
+def _attack_with_shot(damage: int, *, spell: bool = False) -> PlayerAttackState:
+    return PlayerAttackState(
+        shots=(PlayerShot(
+            slot=0,
+            x=100.0,
+            y=100.0,
+            half_width=6.0,
+            half_height=6.0,
+            vx=0.0,
+            vy=-12.0,
+            homing_speed=12.0,
+            timer_previous=0,
+            timer=1,
+            timer_float=1.0,
+            damage=damage,
+            state=1,
+            bullet_type=0,
+            anm_script=0x440,
+            anm_timer=1,
+            anm_timer_float=1.0,
+            sprite_half_width=7.0,
+            sprite_half_height=7.0,
+        ),),
+        last_enemy_hit_x=-999.0,
+        last_enemy_hit_y=-999.0,
+        orb_state=1,
+        is_focus=False,
+        focus_timer_previous=-999,
+        focus_timer=0,
+        focus_timer_float=0.0,
+        fire_timer_previous=0,
+        fire_timer=1,
+        fire_timer_float=1.0,
+        orb_positions=((76.0, 400.0), (124.0, 400.0)),
+        shot_type=0,
+        bomb_active=False,
+        spell_active=spell,
+    )
+
+
+def _combat_emitter(**changes):
+    first = EclInstruction(0x1000, 999, 0, 12, 0, "00" * 12)
+    callback = EclInstruction(0x2000, 999, 0, 12, 0, "00" * 12)
+    emitter = source_enemy_template(
+        (first, callback), (first.address, callback.address),
+        0, 100.0, 100.0, 100,
+    )
+    assert emitter is not None
+    values = dict(
+        slot=0,
+        next_instruction=first,
+        interactable=True,
+        damageable=True,
+        has_been_in_bounds=True,
+        hitbox_half_width=4.0,
+        hitbox_half_height=4.0,
+        sprite_half_width=8.0,
+        sprite_half_height=8.0,
+        item_drop=-2,
+    )
+    values.update(changes)
+    return replace(emitter, **values)
 
 
 class PlayerAttackTests(unittest.TestCase):
@@ -212,6 +281,113 @@ class PlayerAttackTests(unittest.TestCase):
         self.assertEqual(
             (following.focus_timer_previous, following.focus_timer), (7, 8)
         )
+
+    def test_damage_caps_at_70_and_hit_effect_advances_priority10_rng(self):
+        attack = _attack_with_shot(100)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+
+        rng = RngState(0x1234, 9)
+        following = combat.post_emitter(_combat_emitter(), rng)
+        combat.finish_frame(rng)
+
+        self.assertIsNotNone(following)
+        self.assertEqual(following.life, 30)
+        self.assertEqual(combat.attack.shots[0].state, 2)
+        self.assertEqual(combat.attack.shots[0].anm_script, 0x460)
+        self.assertEqual(combat.attack.shots[0].anm_timer, 1)
+        self.assertEqual(combat.effect_upper, 1)
+        # Shipped effect ANM randomizes its sprite once, then callback 5 calls
+        # two f32 values: one plus four source u16 generations.
+        self.assertEqual(rng.generation_count, 14)
+
+    def test_spell_damage_reduction_happens_after_source_cap(self):
+        attack = _attack_with_shot(100, spell=True)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+
+        following = combat.post_emitter(
+            _combat_emitter(), RngState(0x1234, 0)
+        )
+
+        self.assertEqual(following.life, 90)
+
+    def test_mode1_death_keeps_slot_and_installs_callback_context(self):
+        attack = _attack_with_shot(70)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+
+        following = combat.post_emitter(_combat_emitter(
+            life=60,
+            death_mode=1,
+            death_callback_sub=1,
+        ), RngState(0x1234, 0))
+
+        self.assertIsNotNone(following)
+        self.assertFalse(following.interactable)
+        self.assertEqual(following.life, 0)
+        self.assertEqual(following.death_callback_sub, -1)
+        self.assertEqual(following.next_instruction.address, 0x2000)
+
+    def test_life_callback_kills_nonbosses_before_later_slot_update(self):
+        attack = _attack_with_shot(1)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+        boss = _combat_emitter(
+            is_boss=True,
+            life=40,
+            life_callback_threshold=50,
+            life_callback_sub=1,
+        )
+        minion = replace(_combat_emitter(), slot=1, life=20)
+        slots = {0: boss, 1: minion}
+
+        following = combat.pre_emitter(boss, slots)
+
+        self.assertEqual(following.life, 50)
+        self.assertEqual(following.next_instruction.address, 0x2000)
+        self.assertEqual(slots[1].life, 0)
+
+    def test_contact_damage_precedes_player_shot_damage(self):
+        attack = _attack_with_shot(1)
+        combat = _NominalCombatStep(
+            _snapshot(attack), attack, player=(100.0, 100.0)
+        )
+
+        following = combat.post_emitter(
+            _combat_emitter(life=12), RngState(0x1234, 0)
+        )
+
+        self.assertIsNotNone(following)
+        self.assertEqual(following.life, 1)
+
+    def test_enemy_kill_all_installs_noninteractive_death_callback(self):
+        attack = _attack_with_shot(1)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+        target = replace(
+            _combat_emitter(),
+            interactable=False,
+            death_callback_sub=1,
+        )
+        slots = {0: target}
+
+        combat.enemy_kill_all(slots)
+
+        self.assertEqual(slots[0].life, 0)
+        self.assertEqual(slots[0].death_callback_sub, -1)
+        self.assertEqual(slots[0].next_instruction.address, 0x2000)
+
+    def test_explicit_item_drop_reserves_item_and_death_effect_slots(self):
+        attack = _attack_with_shot(70)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+
+        following = combat.post_emitter(_combat_emitter(
+            life=60,
+            item_drop=1,
+            death_anm1=12,
+            death_anm2=3,
+        ), RngState(0x1234, 0))
+
+        self.assertIsNone(following)
+        self.assertEqual(combat.item_upper, 1)
+        # One shot impact, three item particles, then five common particles.
+        self.assertEqual(combat.effect_upper, 9)
 
 
 if __name__ == "__main__":

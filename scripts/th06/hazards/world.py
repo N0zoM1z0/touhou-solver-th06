@@ -258,6 +258,7 @@ def _forecast_hard_timeline_births(
             spawn.x,
             spawn.y,
             spawn.life if spawn.life is not None else -1,
+            spawn.item_drop,
         )
         if child is None:
             return WorldBirthForecast(
@@ -311,11 +312,12 @@ def _forecast_hard_timeline_births(
         child = replace(
             inline.next_spawner,
             invert_x=spawn.invert_x,
-            life=(
-                spawn.life
-                if spawn.life is not None
-                else inline.next_spawner.life
-            ),
+                life=(
+                    spawn.life
+                    if spawn.life is not None
+                    else inline.next_spawner.life
+                ),
+                item_drop=spawn.item_drop,
         )
         if child.boss_id >= 0:
             known_boss_ids.add(child.boss_id)
@@ -456,6 +458,7 @@ def _forecast_nominal_from_state(
     *,
     framewise: bool,
     start_lead: int = 0,
+    combat=None,
 ) -> WorldBirthForecast:
     births: list[list[Bullet]] = [[] for _ in player_positions]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -465,6 +468,8 @@ def _forecast_nominal_from_state(
         snapshot, start_lead, len(player_positions)
     )
     if timeline_transitions:
+        framewise = True
+    if combat is not None:
         framewise = True
     if not framewise:
         if not emitters:
@@ -539,7 +544,7 @@ def _forecast_nominal_from_state(
             continuation,
         )
 
-    if not timeline_transitions:
+    if not timeline_transitions and combat is None:
         batched = _forecast_nominal_without_shared_rng(
             snapshot, player_positions, emitters, rng
         )
@@ -625,6 +630,7 @@ def _forecast_nominal_from_state(
                 x,
                 y,
                 spawn.life if spawn.life is not None else -1,
+                spawn.item_drop,
             )
             if child is None:
                 return WorldBirthForecast(
@@ -647,6 +653,7 @@ def _forecast_nominal_from_state(
                 allow_player_variables=True,
                 radial_births=False,
                 model_player_damage=False,
+                record_enemy_kill_all=combat is not None,
             )
             if inline.covered_frames < 1:
                 return WorldBirthForecast(
@@ -658,6 +665,14 @@ def _forecast_nominal_from_state(
                     tuple(tuple(frame) for frame in bodies),
                 )
             births[frame_index].extend(inline.births[0])
+            if combat is not None and inline.effect_spawns:
+                combat.observe_effect_spawns(inline.effect_spawns[0])
+            if combat is not None and inline.item_spawns:
+                combat.observe_item_spawns(inline.item_spawns[0])
+            if combat is not None and (
+                inline.enemy_kill_all and inline.enemy_kill_all[0]
+            ):
+                combat.enemy_kill_all(slots)
             if inline.body_hazards:
                 bodies[frame_index].extend(inline.body_hazards[0])
             if inline.created_emitters:
@@ -679,6 +694,7 @@ def _forecast_nominal_from_state(
                         if spawn.life is not None
                         else inline.next_spawner.life
                     ),
+                    item_drop=spawn.item_drop,
                 )
             elif not inline.finished:
                 return WorldBirthForecast(
@@ -694,6 +710,9 @@ def _forecast_nominal_from_state(
             emitter = slots.get(slot)
             if emitter is None:
                 continue
+            if combat is not None:
+                emitter = combat.pre_emitter(emitter, slots)
+                slots[slot] = emitter
             try:
                 forecast = forecast_ecl_births(
                     emitter,
@@ -705,6 +724,8 @@ def _forecast_nominal_from_state(
                     rng,
                     allow_player_variables=True,
                     radial_births=False,
+                    model_player_damage=combat is None,
+                    record_enemy_kill_all=combat is not None,
                 )
             except UnsupportedBirthModel as error:
                 return WorldBirthForecast(
@@ -721,6 +742,15 @@ def _forecast_nominal_from_state(
                     f"emitter {emitter.slot}: {forecast.reason}",
                 )
             births[frame_index].extend(forecast.births[0])
+            if combat is not None and forecast.effect_spawns:
+                combat.observe_effect_spawns(forecast.effect_spawns[0])
+            if combat is not None and forecast.item_spawns:
+                combat.observe_item_spawns(forecast.item_spawns[0])
+            if combat is not None and (
+                forecast.enemy_kill_all
+                and forecast.enemy_kill_all[0]
+            ):
+                combat.enemy_kill_all(slots)
             if forecast.body_hazards:
                 bodies[frame_index].extend(forecast.body_hazards[0])
             free_slots = [
@@ -754,7 +784,15 @@ def _forecast_nominal_from_state(
                     )
                 slots.pop(slot, None)
             else:
-                slots[slot] = replace(forecast.next_spawner, slot=slot)
+                next_emitter = replace(forecast.next_spawner, slot=slot)
+                if combat is not None:
+                    next_emitter = combat.post_emitter(next_emitter, rng)
+                if next_emitter is None:
+                    slots.pop(slot, None)
+                else:
+                    slots[slot] = next_emitter
+        if combat is not None:
+            combat.finish_frame(rng)
         emitters = tuple(slots[index] for index in sorted(slots))
 
     return WorldBirthForecast(
@@ -830,6 +868,7 @@ def forecast_world_births(
     snapshot: Snapshot,
     player_positions: tuple[tuple[float, float], ...],
     rng_mode: Literal["fail-closed", "nominal"] = "fail-closed",
+    nominal_combat=None,
 ) -> WorldBirthForecast:
     """Advance emitters frame-first and slot-second, matching EnemyManager.
 
@@ -840,6 +879,10 @@ def forecast_world_births(
     """
     if rng_mode not in ("fail-closed", "nominal"):
         raise ValueError(f"unknown RNG mode {rng_mode}")
+    if nominal_combat is not None and (
+        rng_mode != "nominal" or len(player_positions) != 1
+    ):
+        raise ValueError("nominal combat advances exactly one nominal frame")
     births: list[list[Bullet]] = [[] for _ in player_positions]
     bodies: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
@@ -898,4 +941,5 @@ def forecast_world_births(
                 for emitter in emitters
             )
         ),
+        combat=nominal_combat,
     )

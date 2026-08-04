@@ -85,9 +85,26 @@ class TimelineAttackTests(unittest.TestCase):
         spawn = decode_enemy_spawn(instruction)
         self.assertIsNotNone(spawn)
         self.assertEqual(spawn.life, 200)
+        self.assertEqual(spawn.item_drop, 1)
         self.assertTrue(spawn.invert_x)
         self.assertFalse(spawn.random_x)
         self.assertFalse(spawn.random_z)
+
+    def test_implicit_life_timeline_spawn_uses_random_item_drop(self):
+        instruction = timeline_spawn(
+            address=0x1000,
+            time=1462,
+            sub_id=1,
+            opcode=1,
+            x=352.0,
+            y=160.0,
+            life=200,
+        )
+
+        spawn = decode_enemy_spawn(instruction)
+
+        self.assertIsNone(spawn.life)
+        self.assertEqual(spawn.item_drop, -1)
 
     def test_random_timeline_coordinate_is_not_made_nominal(self):
         instruction = timeline_spawn(

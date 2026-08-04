@@ -5,12 +5,14 @@ from dataclasses import replace
 
 from th06.hazards.ecl import (
     ECL_OPCODE_COUNT,
+    EFFECT_RANDOM_SPRITE_IDS,
     FAIL_CLOSED_ECL_OPCODES,
     HAZARD_NEUTRAL_ECL_OPCODES,
     MODELLED_ECL_OPCODES,
     forecast_ecl_births,
 )
 from th06.hazards.world import forecast_world_births
+from th06.hazards.rng import RngState
 from th06.model import EnemySpawner, EclInstruction, Snapshot
 
 
@@ -71,6 +73,61 @@ def emitter(first: EclInstruction, sentinel: EclInstruction) -> EnemySpawner:
 
 
 class EclOpcodeCoverageTests(unittest.TestCase):
+    def test_effect_particle_consumes_shipped_time_zero_anm_rng(self):
+        particle = instruction(
+            0x1000,
+            118,
+            struct.pack("<iiI", 5, 2, 0xFFFFFFFF),
+            0x18,
+        )
+        sentinel = replace(
+            instruction(0x1018, 0, b"", 12),
+            time=50,
+        )
+        rng = RngState(0x1234, 3)
+
+        forecast = forecast_ecl_births(
+            emitter(particle, sentinel),
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            rng=rng,
+            model_player_damage=False,
+        )
+
+        self.assertEqual(forecast.effect_spawns, ((5, 5),))
+        self.assertEqual(rng.generation_count, 5)
+        self.assertEqual(
+            EFFECT_RANDOM_SPRITE_IDS,
+            frozenset((*range(4, 12), 19)),
+        )
+
+    def test_nominal_boss_kill_all_is_exported_as_a_world_event(self):
+        kill_all = instruction(0x1000, 96, b"", 12)
+        sentinel = replace(
+            instruction(0x100C, 0, b"", 12),
+            time=50,
+        )
+        boss = replace(
+            emitter(kill_all, sentinel),
+            is_boss=True,
+        )
+
+        forecast = forecast_ecl_births(
+            boss,
+            ((100.0, 400.0),),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            rng=RngState(7, 0),
+            model_player_damage=False,
+            record_enemy_kill_all=True,
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertEqual(forecast.enemy_kill_all, (True,))
+
     def test_nominal_enemy_creation_joins_source_slot_order(self):
         create = instruction(
             0x1000,
@@ -141,6 +198,10 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(
             tuple(item.slot for item in later_slot.continuation.emitters),
             (0, 1),
+        )
+        self.assertEqual(
+            later_slot.continuation.emitters[1].item_drop,
+            0,
         )
         self.assertEqual(passed_slot.covered_frames, 2, passed_slot.reason)
         self.assertEqual(tuple(map(len, passed_slot.births)), (0, 1))

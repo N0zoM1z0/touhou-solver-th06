@@ -451,3 +451,59 @@ effect 3--11, after all priority-9 ECL work.  Enemy death effects, ECL
 `EFFECTPARTICLE`, random item drops, and item-pool capacity share this causal
 path.  A damage model that merely subtracts life would therefore corrupt the
 next frame's ECL RNG and is not eligible for exact/physical-CE claims.
+
+## Candidate-conditioned combat transition (2026-08-04)
+
+The nominal one-frame world now executes the source priority chain needed by
+candidate-conditioned Reimu-A combat.  A candidate position/focus changes orb
+positions, existing homing shots, and newborn shots before EnemyManager runs.
+Enemy slots then advance in ascending order through sprite-bound retirement,
+life/timer callbacks, ECL, player contact damage, player-shot collision, the
+70-damage cap, spell reduction, death mode, callback entry, explicit/random
+item drops, and slot retirement.  Timeline and ECL children now retain their
+source `itemDrop`; ECL effect/item requests and boss `ENEMYKILLALL` are world
+events rather than presentation no-ops.  Unsupported event ordering still
+fails closed.
+
+Shipped assets exposed a source RNG consumer omitted by the first draft.
+`SpawnParticles` immediately runs the selected ANM script.  Offline parsing of
+`etama4.anm` shows a time-zero `SetRandomSprite` for effect IDs 4--11 and 19,
+so each such allocation consumes one u16 before later priority-9 work.  The
+priority-10 callbacks then consume their own f32 values.  All six stage effect
+ANMs were also checked; the stage-specific effect 16 script has no time-zero
+random sprite.  The model now preserves this ordering instead of adding an
+aggregate RNG correction at frame end.
+
+Four ordinary-RNG, non-PTY Stage 5 Practice diagnostics used the exact EXE and
+native-C++ backend.  Each launcher/agent pair agreed on the exact PID and hash,
+printed the formal Hard/Reimu-A/Stage-5 menu selection, released every input,
+and stopped that PID before offline comparison.  The latest 25-second sample
+captured 1,058 snapshots and 927 physical adjacent pairs.  Among 747 supported
+alive combat steps, all 747 complete player-shot states matched.  It contained
+231 observed enemy birth/removal/life-change frames; 228 matched the full
+enemy transition before the next two general source gaps were isolated.
+
+The retained adjacent pairs explain those gaps rather than hiding them:
+
+- f440->441 proved that `SpawnEnemy`'s zeroed callback-sub fields are 0 even
+  while their thresholds are -1; the source template was corrected.
+- f458->459 had exactly three shot impacts.  Effect-5 allocation plus its
+  ANM/callback path requires 3 * (1 + 4) = 15 RNG generations; the corrected
+  transition matches enemy life, all shot mutations, effect count, seed, and
+  generation on the original physical pair.
+- f1042->1043 proved that a future child whose center is inside the playfield
+  is already source-in-bounds independent of unknown sprite extent.  This
+  general geometric proof fixes the transition without assuming the observed
+  15x16 sprite.  Exact outside-center retirement still needs ANM-derived
+  extent.
+- f604->605 has no live enemy but advances RNG by three while one hostile
+  bullet retires.  This is external/global ANM state, not candidate damage.
+  It remains an explicit exogenous-RNG boundary: deep nominal branches must
+  capture/compile those pending consumers or use a physical exogenous draw
+  tape; they may not call the RNG continuation exact yet.
+
+These diagnostics validate the newly modeled local combat transitions over
+their supported domain, not a Stage clear and not yet a stable multi-frame
+physical CE.  The next barrage-lab promotion must preserve the external RNG
+boundary, use candidate paths for aim and damage, and compare deeper branches
+only when their source RNG dependencies are complete.

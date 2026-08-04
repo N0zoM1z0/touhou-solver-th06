@@ -81,6 +81,7 @@ class TimelineEnemySpawn:
     x: float
     y: float
     life: int | None
+    item_drop: int
     invert_x: bool
     random_x: bool
     random_y: bool
@@ -172,6 +173,11 @@ def decode_enemy_spawn(
         return None
     explicit = instruction.opcode % 2 == 0
     life = struct.unpack_from("<h", raw, 20)[0] if explicit and len(raw) >= 22 else None
+    item_drop = (
+        struct.unpack_from("<h", raw, 22)[0]
+        if explicit and len(raw) >= 24
+        else -1
+    )
     random_position = instruction.opcode >= 4
     return TimelineEnemySpawn(
         instruction.address,
@@ -180,6 +186,7 @@ def decode_enemy_spawn(
         x,
         y,
         life,
+        item_drop,
         bool(instruction.opcode & 0x02),
         random_position and x <= -990.0,
         random_position and y <= -990.0,

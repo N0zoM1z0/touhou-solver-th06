@@ -144,6 +144,14 @@ ECL_OPCODE_COUNT = 136
 MAX_ABSTRACT_INTEGER_RNG_BRANCHES = 64
 MAX_ABSTRACT_INTEGER_RNG_EVALUATIONS = 256
 ENEMY_CREATE_WORLD_REASON = "future ECL enemy creation needs a world-emitter insertion"
+EFFECT_RANDOM_SPRITE_IDS = frozenset((*range(4, 12), 19))
+
+
+def consume_effect_spawn_rng(rng: RngState, effect_ids) -> None:
+    """Run time-zero SetRandomSprite draws from shipped effect ANM scripts."""
+    for effect_id in effect_ids:
+        if effect_id in EFFECT_RANDOM_SPRITE_IDS:
+            rng.u16()
 
 # Every source opcode has one deliberate authority classification.  The
 # interpreter branches below implement MODELLED_ECL_OPCODES.  Hazard-neutral
@@ -157,12 +165,8 @@ HAZARD_NEUTRAL_ECL_OPCODES = frozenset({
     OPCODE_ANIMATION_MAIN,
     OPCODE_ANIMATION_POSES,
     OPCODE_ANIMATION_SLOT,
-    OPCODE_ANIMATION_DEATH,
-    OPCODE_SPELL_EFFECT,
     OPCODE_EFFECT_SOUND,
-    OPCODE_EFFECT_PARTICLE,
     OPCODE_ANIMATION_ROTATION,
-    OPCODE_DROP_ITEM_ID,
     OPCODE_STAGE_UNPAUSE,
     OPCODE_BOSS_LIFE_COUNT,
     OPCODE_DEBUG_WATCH,
@@ -194,6 +198,8 @@ MODELLED_ECL_OPCODES = frozenset(
      OPCODE_SPELL_START, OPCODE_HITBOX_SET, OPCODE_COLLIDABLE_FLAG,
      OPCODE_DAMAGEABLE_FLAG,
      OPCODE_DEATH_FLAG,
+     OPCODE_ANIMATION_DEATH, OPCODE_SPELL_EFFECT, OPCODE_EFFECT_PARTICLE,
+     OPCODE_DROP_ITEM_ID,
      OPCODE_DEATH_CALLBACK,
      OPCODE_BOSS_SET, OPCODE_INTERRUPT_SET, OPCODE_INTERRUPT,
      OPCODE_LIFE_SET, OPCODE_BOSS_TIMER_SET, OPCODE_TIMER_CALLBACK_THRESHOLD,
@@ -221,6 +227,9 @@ class EclForecast:
     finished: bool = False
     unresolved_int_extent: int = 0
     created_emitters: tuple[EnemySpawner, ...] = ()
+    effect_spawns: tuple[tuple[int, ...], ...] = ()
+    item_spawns: tuple[int, ...] = ()
+    enemy_kill_all: tuple[bool, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -321,6 +330,7 @@ def source_enemy_template(
     x: float,
     y: float,
     life: int,
+    item_drop: int = -2,
 ) -> EnemySpawner | None:
     """Build the hazard-relevant state copied by source ``SpawnEnemy``."""
     if not 0 <= sub_id < len(ecl_subroutines):
@@ -377,6 +387,10 @@ def source_enemy_template(
         collidable=True,
         ecl_subroutines=ecl_subroutines,
         damageable=True,
+        life_callback_sub=0,
+        timer_callback_sub=0,
+        # SpawnEnemy stores the i16 call argument in Enemy::itemDrop (i8).
+        item_drop=((item_drop + 128) % 256) - 128,
     )
 
 
@@ -652,6 +666,7 @@ def _forecast_ecl_births_single(
     abstract_int_choices: tuple[int, ...] = (),
     model_player_damage: bool = True,
     allow_enemy_create_audit: bool = True,
+    record_enemy_kill_all: bool = False,
 ) -> EclForecast:
     """Forecast one emitter until the first unsupported source instruction."""
     horizon = len(player_positions)
@@ -659,6 +674,9 @@ def _forecast_ecl_births_single(
     body_hazards: list[list[tuple[float, float, float, float]]] = [
         [] for _ in player_positions
     ]
+    effect_spawns: list[list[int]] = [[] for _ in player_positions]
+    item_spawns = [0 for _ in player_positions]
+    enemy_kill_all = [False for _ in player_positions]
     if not spawner.ecl_program or spawner.next_instruction is None:
         return EclForecast(tuple(map(tuple, births)), 0, "missing ECL instruction graph")
     if spawner.repeat_ex_index is not None:
@@ -739,6 +757,10 @@ def _forecast_ecl_births_single(
     shoot_offset_y: float | FloatInterval = spawner.shoot_offset_y
     abstract_int_cursor = 0
     created_emitters: list[EnemySpawner] = []
+    death_anm1 = spawner.death_anm1
+    death_anm2 = spawner.death_anm2
+    death_anm3 = spawner.death_anm3
+    has_been_in_bounds = spawner.has_been_in_bounds
 
     def emit(
         resolved: BulletPattern,
@@ -798,6 +820,35 @@ def _forecast_ecl_births_single(
             enemy_x += -velocity_x if spawner.invert_x else velocity_x
             enemy_y += velocity_y
             enemy_x, enemy_y = clamp_position(enemy_x, enemy_y)
+        center_in_bounds = (
+            0.0 <= enemy_x <= 384.0 and 0.0 <= enemy_y <= 448.0
+        )
+        if not has_been_in_bounds and center_in_bounds:
+            # Any source sprite rectangle contains its center, so this proves
+            # IsInBounds even before its ANM-derived extent is available.
+            has_been_in_bounds = True
+        if spawner.sprite_half_width > 0.0 and spawner.sprite_half_height > 0.0:
+            sprite_in_bounds = not (
+                enemy_x + spawner.sprite_half_width < 0.0
+                or enemy_x - spawner.sprite_half_width > 384.0
+                or enemy_y + spawner.sprite_half_height < 0.0
+                or enemy_y - spawner.sprite_half_height > 448.0
+            )
+            if not has_been_in_bounds and sprite_in_bounds:
+                has_been_in_bounds = True
+            if has_been_in_bounds and not sprite_in_bounds:
+                return EclForecast(
+                    tuple(map(tuple, births)),
+                    horizon,
+                    "source sprite-bound retirement",
+                    body_hazards=tuple(tuple(frame) for frame in body_hazards),
+                    finished=True,
+                    effect_spawns=tuple(
+                        tuple(frame) for frame in effect_spawns
+                    ),
+                    item_spawns=tuple(item_spawns),
+                    enemy_kill_all=tuple(enemy_kill_all),
+                )
         if interactable and not invisible and life <= 0:
             # EnemyManager handles an exact non-positive life value after
             # RunEcl in the preceding update.  Unlike life_lower_bound, this
@@ -1769,6 +1820,22 @@ def _forecast_ecl_births_single(
                         ex_ints=effect_ints,
                         ex_floats=effect_floats,
                     )
+            elif instruction.opcode == OPCODE_ANIMATION_DEATH:
+                death_anm1, death_anm2, death_anm3 = struct.unpack_from(
+                    "<BBB", raw, 0x0C
+                )
+            elif instruction.opcode == OPCODE_SPELL_EFFECT:
+                effect_spawns[frame_index].append(13)
+            elif instruction.opcode == OPCODE_EFFECT_PARTICLE:
+                effect_id, count = struct.unpack_from("<ii", raw, 0x0C)
+                if not 0 <= effect_id < 20 or not 0 <= count <= 512:
+                    return EclForecast(
+                        tuple(map(tuple, births)), frame_index,
+                        "invalid ECL effect-particle request",
+                    )
+                if rng is not None:
+                    consume_effect_spawn_rng(rng, (effect_id,) * count)
+                effect_spawns[frame_index].extend((effect_id,) * count)
             elif instruction.opcode == OPCODE_SPELL_START:
                 # SpellcardStart source defaults. Bullet cancellation is a
                 # hazard removal, so retaining existing bullets is conservative.
@@ -1804,6 +1871,9 @@ def _forecast_ecl_births_single(
                     for _ in range(count):
                         rng.f32_in_range(144.0)
                         rng.f32_in_range(144.0)
+                item_spawns[frame_index] += count
+            elif instruction.opcode == OPCODE_DROP_ITEM_ID:
+                item_spawns[frame_index] += 1
             elif instruction.opcode == OPCODE_EX_REPEAT:
                 index = struct.unpack_from("<i", raw, 0x0C)[0]
                 if index >= 0:
@@ -1883,6 +1953,13 @@ def _forecast_ecl_births_single(
                         frame_index,
                         ENEMY_CREATE_WORLD_REASON,
                     )
+                if record_enemy_kill_all and enemy_kill_all[frame_index]:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        "same-frame ENEMYKILLALL/ENEMYCREATE order needs "
+                        "an exact world event stream",
+                    )
                 sub_id = struct.unpack_from("<i", raw, 0x0C)[0]
                 try:
                     child_x = _float_var(
@@ -1906,6 +1983,7 @@ def _forecast_ecl_births_single(
                         "uncertain ECL enemy position needs a world envelope",
                     )
                 child_life = struct.unpack_from("<h", raw, 0x1C)[0]
+                child_item_drop = struct.unpack_from("<h", raw, 0x1E)[0]
                 child = source_enemy_template(
                     spawner.ecl_program,
                     spawner.ecl_subroutines,
@@ -1913,6 +1991,7 @@ def _forecast_ecl_births_single(
                     child_x,
                     child_y,
                     child_life,
+                    child_item_drop,
                 )
                 if child is None:
                     return EclForecast(
@@ -1934,6 +2013,7 @@ def _forecast_ecl_births_single(
                     False,
                     model_player_damage=False,
                     allow_enemy_create_audit=False,
+                    record_enemy_kill_all=record_enemy_kill_all,
                 )
                 if newborn.covered_frames < 1:
                     return EclForecast(
@@ -1942,6 +2022,12 @@ def _forecast_ecl_births_single(
                         f"spawned emitter {sub_id}: {newborn.reason}",
                     )
                 births[frame_index].extend(newborn.births[0])
+                if newborn.effect_spawns:
+                    effect_spawns[frame_index].extend(
+                        newborn.effect_spawns[0]
+                    )
+                if newborn.item_spawns:
+                    item_spawns[frame_index] += newborn.item_spawns[0]
                 if nominal_insertion:
                     if newborn.created_emitters:
                         return EclForecast(
@@ -1973,6 +2059,7 @@ def _forecast_ecl_births_single(
                         False,
                         model_player_damage=False,
                         allow_enemy_create_audit=False,
+                        record_enemy_kill_all=record_enemy_kill_all,
                     )
                     if updated.covered_frames < 1:
                         return EclForecast(
@@ -1981,6 +2068,12 @@ def _forecast_ecl_births_single(
                             f"spawned emitter {sub_id}: {updated.reason}",
                         )
                     births[frame_index].extend(updated.births[0])
+                    if updated.effect_spawns:
+                        effect_spawns[frame_index].extend(
+                            updated.effect_spawns[0]
+                        )
+                    if updated.item_spawns:
+                        item_spawns[frame_index] += updated.item_spawns[0]
                     if updated.body_hazards:
                         body_hazards[frame_index].extend(
                             updated.body_hazards[0]
@@ -2012,6 +2105,7 @@ def _forecast_ecl_births_single(
                             False,
                             model_player_damage=True,
                             allow_enemy_create_audit=False,
+                            record_enemy_kill_all=record_enemy_kill_all,
                         )
                         for offset, frame_births in enumerate(
                             future.births,
@@ -2062,11 +2156,31 @@ def _forecast_ecl_births_single(
                         frame_index,
                         FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
                     )
-            elif (
-                instruction.opcode == OPCODE_ENEMY_KILL_ALL
-                and enemy_kill_all_is_noop
-            ):
-                pass
+            elif instruction.opcode == OPCODE_ENEMY_KILL_ALL:
+                if enemy_kill_all_is_noop:
+                    pass
+                elif record_enemy_kill_all:
+                    if not is_boss:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "nonboss ENEMYKILLALL self-transition needs "
+                            "inline ECL context replay",
+                        )
+                    if created_emitters:
+                        return EclForecast(
+                            tuple(map(tuple, births)),
+                            frame_index,
+                            "same-frame ENEMYCREATE/ENEMYKILLALL order needs "
+                            "an exact world event stream",
+                        )
+                    enemy_kill_all[frame_index] = True
+                else:
+                    return EclForecast(
+                        tuple(map(tuple, births)),
+                        frame_index,
+                        FAIL_CLOSED_ECL_OPCODES[instruction.opcode],
+                    )
             elif instruction.opcode in HAZARD_NEUTRAL_ECL_OPCODES:
                 pass
             elif instruction.opcode in FAIL_CLOSED_ECL_OPCODES:
@@ -2276,11 +2390,18 @@ def _forecast_ecl_births_single(
             run_interrupt=run_interrupt,
             damageable=damageable,
             death_mode=death_mode,
+            death_anm1=death_anm1,
+            death_anm2=death_anm2,
+            death_anm3=death_anm3,
+            has_been_in_bounds=has_been_in_bounds,
             bullet_effect_floats=effect_floats,
             bullet_effect_ints=effect_ints,
         ),
         body_hazards=tuple(tuple(frame) for frame in body_hazards),
         created_emitters=tuple(created_emitters),
+        effect_spawns=tuple(tuple(frame) for frame in effect_spawns),
+        item_spawns=tuple(item_spawns),
+        enemy_kill_all=tuple(enemy_kill_all),
     )
 
 
@@ -2782,8 +2903,29 @@ def forecast_ecl_births(
     abstract_rng: bool = False,
     enemy_kill_all_is_noop: bool = False,
     model_player_damage: bool = True,
+    record_enemy_kill_all: bool = False,
 ) -> EclForecast:
     """Forecast one emitter and preserve every bounded hard uncertainty."""
+    if record_enemy_kill_all:
+        if abstract_rng or model_player_damage or rng is None:
+            raise ValueError(
+                "world ENEMYKILLALL recording requires exact nominal state"
+            )
+        return _forecast_ecl_births_single(
+            spawner,
+            player_positions,
+            difficulty,
+            rank,
+            bullet_sizes,
+            frame_multiplier,
+            rng,
+            allow_player_variables,
+            radial_births,
+            abstract_rng,
+            enemy_kill_all_is_noop,
+            model_player_damage=model_player_damage,
+            record_enemy_kill_all=True,
+        )
     if (
         abstract_rng
         and rng is None

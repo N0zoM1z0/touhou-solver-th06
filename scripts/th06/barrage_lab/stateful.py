@@ -28,6 +28,8 @@ from ..model import (
     Bullet,
     BulletPattern,
     EnemyBody,
+    EnemySpawner,
+    PLAYER_ALIVE,
     PlayerAttackState,
     PlayerShot,
     SafeAction,
@@ -44,6 +46,7 @@ from ..viability import (
 from ..guidance import terminal_reachability_counts
 from ..hazards.geometry import signed_clearance
 from ..hazards.births import spawn_pattern
+from ..hazards.ecl import consume_effect_spawn_rng
 from ..hazards.world import forecast_world_births
 from ..hazards.rng import RngState
 from .oracle import (
@@ -94,6 +97,10 @@ _REIMU_A_RANK9_SHOTS = (
     (16, 8, 0.0, 0.0, 12.0, 12.0, -30.0, 10.0, 7, 2, 1, 0x441),
     (16, 12, 0.0, 0.0, 12.0, 12.0, -170.0, 10.0, 10, 1, 1, 0x441),
     (16, 12, 0.0, 0.0, 12.0, 12.0, -9.9999979, 10.0, 10, 2, 1, 0x441),
+)
+_RANDOM_ITEMS = (
+    0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0,
+    1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 2,
 )
 
 
@@ -518,8 +525,10 @@ def step_reimu_a_player_attack(
                 state=1,
                 bullet_type=bullet_type,
                 anm_script=anm_script,
-                anm_timer=0,
-                anm_timer_float=0.0,
+                # FireSingleBullet also executes the selected ANM script
+                # immediately, leaving its current timer at one.
+                anm_timer=1,
+                anm_timer_float=1.0,
                 sprite_half_width=7.0,
                 sprite_half_height=7.0,
                 spawn_position_index=orb_index,
@@ -546,6 +555,291 @@ def step_reimu_a_player_attack(
         fire_timer_float=_f32(fire_timer + fire_subframe),
         orb_positions=orbs,
     )
+
+
+def _enter_ecl_sub(emitter: EnemySpawner, sub_id: int) -> EnemySpawner:
+    if not 0 <= sub_id < len(emitter.ecl_subroutines):
+        raise UnsupportedStatefulModel(
+            f"enemy slot {emitter.slot} callback sub {sub_id} is unavailable"
+        )
+    address = emitter.ecl_subroutines[sub_id]
+    instruction = next(
+        (
+            item for item in emitter.ecl_program
+            if item.address == address
+        ),
+        None,
+    )
+    if instruction is None:
+        raise UnsupportedStatefulModel(
+            f"enemy slot {emitter.slot} callback graph is not captured"
+        )
+    return replace(
+        emitter,
+        next_instruction=instruction,
+        ecl_time=0,
+        ecl_time_float=0.0,
+    )
+
+
+class _NominalCombatStep:
+    """One priority-9 damage pass plus priority-10 RNG consequences."""
+
+    def __init__(
+        self,
+        snapshot: Snapshot,
+        attack: PlayerAttackState,
+        player: tuple[float, float] | None = None,
+    ):
+        if snapshot.effect_active_upper_bound < 0:
+            raise UnsupportedStatefulModel(
+                "nominal combat needs the source effect-pool bound"
+            )
+        if snapshot.item_active_upper_bound < 0:
+            raise UnsupportedStatefulModel(
+                "nominal combat needs the source item-pool bound"
+            )
+        self.attack = attack
+        self.player = player
+        self.player_half_width = snapshot.half_width
+        self.player_half_height = snapshot.half_height
+        self.effect_upper = snapshot.effect_active_upper_bound
+        self.item_upper = snapshot.item_active_upper_bound
+        self.random_spawn_index = snapshot.random_item_spawn_index
+        self.random_table_index = snapshot.random_item_table_index
+        self.allocated_effects: list[int] = []
+
+    def observe_effect_spawns(self, effect_ids) -> None:
+        effect_ids = tuple(effect_ids)
+        if any(not 0 <= effect_id < 20 for effect_id in effect_ids):
+            raise UnsupportedStatefulModel("invalid source effect id")
+        if len(effect_ids) > 512 - self.effect_upper:
+            raise UnsupportedStatefulModel(
+                "effect-pool upper bound cannot prove particle allocation"
+            )
+        self.effect_upper += len(effect_ids)
+        self.allocated_effects.extend(effect_ids)
+
+    def observe_item_spawns(self, count: int) -> None:
+        if not 0 <= count <= 512 - self.item_upper:
+            raise UnsupportedStatefulModel(
+                "item-pool upper bound cannot prove item allocation"
+            )
+        self.item_upper += count
+
+    def _spawn_effects(self, effect_ids, rng: RngState) -> None:
+        effect_ids = tuple(effect_ids)
+        consume_effect_spawn_rng(rng, effect_ids)
+        self.observe_effect_spawns(effect_ids)
+
+    @staticmethod
+    def _reset_callback_state(emitter: EnemySpawner) -> EnemySpawner:
+        return replace(
+            emitter,
+            ecl_stack=(),
+            bullet_rank_speed_low=-0.5,
+            bullet_rank_speed_high=0.5,
+            bullet_rank_amount1_low=0,
+            bullet_rank_amount1_high=0,
+            bullet_rank_amount2_low=0,
+            bullet_rank_amount2_high=0,
+        )
+
+    def _kill_nonbosses(self, slots: dict[int, EnemySpawner]) -> None:
+        for slot, target in tuple(slots.items()):
+            if target.is_boss:
+                continue
+            target = replace(target, life=0)
+            if not target.interactable and target.death_callback_sub >= 0:
+                target = _enter_ecl_sub(target, target.death_callback_sub)
+                target = replace(target, death_callback_sub=-1)
+            slots[slot] = target
+
+    def enemy_kill_all(self, slots: dict[int, EnemySpawner]) -> None:
+        """Apply source opcode 96 before the manager reaches later slots."""
+        self._kill_nonbosses(slots)
+
+    def pre_emitter(
+        self,
+        emitter: EnemySpawner,
+        slots: dict[int, EnemySpawner],
+    ) -> EnemySpawner:
+        """Apply source life/timer callbacks before this slot's RunEcl."""
+        if (
+            emitter.life_callback_threshold >= 0
+            and emitter.life < emitter.life_callback_threshold
+        ):
+            emitter = replace(
+                emitter,
+                life=emitter.life_callback_threshold,
+                life_callback_threshold=-1,
+                timer_callback_sub=emitter.death_callback_sub,
+            )
+            emitter = _enter_ecl_sub(emitter, emitter.life_callback_sub)
+            emitter = self._reset_callback_state(emitter)
+            slots[emitter.slot] = emitter
+            self._kill_nonbosses(slots)
+            emitter = slots[emitter.slot]
+        if (
+            emitter.timer_callback_threshold >= 0
+            and emitter.boss_timer >= emitter.timer_callback_threshold
+        ):
+            callback_sub = emitter.timer_callback_sub
+            life = emitter.life
+            life_threshold = emitter.life_callback_threshold
+            if life_threshold > 0:
+                life = life_threshold
+                life_threshold = -1
+            emitter = replace(
+                emitter,
+                life=life,
+                life_callback_threshold=life_threshold,
+                timer_callback_threshold=-1,
+                timer_callback_sub=emitter.death_callback_sub,
+                boss_timer=0,
+                boss_timer_float=0.0,
+            )
+            emitter = _enter_ecl_sub(emitter, callback_sub)
+            emitter = self._reset_callback_state(emitter)
+            slots[emitter.slot] = emitter
+            self._kill_nonbosses(slots)
+            emitter = slots[emitter.slot]
+        return emitter
+
+    @staticmethod
+    def _shot_hits(shot: PlayerShot, emitter: EnemySpawner) -> bool:
+        enemy_half_width = emitter.hitbox_half_width * 1.5
+        enemy_half_height = emitter.hitbox_half_height * 1.5
+        return not (
+            shot.y - shot.half_height > emitter.y + enemy_half_height
+            or shot.x - shot.half_width > emitter.x + enemy_half_width
+            or shot.y + shot.half_height < emitter.y - enemy_half_height
+            or shot.x + shot.half_width < emitter.x - enemy_half_width
+        )
+
+    def _player_touches(self, emitter: EnemySpawner) -> bool:
+        if self.player is None:
+            return False
+        player_x, player_y = self.player
+        return not (
+            player_y - self.player_half_height
+            > emitter.y + emitter.hitbox_half_height
+            or player_x - self.player_half_width
+            > emitter.x + emitter.hitbox_half_width
+            or player_y + self.player_half_height
+            < emitter.y - emitter.hitbox_half_height
+            or player_x + self.player_half_width
+            < emitter.x - emitter.hitbox_half_width
+        )
+
+    def _apply_death(
+        self,
+        emitter: EnemySpawner,
+        rng: RngState,
+    ) -> EnemySpawner | None:
+        mode = emitter.death_mode
+        if mode not in (0, 1, 2, 3):
+            raise UnsupportedStatefulModel(
+                f"enemy slot {emitter.slot} has invalid death mode {mode}"
+            )
+        emitter = replace(
+            emitter,
+            life_callback_threshold=-1,
+            timer_callback_threshold=-1,
+        )
+        removed = mode == 0
+        if mode == 3:
+            emitter = replace(
+                emitter, life=1, damageable=False, death_mode=0
+            )
+            self._spawn_effects((emitter.death_anm1,) * 3, rng)
+        else:
+            if mode == 1:
+                emitter = replace(emitter, interactable=False)
+            if emitter.item_drop >= 0:
+                self._spawn_effects((emitter.death_anm2 + 4,) * 3, rng)
+                self.observe_item_spawns(1)
+            elif emitter.item_drop == -1:
+                if self.random_spawn_index % 3 == 0:
+                    self._spawn_effects(
+                        (emitter.death_anm2 + 4,) * 6, rng
+                    )
+                    self.observe_item_spawns(1)
+                    # Item type is immutable table data; only the rotating
+                    # index changes combat-relevant future state here.
+                    _RANDOM_ITEMS[self.random_table_index]
+                    self.random_table_index = (
+                        self.random_table_index + 1
+                    ) % len(_RANDOM_ITEMS)
+                self.random_spawn_index += 1
+            emitter = replace(emitter, life=0)
+
+        self._spawn_effects((emitter.death_anm1,), rng)
+        self._spawn_effects((emitter.death_anm2 + 4,) * 4, rng)
+        if emitter.death_callback_sub >= 0:
+            emitter = _enter_ecl_sub(emitter, emitter.death_callback_sub)
+            emitter = replace(emitter, death_callback_sub=-1)
+            emitter = self._reset_callback_state(emitter)
+        return None if removed else emitter
+
+    def post_emitter(
+        self,
+        emitter: EnemySpawner,
+        rng: RngState,
+    ) -> EnemySpawner | None:
+        if not emitter.has_been_in_bounds or emitter.invisible:
+            return emitter
+        shots = list(self.attack.shots)
+        damage = 0
+        if (
+            emitter.collidable
+            and emitter.interactable
+            and not emitter.is_boss
+            and self._player_touches(emitter)
+        ):
+            emitter = replace(emitter, life=emitter.life - 10)
+        if emitter.interactable:
+            for index, shot in enumerate(shots):
+                if shot.state != 1 or not self._shot_hits(shot, emitter):
+                    continue
+                damage += shot.damage
+                self._spawn_effects((5,), rng)
+                shots[index] = replace(
+                    shot,
+                    state=2,
+                    vx=_f32(shot.vx / 8.0),
+                    vy=_f32(shot.vy / 8.0),
+                    anm_script=shot.anm_script + 0x20,
+                    # SetAndExecuteScriptIdx initializes at zero and then
+                    # immediately ExecuteScript ticks the ANM timer once.
+                    anm_timer=1,
+                    anm_timer_float=1.0,
+                )
+            damage = min(damage, 70)
+            if self.attack.spell_active:
+                damage = damage // 7 if damage > 7 else int(damage != 0)
+            if emitter.damageable:
+                emitter = replace(emitter, life=emitter.life - damage)
+            if self.attack.last_enemy_hit_y < emitter.y:
+                self.attack = replace(
+                    self.attack,
+                    last_enemy_hit_x=emitter.x,
+                    last_enemy_hit_y=emitter.y,
+                )
+        self.attack = replace(self.attack, shots=tuple(shots))
+        if emitter.life <= 0 and emitter.interactable:
+            return self._apply_death(emitter, rng)
+        return emitter
+
+    def finish_frame(self, rng: RngState) -> None:
+        # EffectManager runs after every Enemy slot. Random splash effects
+        # consume two source f32 values; attract effects consume one.
+        for effect_id in self.allocated_effects:
+            if 3 <= effect_id <= 11:
+                rng.f32_zero_to_one()
+                rng.f32_zero_to_one()
+            elif effect_id in (17, 18):
+                rng.f32_zero_to_one()
 
 
 def step_closed_world(
@@ -637,8 +931,10 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
 
     This is the source-shaped offline battle rung.  It deliberately rejects
     lasers, despawning bullets, and an active message/boss timeline wait.
-    Player-shot damage and sprite-bound enemy retirement are not yet modeled,
-    so this rung is an exploratory nominal corpus—not Hard authority.
+    Captured Reimu-A rank-9 roots also advance player shots, damage, death,
+    callbacks, pool capacity, and their same-frame RNG consequences. Other
+    attack states retain the older exploratory nominal behavior. This remains
+    proposal evidence rather than Hard authority.
     """
     if snapshot.frame_multiplier != 1.0:
         raise UnsupportedStatefulModel("only frame multiplier one is modeled")
@@ -660,6 +956,17 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         )
 
     x, y = _step_player(snapshot, snapshot.x, snapshot.y, held)
+    combat = None
+    attack = snapshot.player_attack
+    if attack is not None:
+        attack = step_reimu_a_player_attack(
+            attack,
+            (x, y),
+            held.focused,
+            snapshot.current_power,
+            not snapshot.message_active,
+        )
+        combat = _NominalCombatStep(snapshot, attack, (x, y))
     query = replace(
         snapshot,
         x=x,
@@ -670,6 +977,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         query,
         ((x, y),),
         rng_mode="nominal",
+        nominal_combat=combat,
     )
     if forecast.covered_frames < 1 or forecast.continuation is None:
         raise UnsupportedStatefulModel(
@@ -716,6 +1024,27 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         enemies=bodies,
         rng_seed=forecast.continuation.rng_seed,
         rng_generation=forecast.continuation.rng_generation,
+        player_attack=(combat.attack if combat is not None else attack),
+        effect_active_upper_bound=(
+            combat.effect_upper
+            if combat is not None
+            else snapshot.effect_active_upper_bound
+        ),
+        item_active_upper_bound=(
+            combat.item_upper
+            if combat is not None
+            else snapshot.item_active_upper_bound
+        ),
+        random_item_spawn_index=(
+            combat.random_spawn_index
+            if combat is not None
+            else snapshot.random_item_spawn_index
+        ),
+        random_item_table_index=(
+            combat.random_table_index
+            if combat is not None
+            else snapshot.random_item_table_index
+        ),
     )
 
 
@@ -1603,6 +1932,17 @@ class PhysicalParity:
     exact_player_orb_steps: int = 0
     exact_player_fire_timer_steps: int = 0
     first_player_attack_mismatch: str = ""
+    combat_world_steps: int = 0
+    exact_combat_enemy_steps: int = 0
+    exact_combat_player_shot_steps: int = 0
+    exact_combat_rng_steps: int = 0
+    combat_enemy_transition_steps: int = 0
+    exact_combat_enemy_transition_steps: int = 0
+    unsupported_combat_world_steps: int = 0
+    first_combat_world_mismatch: str = ""
+    first_combat_enemy_mismatch: str = ""
+    first_combat_player_shot_mismatch: str = ""
+    first_combat_rng_mismatch: str = ""
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -1633,6 +1973,17 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     exact_player_orb_steps = 0
     exact_player_fire_timer_steps = 0
     first_player_attack_mismatch = ""
+    combat_world_steps = 0
+    exact_combat_enemy_steps = 0
+    exact_combat_player_shot_steps = 0
+    exact_combat_rng_steps = 0
+    combat_enemy_transition_steps = 0
+    exact_combat_enemy_transition_steps = 0
+    unsupported_combat_world_steps = 0
+    first_combat_world_mismatch = ""
+    first_combat_enemy_mismatch = ""
+    first_combat_player_shot_mismatch = ""
+    first_combat_rng_mismatch = ""
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -1755,6 +2106,228 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
             for slot in left_emitters.keys() & right_emitters.keys()
         )
 
+        if (
+            left.player_attack is not None
+            and right.player_attack is not None
+            and left.player_state == PLAYER_ALIVE
+            and right.player_state == PLAYER_ALIVE
+            and bool(right.input_mask & BUTTON_SHOOT)
+        ):
+            try:
+                predicted_world = step_nominal_battle_world(left, observed)
+            except (UnsupportedStatefulModel, ValueError):
+                unsupported_combat_world_steps += 1
+            else:
+                combat_world_steps += 1
+                predicted_emitters = {
+                    item.slot: item for item in predicted_world.spawners
+                }
+                actual_emitters = {
+                    item.slot: item for item in right.spawners
+                }
+                enemy_transition = (
+                    actual_emitters.keys() != left_emitters.keys()
+                    or any(
+                        left_emitters[slot].life
+                        != actual_emitters[slot].life
+                        for slot in left_emitters.keys()
+                        & actual_emitters.keys()
+                    )
+                )
+                combat_enemy_transition_steps += enemy_transition
+
+                enemy_exact = (
+                    predicted_emitters.keys() == actual_emitters.keys()
+                )
+                enemy_mismatch_detail = ""
+                if not enemy_exact:
+                    enemy_mismatch_detail = (
+                        f"slots={sorted(predicted_emitters)}/"
+                        f"{sorted(actual_emitters)}"
+                    )
+                if enemy_exact:
+                    for slot in predicted_emitters:
+                        predicted = predicted_emitters[slot]
+                        actual = actual_emitters[slot]
+                        predicted_address = (
+                            predicted.next_instruction.address
+                            if predicted.next_instruction is not None
+                            else None
+                        )
+                        actual_address = (
+                            actual.next_instruction.address
+                            if actual.next_instruction is not None
+                            else None
+                        )
+                        if not (
+                            math.hypot(
+                                predicted.x - actual.x,
+                                predicted.y - actual.y,
+                            ) <= 1e-4
+                            and predicted.life == actual.life
+                            and predicted.interactable == actual.interactable
+                            and predicted.collidable == actual.collidable
+                            and predicted.invisible == actual.invisible
+                            and predicted.damageable == actual.damageable
+                            and predicted.death_mode == actual.death_mode
+                            and predicted.has_been_in_bounds
+                            == actual.has_been_in_bounds
+                            and predicted.ecl_time == actual.ecl_time
+                            and predicted_address == actual_address
+                            and predicted.death_callback_sub
+                            == actual.death_callback_sub
+                            and predicted.life_callback_threshold
+                            == actual.life_callback_threshold
+                            and predicted.life_callback_sub
+                            == actual.life_callback_sub
+                            and predicted.timer_callback_threshold
+                            == actual.timer_callback_threshold
+                            and predicted.timer_callback_sub
+                            == actual.timer_callback_sub
+                            and predicted.item_drop == actual.item_drop
+                        ):
+                            enemy_exact = False
+                            enemy_mismatch_detail = (
+                                f"slot={slot} "
+                                f"life={predicted.life}/{actual.life} "
+                                f"pos={predicted.x:.6g},{predicted.y:.6g}/"
+                                f"{actual.x:.6g},{actual.y:.6g} "
+                                f"flags="
+                                f"{int(predicted.interactable)}"
+                                f"{int(predicted.collidable)}"
+                                f"{int(predicted.invisible)}"
+                                f"{int(predicted.damageable)}"
+                                f"{predicted.death_mode}/"
+                                f"{int(actual.interactable)}"
+                                f"{int(actual.collidable)}"
+                                f"{int(actual.invisible)}"
+                                f"{int(actual.damageable)}"
+                                f"{actual.death_mode} "
+                                f"ecl={predicted.ecl_time},"
+                                f"{predicted_address}/"
+                                f"{actual.ecl_time},{actual_address} "
+                                f"bounds="
+                                f"{int(predicted.has_been_in_bounds)}/"
+                                f"{int(actual.has_been_in_bounds)} "
+                                f"death_cb={predicted.death_callback_sub}/"
+                                f"{actual.death_callback_sub} "
+                                f"life_cb="
+                                f"{predicted.life_callback_threshold},"
+                                f"{predicted.life_callback_sub}/"
+                                f"{actual.life_callback_threshold},"
+                                f"{actual.life_callback_sub} "
+                                f"timer_cb="
+                                f"{predicted.timer_callback_threshold},"
+                                f"{predicted.timer_callback_sub}/"
+                                f"{actual.timer_callback_threshold},"
+                                f"{actual.timer_callback_sub} "
+                                f"item={predicted.item_drop}/"
+                                f"{actual.item_drop}"
+                            )
+                            break
+                if not enemy_exact and not first_combat_enemy_mismatch:
+                    first_combat_enemy_mismatch = (
+                        f"f{left.frame}->{right.frame} "
+                        f"{enemy_mismatch_detail}"
+                    )
+                exact_combat_enemy_steps += enemy_exact
+                exact_combat_enemy_transition_steps += (
+                    enemy_transition and enemy_exact
+                )
+
+                predicted_attack = predicted_world.player_attack
+                shot_exact = predicted_attack is not None
+                shot_mismatch_detail = "missing predicted attack"
+                if shot_exact:
+                    predicted_shots = {
+                        shot.slot: shot for shot in predicted_attack.shots
+                    }
+                    actual_shots = {
+                        shot.slot: shot for shot in right.player_attack.shots
+                    }
+                    shot_exact = predicted_shots.keys() == actual_shots.keys()
+                    if not shot_exact:
+                        shot_mismatch_detail = (
+                            f"slots={sorted(predicted_shots)}/"
+                            f"{sorted(actual_shots)}"
+                        )
+                    if shot_exact:
+                        for slot in predicted_shots:
+                            predicted = predicted_shots[slot]
+                            actual = actual_shots[slot]
+                            if not (
+                                math.hypot(
+                                    predicted.x - actual.x,
+                                    predicted.y - actual.y,
+                                ) <= 1e-4
+                                and math.hypot(
+                                    predicted.vx - actual.vx,
+                                    predicted.vy - actual.vy,
+                                ) <= 1e-4
+                                and predicted.state == actual.state
+                                and predicted.damage == actual.damage
+                                and predicted.bullet_type == actual.bullet_type
+                                and predicted.anm_script == actual.anm_script
+                                and predicted.timer == actual.timer
+                                and predicted.anm_timer == actual.anm_timer
+                            ):
+                                shot_exact = False
+                                shot_mismatch_detail = (
+                                    f"slot={slot} "
+                                    f"state={predicted.state}/{actual.state} "
+                                    f"pos={predicted.x:.6g},{predicted.y:.6g}/"
+                                    f"{actual.x:.6g},{actual.y:.6g} "
+                                    f"vel={predicted.vx:.6g},{predicted.vy:.6g}/"
+                                    f"{actual.vx:.6g},{actual.vy:.6g} "
+                                    f"damage={predicted.damage}/{actual.damage} "
+                                    f"anm=0x{predicted.anm_script:x},"
+                                    f"{predicted.anm_timer}/"
+                                    f"0x{actual.anm_script:x},"
+                                    f"{actual.anm_timer} "
+                                    f"timer={predicted.timer}/{actual.timer}"
+                                )
+                                break
+                if not shot_exact and not first_combat_player_shot_mismatch:
+                    first_combat_player_shot_mismatch = (
+                        f"f{left.frame}->{right.frame} "
+                        f"{shot_mismatch_detail}"
+                    )
+                exact_combat_player_shot_steps += shot_exact
+
+                rng_exact = (
+                    predicted_world.rng_seed == right.rng_seed
+                    and predicted_world.rng_generation
+                    == right.rng_generation
+                    and predicted_world.random_item_spawn_index
+                    == right.random_item_spawn_index
+                    and predicted_world.random_item_table_index
+                    == right.random_item_table_index
+                )
+                exact_combat_rng_steps += rng_exact
+                if not rng_exact and not first_combat_rng_mismatch:
+                    first_combat_rng_mismatch = (
+                        f"f{left.frame}->{right.frame} "
+                        f"seed=0x{predicted_world.rng_seed:04x}/"
+                        f"0x{right.rng_seed:04x} "
+                        f"generation={predicted_world.rng_generation}/"
+                        f"{right.rng_generation} "
+                        f"from={left.rng_generation}"
+                    )
+                if (
+                    not (enemy_exact and shot_exact and rng_exact)
+                    and not first_combat_world_mismatch
+                ):
+                    first_combat_world_mismatch = (
+                        f"f{left.frame}->{right.frame} "
+                        f"enemy={int(enemy_exact)} "
+                        f"shot={int(shot_exact)} rng={int(rng_exact)} "
+                        f"slots={sorted(predicted_emitters)}/"
+                        f"{sorted(actual_emitters)} "
+                        f"rng_generation="
+                        f"{predicted_world.rng_generation}/"
+                        f"{right.rng_generation}"
+                    )
+
         left_by_slot = {bullet.slot: bullet for bullet in left.bullets}
         right_by_slot = {bullet.slot: bullet for bullet in right.bullets}
         births += len(right_by_slot.keys() - left_by_slot.keys())
@@ -1803,6 +2376,17 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         exact_player_orb_steps,
         exact_player_fire_timer_steps,
         first_player_attack_mismatch,
+        combat_world_steps,
+        exact_combat_enemy_steps,
+        exact_combat_player_shot_steps,
+        exact_combat_rng_steps,
+        combat_enemy_transition_steps,
+        exact_combat_enemy_transition_steps,
+        unsupported_combat_world_steps,
+        first_combat_world_mismatch,
+        first_combat_enemy_mismatch,
+        first_combat_player_shot_mismatch,
+        first_combat_rng_mismatch,
     )
 
 
