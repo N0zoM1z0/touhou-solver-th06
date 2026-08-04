@@ -33,6 +33,7 @@ from th06.native import _message_minimum_waits
 from th06.ranking import ProposalRanker
 from th06.kernels.safety import NativeSafetyKernel
 from th06.routes.stage4_hard_reimu_a import timeline_phase
+from th06.routes.stage1_hard_reimu_a import RANDOM_BODY_STREAM
 from th06.safety import certify_actions
 from th06.viability import (
     delivery_segment_viability_scores,
@@ -41,6 +42,26 @@ from th06.viability import (
 
 
 class CounterexampleCorpusTests(unittest.TestCase):
+    def test_stage1_phase_policy_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "stage1_phase_policy"
+        )
+        self.assertTrue(cases, "Stage 1 phase-policy corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                state = RANDOM_BODY_STREAM.state(
+                    case["input"]["timeline_time"]
+                )
+                expected = case["expect"]
+                self.assertEqual(
+                    RANDOM_BODY_STREAM.phase_id, expected["phase_id"]
+                )
+                self.assertEqual(state.state_id, expected["policy_state"])
+                self.assertEqual(state.algorithm, expected["algorithm"])
+                self.assertEqual(state.horizon, expected["horizon"])
+                self.assertEqual(state.target, expected["target"])
+
     def test_nominal_spell_start_transition_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

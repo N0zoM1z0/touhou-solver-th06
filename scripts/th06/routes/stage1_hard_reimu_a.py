@@ -110,12 +110,13 @@ RANDOM_BODY_STREAM = TimelineStateMachine(
         PolicyState(
             1220,
             "random-insertion",
-            "target-only",
-            4,
-            BOTTOM_CENTER,
+            "policy-volume",
+            6,
+            None,
             provenance=(
-                "physical f1220 entry; installed random-x sub0/sub1 "
-                "parents through t1400"
+                "physical f1330 target-loop counterexample; installed "
+                "random-x sub0/sub1 parents through t1400, with target-free "
+                "h6 surviving all paired stateful delivery worlds"
             ),
         ),
         PolicyState(

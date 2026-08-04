@@ -671,6 +671,33 @@ and player state. Do not infer the state-5 tail from this first update: the
 donut ANM VM is not captured, so subsequent despawning-bullet lifetime remains
 unsupported.
 
+The first such physical attempt was intercepted earlier by a new ordinary-RNG
+Stage 1 counterexample. It stopped alive at f1330 in the source t1220 random
+body insertion with no HIT or Bomb. The terminal empty Hard set is downstream:
+f1325 and f1327 still had 17 Hard-safe actions, then the old bottom-center
+target repeatedly selected alternating diagonals near y=380; f1329 carried a
+stale `up_right` and f1330 had seven repairable actions but no ordinary
+Hard-4 action. All 246 retained battle transitions are exact, including
+enemy/player-shot/RNG/item/Power state, 13,999 fired-bullet steps, and 558
+spawning steps, so the root is suitable for exact stateful replay.
+
+From exact f1270 over 80 updates and eight delivery seeds, old h4 plus the
+bottom target survived 6/8, while target-free h4 survived 0/8: removing the
+target without adding continuation evidence is not enough. Target-free h6 and
+h8 both survived 8/8; h6 used 15--19 commands versus 25--28 for the old policy
+and had 5.013--9.264 minimum clearance. H8 provided no survival win. A second
+corpus derived 16 complete worlds from f1220/f1240/f1260/f1280 through 160
+safe updates, covering 11 enemy/RNG and 16 player-attack states. Both policies
+survived its shorter 64-update window, but h6 reduced aggregate commands from
+259 to 236 and removed the old policy's late-root 1.313-clearance tail.
+
+Only `random-insertion` (source t1220--1400) is now the next physical
+candidate: target-free h6 `policy-volume`. The later source tail remains the
+old target-only h4 state, common Hard-4 is unchanged, and the compact physical
+CE is stored independently. Rerun ordinary RNG/default fail-close. Promotion
+requires crossing f1330 without a publication regression; if the run reaches
+sub6, validate the already-authored SpellEnd transition in the same trial.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

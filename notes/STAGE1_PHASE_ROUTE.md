@@ -762,3 +762,41 @@ uncovered. A focused source regression covers the conversion/allocation/half-
 velocity ordering. The next default physical run must validate the entire
 adjacent transition before this state is promoted. Later state-5 lifetime is
 not modeled because the captured bullet record lacks the donut ANM VM.
+
+## random-body residual-wave counterexample
+
+The first physical attempt to reach the SpellEnd boundary instead stopped
+alive at f1330 during source `t1220/random-insertion`. It had no HIT or Bomb.
+The current random sub0/sub1 parents do not emit the threatening bullets; the
+hazards are the still-live tail of the preceding aimed stream while the route
+uses a bottom-center target-only proposal for the resource-body phase.
+
+The terminal is not the cause. At f1325 and f1327 the physical world retained
+17 Hard-safe actions. Around f1290--1328 the target tie-break repeatedly
+selected alternating down/up diagonals near y=380. A stale `up_right` was
+carried at f1329, and f1330 then had no ordinary Hard-4 set although seven
+actions were repairable with the shorter delivery prefix. Adjacent replay is
+exact for all 246 complete combat/RNG/item/Power transitions, 13,999 fired
+bullet steps, 558 spawning steps, and 1,060 player-shot steps. This is a route
+policy failure on a source-exact world, not missing hazard semantics.
+
+Exact f1270 stateful replay for 80 updates gives the important ablation:
+
+- h4 with the bottom target survives 6/8 delivery seeds;
+- h4 target-free survives 0/8 and stops after 39--78 updates;
+- h6 target-free survives 8/8, uses 15--19 commands, and keeps 5.013--9.264
+  minimum clearance;
+- h8 target-free also survives 8/8 but adds no survival evidence.
+
+Thus neither “remove the target” nor “increase depth while retaining the
+target” is the causal change. The smallest supported policy is target-free h6:
+its continuation volume prevents an unconstrained upward flight, while the
+absence of the waypoint prevents the later bottom oscillation.
+
+A second workload derived 16 complete battle states from four physical roots
+through 160 safe warmup updates. It covers 11 distinct enemy/RNG states and 16
+player-attack states. Both policies survive the shorter 64-update screen, but
+h6 uses 236 aggregate commands versus 259 and removes the old late-root
+clearance collapse to 1.313. Only source t1220--1400 `random-insertion` is
+changed; the t1401 tail remains target-only h4, and Hard-4 authority is
+unchanged. The next ordinary-RNG default run is the physical falsifier.
