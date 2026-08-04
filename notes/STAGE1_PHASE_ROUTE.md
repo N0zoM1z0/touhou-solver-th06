@@ -425,3 +425,35 @@ Target-free h4 was exactly identical, but the bottom target preserves the
 intended low spell entry without changing Hard eligibility. Only stable sub9
 with spell publication and `ecl_time < 120` is now authored as target-only h4
 `spell-entry`. A missing spell flag or local t120 remains fail-visible.
+
+The ordinary-RNG default fail-close run physically promoted this entry. Its
+candidate-conditioned damage delayed the sub8 life callback until f3313,
+demonstrating that the policy is keyed by stable sub9/ECL state rather than an
+expected game frame. It then completed the full protected movement and
+stopped exactly at f3433/local t120, before executing the first pattern or
+laser instruction. There was no HIT, Bomb, stale publication, timeout, or
+earlier authority loss. The boundary retained all 18 Hard-safe actions at
+`(191.799,382.049)`, Power 9, with no hostile bullets or lasers; the boss
+remained damage-disabled at life 500 with timer callback sub6/1320.
+
+All 112 `spell-entry` decisions were fresh at 0.958 ms median, 1.433 ms p90,
+and 2.345 ms maximum. Adjacent replay initially matched every player, enemy,
+shot, hostile-bullet, RNG, rank, pending-effect, and Power transition but
+exposed one source-semantic omission at the f3313 callback. Opcode 93 calls
+`TurnAllBulletsIntoPoints`: it traversed 89 live bullet slots in order,
+allocated point-item slots 19 through 107, then `ItemManager::OnUpdate`
+immediately collected the two newborns overlapping the player. The nominal
+battle world now performs that exact cancellation/allocation/update sequence,
+sets the spell-damage state in the same update, and leaves Hard forecasting's
+conservative bullet retention unchanged. A same-frame bullet birth whose
+ordering relative to opcode 93 is not represented still fails closed.
+
+The corrected retained window matches all 252/252 adjacent combat, item,
+Power, and RNG transitions, including 87 live item births and 85 later item
+removals; all 9,900 fired-bullet, 1,704 spawning-bullet, and 2,446 player-shot
+steps are exact. The physical transition is minimized as independent corpus
+case `stage1-f3313-spell-start-point-conversion`. The next exact root is
+f3433/local t120. The next experiment must expose the Hard 42-way delayed
+pattern and both source lasers only over the smallest adjacent source window,
+then validate their birth, slot allocation, timers, and motion against
+physical frames before authoring any larger spell state.

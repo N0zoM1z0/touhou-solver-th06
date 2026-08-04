@@ -466,9 +466,30 @@ for h6/h8. Target-free h4 was identical, so the bottom waypoint is retained
 for spell positioning.
 
 Only sub9 spell `ecl_time < 120` is authored as target-only h4 `spell-entry`.
-Run ordinary RNG/default fail-close and require an alive stop at exact local
-t120 before the bullet/laser transition. Verify stable spell identity and
-adjacent player/combat/RNG parity; do not expose the lasers from source alone.
+Its ordinary-RNG/default fail-close run physically completed the protected
+entry and stopped exactly at f3433/local t120 before the bullet/laser
+transition. Candidate-conditioned damage moved spell start to f3313 rather
+than the earlier f3044 root, while stable phase dispatch remained correct.
+There was no HIT, Bomb, stale publication, timeout, or authority loss. All 112
+entry decisions were fresh at 0.958/1.433/2.345 ms median/p90/maximum; the
+boundary has all 18 Hard-safe actions at `(191.799,382.049)`, Power 9, with no
+live bullets or lasers.
+
+Adjacent replay exposed one nominal-world omission on f3313--f3314: source
+opcode 93 converted 89 bullets into point-item slots 19..107, after which the
+same ItemManager pass collected two overlapping births. The source-exact
+nominal transition now models ordered allocation, same-frame collection,
+laser retirement, and spell-damage state; Hard retains its conservative
+bullet authority. The minimized independent corpus case is
+`stage1-f3313-spell-start-point-conversion`. Corrected parity is exact for all
+252 adjacent combat/item/Power/RNG transitions, 9,900 fired-bullet steps,
+1,704 spawning steps, and 2,446 player-shot steps.
+
+Use exact f3433/local-t120 next. First run the smallest offline transition
+that executes the Hard 42-way delayed pattern and both fixed-angle lasers.
+Require exact source slot allocation, delayed-interval RNG, laser timers and
+motion, then physically capture a short adjacent window before authoring a
+larger spell policy state. Do not infer the remaining spell from source alone.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
