@@ -43,10 +43,10 @@ Common checks:
 ./check_th06_baseline.sh
 ```
 
-Current physical pilot:
+Current physical route:
 
 ```bat
-run_th06_practice.bat --practice-stage 4 --seconds 300
+run_th06_practice.bat --practice-stage 1 --seconds 300
 ```
 
 Windows launch from WSL must be non-PTY. After every run, release input, stop

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ..model import Snapshot
 from .base import RouteKey, RoutePack
+from .stage1_hard_reimu_a import HardReimuAStage1
 from .stage4_hard_reimu_a import HardReimuAStage4
 
 
@@ -37,4 +38,4 @@ class RouteRegistry:
 
 
 def default_routes() -> RouteRegistry:
-    return RouteRegistry((HardReimuAStage4(),))
+    return RouteRegistry((HardReimuAStage1(), HardReimuAStage4()))

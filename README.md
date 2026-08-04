@@ -96,6 +96,12 @@ PYTHONPATH=scripts python3 scripts/stress_th06_barrages.py \
 
 ## Physical play
 
+Active Stage 1 route:
+
+```bat
+run_th06_practice.bat --practice-stage 1 --seconds 300
+```
+
 Retained Stage 4 pilot:
 
 ```bat

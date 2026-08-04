@@ -7,6 +7,10 @@ from th06.barrage_lab.assets import load_stage_timeline
 from th06.model import BUTTON_FOCUS, PlayerAttackState, Snapshot
 from th06.routes.phase import boss_phase_id, ecl_subroutine_index
 from th06.routes.registry import default_routes, snapshot_route_key
+from th06.routes.stage1_hard_reimu_a import (
+    FIRST_BODY_STREAM,
+    HardReimuAStage1,
+)
 from th06.routes.stage4_hard_reimu_a import (
     HardReimuAStage4,
     TIMELINE_PHASES,
@@ -70,6 +74,19 @@ class RoutePhaseTests(unittest.TestCase):
         Path("reference/th06_dat/th06_ST.DAT").exists(),
         "installed source stage archive is ignored",
     )
+    def test_stage1_first_phase_boundaries_exist_in_installed_ecl(self):
+        timeline = load_stage_timeline(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        source_times = {instruction.time for instruction in timeline}
+
+        self.assertEqual(len(timeline), 231)
+        self.assertTrue({128, 432, 576, 640} <= source_times)
+
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
     def test_stage4_manifest_boundaries_exist_in_installed_ecl(self):
         timeline = load_stage_timeline(
             "reference/th06_dat/th06_ST.DAT", 4
@@ -95,6 +112,41 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertIsNone(default_routes().resolve(replace(
             state, player_attack=player_attack(shot_type=1)
         )))
+
+    def test_stage1_first_body_stream_isolated_from_aimed_phase(self):
+        pack = HardReimuAStage1()
+
+        setup = pack.intent(snapshot(stage=1, timeline_time=127))
+        first = pack.intent(snapshot(stage=1, timeline_time=128))
+        mirrored = pack.intent(snapshot(stage=1, timeline_time=432))
+        tail = pack.intent(snapshot(stage=1, timeline_time=639))
+        next_phase = pack.intent(snapshot(stage=1, timeline_time=640))
+
+        self.assertEqual(setup.phase_id, "timeline:t0:setup")
+        self.assertEqual(first.phase_id, FIRST_BODY_STREAM.phase_id)
+        self.assertEqual(first.policy_state, "sub0-left-stream")
+        self.assertEqual(first.algorithm, "target-only")
+        self.assertEqual(mirrored.policy_state, "sub1-mirrored-stream")
+        self.assertEqual(tail.policy_state, "tail")
+        self.assertEqual(next_phase.algorithm, "uncovered")
+        self.assertEqual(
+            next_phase.phase_id,
+            "timeline:t640:subs2-3-aimed-stream",
+        )
+
+    def test_common_solver_stops_at_uncovered_stage1_aimed_phase(self):
+        decision = Solver(decision_budget_ms=100.0).decide(
+            snapshot(stage=1, timeline_time=640)
+        )
+
+        self.assertTrue(decision.safe_actions)
+        self.assertIsNone(decision.action)
+        self.assertEqual(decision.reason, "phase-unavailable")
+        self.assertEqual(decision.route_id, "hard-reimu-a-stage1")
+        self.assertEqual(
+            decision.phase_id,
+            "timeline:t640:subs2-3-aimed-stream",
+        )
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")
