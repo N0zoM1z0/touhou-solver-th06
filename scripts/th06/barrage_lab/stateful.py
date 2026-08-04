@@ -3146,6 +3146,7 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     ignored_laser_effects = _IgnoreLaserEffects()
 
     for left, right in zip(history, history[1:]):
+        predicted_world = None
         if right.frame != left.frame + 1:
             continue
         adjacent_pairs += 1
@@ -3607,35 +3608,48 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
 
         left_lasers = {laser.slot: laser for laser in left.lasers}
         right_lasers = {laser.slot: laser for laser in right.lasers}
+        predicted_lasers = (
+            {laser.slot: laser for laser in predicted_world.lasers}
+            if predicted_world is not None
+            else None
+        )
         laser_births += len(right_lasers.keys() - left_lasers.keys())
         for slot, before in left_lasers.items():
             after = right_lasers.get(slot)
-            if after is not None and (
+            externally_mutated = after is not None and (
                 before.x != after.x
                 or before.y != after.y
                 or before.angle != after.angle
-            ):
-                # EclManager runs before BulletManager and may rotate or move a
-                # retained laser.  This pass deliberately certifies only the
-                # source manager transition, not an unobserved ECL mutation.
+            )
+            if externally_mutated:
                 externally_mutated_laser_steps += 1
-                continue
-            predicted = _step_lasers_after_bullets(
-                (before,),
-                (right.x, right.y),
-                left,
-                ignored_laser_effects,
-                RngState(left.rng_seed, left.rng_generation),
-                left.player_state,
-                left.rank,
-                left.subrank,
-            )[0]
+            if predicted_lasers is not None:
+                expected = predicted_lasers.get(slot)
+                predicted = () if expected is None else (expected,)
+            else:
+                if externally_mutated:
+                    # Without a complete combat prediction, the manager-only
+                    # step cannot reconstruct the preceding ECL mutation.
+                    continue
+                predicted = _step_lasers_after_bullets(
+                    (before,),
+                    (right.x, right.y),
+                    left,
+                    ignored_laser_effects,
+                    RngState(left.rng_seed, left.rng_generation),
+                    left.player_state,
+                    left.rank,
+                    left.subrank,
+                )[0]
             if after is None:
                 if not predicted:
                     source_laser_removals += 1
                     exact_source_laser_removals += 1
-                else:
-                    externally_mutated_laser_steps += 1
+                elif not first_laser_mismatch:
+                    first_laser_mismatch = (
+                        f"f{left.frame}->{right.frame} slot={slot} "
+                        "predicted retained laser but source removed it"
+                    )
                 continue
 
             laser_steps += 1
@@ -3648,8 +3662,14 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                 continue
             expected = predicted[0]
             laser_error = max(
+                abs(expected.x - after.x),
+                abs(expected.y - after.y),
+                abs(math.remainder(expected.angle - after.angle, math.tau)),
                 abs(expected.start_offset - after.start_offset),
                 abs(expected.end_offset - after.end_offset),
+                abs(expected.start_length - after.start_length),
+                abs(expected.width - after.width),
+                abs(expected.speed - after.speed),
                 abs(expected.timer_float - after.timer_float),
             )
             maximum_laser_error = max(maximum_laser_error, laser_error)

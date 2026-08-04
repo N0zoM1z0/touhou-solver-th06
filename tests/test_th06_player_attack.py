@@ -7,6 +7,7 @@ from th06.barrage_lab.stateful import (
     _NominalCombatStep,
     _step_items_after_effects,
     _step_lasers_after_bullets,
+    physical_step_parity,
     step_nominal_battle_world,
     step_reimu_a_player_attack,
     step_reimu_a_player_shot,
@@ -802,6 +803,71 @@ class PlayerAttackTests(unittest.TestCase):
         self.assertEqual((laser.x, laser.y), (50.0, 50.0))
         self.assertEqual(laser.end_offset, 22.0)
         self.assertEqual(following.spawners[0].laser_slots[0], 0)
+
+    def test_physical_parity_certifies_ecl_laser_rotation_and_manager_step(self):
+        rotate = EclInstruction(
+            0x1000,
+            0,
+            88,
+            20,
+            0xFF,
+            "000000005800140000ffff0003000000c673073c",
+        )
+        wait = EclInstruction(
+            0x1014,
+            999,
+            0,
+            12,
+            0xFF,
+            "e703000000000c0000ffff00",
+        )
+        source = source_enemy_template(
+            (rotate, wait), (rotate.address,), 0, 50.0, 50.0, 10
+        )
+        self.assertIsNotNone(source)
+        laser = Laser(
+            x=50.0,
+            y=50.0,
+            angle=0.5,
+            start_offset=0.0,
+            end_offset=100.0,
+            start_length=100.0,
+            width=16.0,
+            speed=0.0,
+            start_time=0,
+            hitbox_start_time=30,
+            duration=120,
+            despawn_duration=16,
+            hitbox_end_delay=14,
+            timer=10,
+            timer_float=10.0,
+            flags=0,
+            state=1,
+            slot=3,
+        )
+        root = replace(
+            _snapshot(replace(_attack_with_shot(1), shots=())),
+            spawners=(replace(
+                source,
+                slot=0,
+                laser_slots=(-1, -1, -1, 3) + (-1,) * 28,
+            ),),
+            lasers=(laser,),
+            laser_count=1,
+            timeline_complete=True,
+        )
+        stay = next(
+            action for action in CONTROL_ACTIONS if action.name == "stay"
+        )
+        following = step_nominal_battle_world(root, stay)
+        parity = physical_step_parity((root, following))
+
+        self.assertNotEqual(following.lasers[0].angle, laser.angle)
+        self.assertEqual(parity.externally_mutated_laser_steps, 1)
+        self.assertEqual(parity.laser_steps, 1)
+        self.assertEqual(parity.exact_laser_steps, 1)
+        self.assertEqual(parity.maximum_laser_error, 0.0)
+        self.assertEqual(parity.first_laser_mismatch, "")
 
 
 if __name__ == "__main__":
