@@ -212,8 +212,8 @@ implemented, reachable-state deduplication cannot use player endpoint alone.
 
 The current nominal world preserves captured RNG state across modelled active
 emitters.  It does not yet compose every possible shared consumer, including
-  non-ECL RNG consumers, unsupported external instructions, future lasers,
-  and every action-conditioned damage/callback path.
+non-ECL RNG consumers, unsupported external instructions, future lasers, and
+every action-conditioned damage/callback path.
 Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
 
 ## Offline assets and current limitations
@@ -239,6 +239,15 @@ Nominal RNG therefore remains proposal evidence and cannot gain Hard authority.
   rejects live lasers, despawning bullets, and unresolved timeline waits. It
   is explicitly nominal because player shots, sprite-bound enemy retirement,
   and non-ECL RNG consumers are not yet reproduced.
+- `--battle-warmup-frames N` now turns those complete roots into a generated
+  battle corpus instead of merely replaying static snapshots. Each case first
+  follows a deterministic 1..N-frame closed loop with real 0..3-frame command
+  pickup and lease checks. Its exploratory policy samples only Hard-4 allowed
+  actions and deduplicates boundary-clamped terminal states before sampling.
+  The resulting world therefore carries a distinct player/input history,
+  source aim, bullet ages, bullet slots, enemy ECL/timeline state and shared
+  nominal RNG. `--minimum-horizontal-bands` filters only corpus coverage and
+  never enters Hard or online ranking.
 - The independent planner oracle and stateful runner are valuable algorithm
   falsifiers.  They are not replacements for full source-world execution or
   physical play.
@@ -310,6 +319,46 @@ modeling target is not more synthetic bullet volume: action-conditioned
 damage/kill/callback and source enemy retirement are required before the
 battle rung can claim physical world parity.
 
+### Generated full-battle horizontal corpus
+
+A high-intensity run used the latest ordinary-RNG Stage 5 physical history,
+required at least eight mature lateral strips per source root, and requested
+64 nominal warm-ups of at most 48 updates. It retained 55 complete battle
+worlds drawn from 64 distinct physical roots. Before policy measurement the
+warm-ups advanced 1,543 battle updates and inserted 2,032 bullets through the
+continued ECL/timeline world; no standalone synthetic birth schedule was
+used. This is materially different from regenerating isolated volleys or
+repeating one captured bullet image.
+
+That run also falsified the lab's first implementation of
+`delivery-filtered-count`: the lab asked only for the final h16 membership and
+fell back to an unrelated constant h6 witness when it was empty. Production
+instead completes h8, h12 and h16 as indivisible membership/rank pairs and
+retains the last complete nonempty rung. A generated f1854 world exposed the
+difference: the old lab fallback chose `up` and stopped after four updates,
+while the progressive oracle removed that survival regression and reached 37
+updates, matching raw count's duration. The lab now mirrors the production
+ladder; a focused regression fixes this contract.
+
+With the corrected oracle, a fresh 16-case run generated 15 battle worlds
+from 16 physical roots. Its warm-ups advanced 500 updates and inserted 440
+source-world bullets. All 16 initially viable cases survived the subsequent
+120-update closed loop under delivery-aware h8, h12 and h16. Against raw
+terminal count it converted 1, 3 and 3 failures respectively, for paired
+survival gains of +103, +228 and +247 updates, with no loss in that run.
+
+The larger discovery run still provides negative evidence. Two retained
+worlds at f1844/h8 and f1850/h12 let raw count survive 120 updates while the
+delivery filter stopped after 72 and 50 for one concrete pickup schedule.
+Across pickup seeds 0..15, raw survived both worlds 16/16; the filter survived
+15/16 and never beat raw there. Their first divergences reject `up_fast` and
+`down_right` respectively because those actions lack worst-case repeated-
+pickup membership even though the sampled delivery succeeds. These are
+general robustness/ranking counterexamples, not a reason to weaken Hard or
+special-case their coordinates. They remain nominal and should not become a
+large committed physical-CE fixture before damage/retirement and candidate-
+conditioned aim close the known world gap.
+
 ## Latest physical causal trace
 
 The first integrated run after persistent ECL-child insertion was a fixed-RNG
@@ -325,6 +374,23 @@ At f1943 h12/h16 excluded left; f1945 and f1947 were stale retries, and fresh
 Hard-4 became empty at f1948. Thus the terminal stop is an effect of a long
 left-wall commitment plus a missed correction window, not evidence that the
 horizontal strip itself was inevitable.
+
+The next ordinary-RNG default fail-close run stopped without a HIT at f1874,
+at `(8.0, 103.30)` with 487 bullets. The terminal empty Hard set is again an
+effect. At f1804, after the route had reached the left wall, every action still
+passed complete repeated-pickup h8 membership, but exact h8 terminal volume
+already preferred the rightward family; the live budget published membership
+only and correctly preserved the still-viable held `up_left_fast` rather than
+allowing a soft target to manufacture a switch. By f1833 exact h12--h20
+preferred a down-right correction. At f1849 the held `up_fast` action left the
+h8 membership set; without a completed survival rank the soft attack target
+selected `up_left`. Exact terminal evidence at that state preferred down or
+right families. By f1869 only local `up_left` remained and h12+ was empty;
+f1871 had no modeled continuation and f1874 lost Hard authority. The earliest
+clear correction opportunity in the retained evidence is therefore the
+unpublished terminal rank at f1804, while f1849 shows the separate unresolved
+problem of ranking a complete membership set after the held action is
+excluded. Neither supports a boundary or frame special case.
 
 ## Smallest useful direction
 
