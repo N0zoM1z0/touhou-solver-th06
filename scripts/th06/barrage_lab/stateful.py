@@ -561,41 +561,42 @@ class ExactTerminalPolicy:
             "delivery-filtered-count",
         ):
             if self.metric == "delivery-filtered-count":
-                replanning = delivery_segment_viability_scores(
-                    snapshot,
+                def terminal_scores(working, rung):
+                    by_name = dict(source_terminal_counts(
+                        snapshot,
+                        tuple(item.action.name for item in working),
+                        4,
+                        rung,
+                    ).counts)
+                    return {
+                        candidate.action: by_name[candidate.action.name]
+                        for candidate in working
+                    }
+
+                preferred = _progressive_delivery_preferred(
                     candidates,
-                    4,
                     self.horizon,
+                    lambda working, rung: (
+                        delivery_segment_viability_scores(
+                            snapshot,
+                            working,
+                            4,
+                            rung,
+                        )
+                    ),
+                    terminal_scores,
                 )
-            else:
-                replanning = source_replanning_scores(
-                    snapshot,
-                    candidates,
-                    split=4,
-                    horizon=min(8, self.horizon),
-                    continuation_actions=CONTROL_ACTIONS,
-                )
-            if self.metric in (
-                "authority-filtered-count",
-                "delivery-filtered-count",
-            ):
-                deep = dict(source_terminal_counts(
-                    snapshot,
-                    hard.actions,
-                    4,
-                    self.horizon,
-                ).counts)
-                deep_by_action = {
-                    candidate.action: deep[candidate.action.name]
-                    for candidate in candidates
-                }
-                preferred = _authority_filtered_preferred(
-                    replanning, deep_by_action
-                )
-                if (
-                    self.metric == "delivery-filtered-count"
-                    and not preferred
-                ):
+                if not preferred:
+                    deep = dict(source_terminal_counts(
+                        snapshot,
+                        hard.actions,
+                        4,
+                        self.horizon,
+                    ).counts)
+                    deep_by_action = {
+                        candidate.action: deep[candidate.action.name]
+                        for candidate in candidates
+                    }
                     reserve = certify_linear_source(
                         snapshot,
                         min(6, self.horizon),
@@ -611,6 +612,28 @@ class ExactTerminalPolicy:
                         deep_by_action,
                     )
             else:
+                replanning = source_replanning_scores(
+                    snapshot,
+                    candidates,
+                    split=4,
+                    horizon=min(8, self.horizon),
+                    continuation_actions=CONTROL_ACTIONS,
+                )
+            if self.metric == "authority-filtered-count":
+                deep = dict(source_terminal_counts(
+                    snapshot,
+                    hard.actions,
+                    4,
+                    self.horizon,
+                ).counts)
+                deep_by_action = {
+                    candidate.action: deep[candidate.action.name]
+                    for candidate in candidates
+                }
+                preferred = _authority_filtered_preferred(
+                    replanning, deep_by_action
+                )
+            elif self.metric == "replanning-count":
                 scores = {
                     candidate.action: (replanning[candidate.action],)
                     for candidate in candidates
@@ -784,56 +807,48 @@ class NativeTerminalPolicy:
             "delivery-filtered-count",
         ):
             if self.metric == "delivery-filtered-count":
-                robust = self.kernel.delivery_segment_viability_progressive(
-                    snapshot,
-                    hard,
-                    4,
-                    self.horizon,
-                    self.horizon,
-                    collision_margin=0.35,
-                    budget_ms=1000.0,
-                )
-                replanning = (
-                    robust[1]
-                    if (
-                        robust is not None
-                        and robust[0] == self.horizon
-                        and robust[2]
+                def delivery_scores(working, rung):
+                    robust = (
+                        self.kernel.delivery_segment_viability_progressive(
+                            snapshot,
+                            working,
+                            4,
+                            rung,
+                            rung,
+                            collision_margin=0.35,
+                            budget_ms=1000.0,
+                        )
                     )
-                    else None
-                )
-            else:
-                replanning = self.kernel.macro_tail_scores_budgeted(
-                    snapshot,
+                    if (
+                        robust is None
+                        or robust[0] != rung
+                        or not robust[2]
+                    ):
+                        raise RuntimeError(
+                            "stateful repeated-pickup rung did not complete"
+                        )
+                    return robust[1]
+
+                preferred = _progressive_delivery_preferred(
                     hard,
-                    4,
-                    min(8, self.horizon),
-                    collision_margin=0.35,
-                    budget_ms=1000.0,
-                )
-            if replanning is None:
-                raise RuntimeError(
-                    "stateful full-control replanning did not complete"
-                )
-            if self.metric in (
-                "authority-filtered-count",
-                "delivery-filtered-count",
-            ):
-                deep = self.kernel.terminal_counts(
-                    snapshot,
-                    hard,
-                    4,
                     self.horizon,
-                    collision_margin=0.35,
+                    delivery_scores,
+                    lambda working, rung: self.kernel.terminal_counts(
+                        snapshot,
+                        working,
+                        4,
+                        rung,
+                        collision_margin=0.35,
+                    ),
                 )
-                preferred = _authority_filtered_preferred(
-                    replanning,
-                    deep,
-                )
-                if (
-                    self.metric == "delivery-filtered-count"
-                    and not preferred
-                ):
+                if not preferred:
+                    deep = self.kernel.terminal_counts(
+                        snapshot,
+                        hard,
+                        4,
+                        self.horizon,
+                        collision_margin=0.35,
+                    )
                     reserve = self.kernel.certify_selected(
                         snapshot,
                         min(6, self.horizon),
@@ -847,6 +862,31 @@ class NativeTerminalPolicy:
                         deep,
                     )
             else:
+                replanning = self.kernel.macro_tail_scores_budgeted(
+                    snapshot,
+                    hard,
+                    4,
+                    min(8, self.horizon),
+                    collision_margin=0.35,
+                    budget_ms=1000.0,
+                )
+            if self.metric != "delivery-filtered-count" and replanning is None:
+                raise RuntimeError(
+                    "stateful full-control replanning did not complete"
+                )
+            if self.metric == "authority-filtered-count":
+                deep = self.kernel.terminal_counts(
+                    snapshot,
+                    hard,
+                    4,
+                    self.horizon,
+                    collision_margin=0.35,
+                )
+                preferred = _authority_filtered_preferred(
+                    replanning,
+                    deep,
+                )
+            elif self.metric == "replanning-count":
                 scores = {
                     candidate.action: (replanning[candidate.action],)
                     for candidate in hard
@@ -976,6 +1016,33 @@ def _authority_filtered_preferred(
         action for action, score in replanning.items() if score > 0
     )
     return _deep_preferred_within(viable, deep)
+
+
+def _progressive_delivery_preferred(
+    candidates: tuple[SafeAction, ...],
+    horizon: int,
+    viability_at_horizon,
+    terminal_at_horizon,
+) -> frozenset[Action]:
+    """Mirror production's indivisible repeated-pickup/terminal ladder."""
+    working = candidates
+    preferred: frozenset[Action] = frozenset()
+    for rung in _terminal_rungs(horizon):
+        replanning = viability_at_horizon(working, rung)
+        viable = frozenset(
+            action for action, score in replanning.items() if score > 0
+        )
+        if not viable:
+            break
+        working = tuple(
+            candidate for candidate in working
+            if candidate.action in viable
+        )
+        preferred = _authority_filtered_preferred(
+            replanning,
+            terminal_at_horizon(working, rung),
+        )
+    return preferred
 
 
 def _deep_preferred_within(

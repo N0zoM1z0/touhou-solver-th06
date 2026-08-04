@@ -46,6 +46,7 @@ from th06.barrage_lab.stateful import (
     _terminal_action_metric,
     _authority_filtered_preferred,
     _deep_preferred_within,
+    _progressive_delivery_preferred,
     _terminal_preferred,
     _terminal_rungs,
 )
@@ -824,6 +825,62 @@ class BarrageLabTests(unittest.TestCase):
                 {right: 0, left: 0, down: 10},
             ),
             frozenset((right, left)),
+        )
+
+    def test_delivery_ladder_keeps_last_complete_nonempty_rung(self):
+        state = replace(
+            generate_barrage_case(
+                (parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0],),
+                5,
+                target_bullets=1,
+            ).snapshot,
+            bullets=(),
+        )
+        actions = CONTROL_ACTIONS[:3]
+        candidates = tuple(
+            SafeAction(action, 999.0, state.x, state.y)
+            for action in actions
+        )
+        viability = {
+            8: {actions[0]: 1, actions[1]: 1, actions[2]: 0},
+            12: {actions[0]: 1, actions[1]: 0},
+            16: {actions[0]: 0},
+        }
+        terminal = {
+            8: {actions[0]: 2, actions[1]: 3},
+            12: {actions[0]: 4},
+        }
+        calls = []
+
+        def viability_at_horizon(working, rung):
+            calls.append(("viability", rung, tuple(
+                candidate.action for candidate in working
+            )))
+            return viability[rung]
+
+        def terminal_at_horizon(working, rung):
+            calls.append(("terminal", rung, tuple(
+                candidate.action for candidate in working
+            )))
+            return terminal[rung]
+
+        preferred = _progressive_delivery_preferred(
+            candidates,
+            16,
+            viability_at_horizon,
+            terminal_at_horizon,
+        )
+
+        self.assertEqual(preferred, frozenset((actions[0],)))
+        self.assertEqual(
+            calls,
+            [
+                ("viability", 8, actions),
+                ("terminal", 8, actions[:2]),
+                ("viability", 12, actions[:2]),
+                ("terminal", 12, actions[:1]),
+                ("viability", 16, actions[:1]),
+            ],
         )
 
     def test_mismatch_reducer_keeps_earliest_horizon_and_provenance(self):
