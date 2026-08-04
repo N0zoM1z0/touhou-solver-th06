@@ -2166,6 +2166,18 @@ class Solver:
                 ):
                     break
                 if (
+                    not full_publication_budget
+                    and horizon > soft_prepare_horizon
+                ):
+                    # Native certification budgets only the frontier scan;
+                    # preparing a new ECL/hazard window happens before that
+                    # deadline.  A constrained Stage 4 run repeatedly admitted
+                    # nominal h12 here and spent 15--19 ms despite a 9.8 ms
+                    # total budget.  Reuse completed prepared work, but leave
+                    # every fresh projection extension to the measured full-
+                    # budget ladder above.
+                    break
+                if (
                     policy_preferred
                     and horizon <= policy_horizon
                 ):
@@ -2536,6 +2548,13 @@ class Solver:
                 else EFFORT_HORIZONS
             ):
                 if horizon > limit:
+                    break
+                if (
+                    not full_publication_budget
+                    and horizon > soft_prepare_horizon
+                ):
+                    # The fallback APIs have the same unbudgeted projection
+                    # prefix as the constant scan above.
                     break
                 elapsed_ms = (self.clock() - started) * 1000.0
                 remaining_ms = (

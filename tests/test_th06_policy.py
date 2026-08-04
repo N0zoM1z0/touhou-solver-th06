@@ -2180,7 +2180,7 @@ class AnytimePolicyTests(unittest.TestCase):
         )
         solver = self.solver(kernel, clock)
         solver.effort.publication_scale = 0.5
-        solver.effort.choose_limit = lambda *_args: BASE_POLICY_HORIZON
+        solver.effort.choose_limit = lambda *_args: 16
 
         decision = solver.decide(snapshot())
 
@@ -2202,6 +2202,10 @@ class AnytimePolicyTests(unittest.TestCase):
             [call[0] for call in kernel.calls],
         )
         self.assertEqual(decision.effort_horizon, BASE_POLICY_HORIZON)
+        self.assertEqual(
+            [call for call in kernel.calls if call[0] == "prepare"],
+            [("prepare", BASE_POLICY_HORIZON)],
+        )
         self.assertLessEqual(clock.seconds * 1000.0, 6.25)
 
     def test_incomplete_local_robustness_preserves_viable_input(self):
