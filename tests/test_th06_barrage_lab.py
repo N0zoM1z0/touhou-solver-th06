@@ -61,6 +61,7 @@ from th06.model import (
     CONTROL_ACTIONS,
     Bullet,
     EclInstruction,
+    Laser,
     PlayerAttackState,
     SafeAction,
     Snapshot,
@@ -853,6 +854,46 @@ class BarrageLabTests(unittest.TestCase):
             parity.fired_bullet_steps,
         )
         self.assertLessEqual(parity.maximum_bullet_error, 1e-4)
+
+        laser = Laser(
+            x=1000.0,
+            y=1000.0,
+            angle=0.0,
+            start_offset=0.0,
+            end_offset=50.0,
+            start_length=100.0,
+            width=16.0,
+            speed=2.0,
+            start_time=10,
+            hitbox_start_time=100,
+            duration=60,
+            despawn_duration=10,
+            hitbox_end_delay=5,
+            timer=9,
+            timer_float=9.0,
+            flags=0,
+            state=0,
+            slot=3,
+        )
+        laser_start = replace(start, lasers=(laser,), laser_count=1)
+        laser_following = replace(
+            following,
+            lasers=(replace(
+                laser,
+                end_offset=52.0,
+                timer=10,
+                timer_float=10.0,
+            ),),
+            laser_count=1,
+        )
+        laser_parity = physical_step_parity(
+            (laser_start, laser_following)
+        )
+
+        self.assertEqual(laser_parity.laser_steps, 1)
+        self.assertEqual(laser_parity.exact_laser_steps, 1)
+        self.assertEqual(laser_parity.maximum_laser_error, 0.0)
+        self.assertEqual(laser_parity.first_laser_mismatch, "")
 
         result = run_closed_loop(
             replace(start, bullets=()),

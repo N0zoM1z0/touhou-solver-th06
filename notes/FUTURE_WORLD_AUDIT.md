@@ -695,3 +695,39 @@ model boundary is source-complete future item insertion (including ECL drops
 and full-power bullet conversion), followed by future laser state and a
 measured use of the enlarged causal corpus to find an earlier consequential
 solver decision.
+
+## Exact item insertion and live-laser transitions (2026-08-04)
+
+Authoritative ECL item births are now events rather than counts.  Opcode 119
+draws two source f32 values per item for its offset and emits one big Power
+item followed by small Power items below full power, or Point items at full
+power; opcode 124 emits its explicit type at the enemy position.  Nested ECL
+children propagate these events into the same priority-9 enemy pass, and the
+priority-11 ItemManager inserts them through the captured 512-slot cursor.
+The integrated synthetic regression covers two random-drop items plus one
+explicit item and observes the exact eight RNG generations and slot order.
+
+The 127-to-128 Power boundary now reproduces source
+`RemoveAllBullets(true)`: the acquisition remains present while later item
+slots are allocated, every active hostile bullet is replaced by a state-1
+Point item at its pre-BulletManager position, and later allocated slots are
+updated in the same live ItemManager pass.  A focused regression verifies the
+rank, Power, item timer, pool cursor, and bullet removal.  No physical
+low-Power crossing was captured, so this boundary has source/unit evidence,
+not physical parity.  The corresponding live-laser conversion remains
+explicit unsupported instead of silently deleting beams or manufacturing
+items.
+
+The offline battle world now also advances existing source `Laser` records.
+It preserves the two shipped midpoint-hitbox bugs during warmup and despawn,
+both switch fallthrough transitions, timer resets, repeated 12-frame laser
+graze, rank/effect RNG, length clamping, and natural removal.  A formal
+adjacent-frame report isolates retained lasers whose origin and angle were not
+mutated by the earlier ECL pass.  On the ignored physical Stage 1 artifact
+`th06_failure_stage1_f10068_action_factor.json`, all 658 such transitions
+match exactly, including start/end offsets, state and timer; maximum numerical
+error is zero, and the history also contains six laser births.  This validates
+the BulletManager state machine only.  ECL laser creation, pointer ownership,
+rotation, aimed rotation, offset, test, cancel, and clear-all are the next
+future-world boundary and must remain unsupported until their same-frame
+ordering is modeled.

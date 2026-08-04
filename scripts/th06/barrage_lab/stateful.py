@@ -31,6 +31,7 @@ from ..model import (
     EnemyBody,
     EnemySpawner,
     ItemState,
+    Laser,
     PLAYER_ALIVE,
     PLAYER_DEAD,
     PLAYER_INVULNERABLE,
@@ -51,6 +52,7 @@ from ..viability import (
 )
 from ..guidance import terminal_reachability_counts
 from ..hazards.geometry import signed_clearance
+from ..hazards.lasers import LaserHazard, signed_laser_clearance
 from ..hazards.births import spawn_pattern
 from ..hazards.ecl import consume_effect_spawn_rng
 from ..hazards.world import forecast_world_births
@@ -1090,6 +1092,7 @@ def _step_items_after_effects(
     player_state: int,
     snapshot: Snapshot,
     bullets: list[Bullet] | None = None,
+    lasers: list[Laser] | None = None,
     rng: RngState | None = None,
 ) -> tuple[int, int, int]:
     """Advance priority-11 ItemManager before hostile bullets."""
@@ -1097,11 +1100,16 @@ def _step_items_after_effects(
     subrank = snapshot.subrank
     power = snapshot.current_power
     bullets = [] if bullets is None else bullets
+    lasers = [] if lasers is None else lasers
 
     def turn_bullets_into_points() -> None:
         if rng is None:
             raise UnsupportedStatefulModel(
                 "full-power conversion needs exact item allocation state"
+            )
+        if lasers:
+            raise UnsupportedStatefulModel(
+                "full-power laser-to-item conversion is not yet modeled"
             )
         retained_bullets = []
         for bullet in sorted(bullets, key=lambda value: value.slot):
@@ -1294,6 +1302,165 @@ def _step_hostile_bullets_after_effects(
     return tuple(active), tuple(despawning), player_state, rank, subrank
 
 
+def _step_lasers_after_bullets(
+    lasers: tuple[Laser, ...],
+    player: tuple[float, float],
+    snapshot: Snapshot,
+    combat: _NominalCombatStep,
+    rng: RngState,
+    player_state: int,
+    rank: int,
+    subrank: int,
+) -> tuple[tuple[Laser, ...], int, int, int]:
+    """Advance the source BulletManager laser loop and player interaction."""
+    active: list[Laser] = []
+
+    def interact(
+        laser: Laser,
+        start_offset: float,
+        end_offset: float,
+        size_x: float,
+        can_graze: bool,
+    ) -> None:
+        nonlocal player_state, rank, subrank
+        hazard = LaserHazard(
+            laser.x,
+            laser.y,
+            laser.angle,
+            _f32(_f32(end_offset - start_offset) / 2.0 + start_offset),
+            max(0.0, size_x),
+            _f32(laser.width / 2.0),
+        )
+        clearance = signed_laser_clearance(
+            player[0],
+            player[1],
+            snapshot.half_width,
+            snapshot.half_height,
+            hazard,
+        )
+        if clearance <= 0.0:
+            if player_state == PLAYER_ALIVE:
+                player_state = PLAYER_DEAD
+                combat.spawn_post_effects((12, *((6,) * 16)), rng)
+            return
+        if (
+            can_graze
+            and player_state not in (PLAYER_DEAD, PLAYER_SPAWNING)
+        ):
+            graze_hazard = replace(
+                hazard,
+                size_x=hazard.size_x + 96.0,
+                size_y=hazard.size_y + 96.0,
+            )
+            if signed_laser_clearance(
+                player[0],
+                player[1],
+                snapshot.half_width,
+                snapshot.half_height,
+                graze_hazard,
+            ) <= 0.0:
+                combat.spawn_post_effects((8,), rng)
+                rank, subrank = _increase_subrank(
+                    rank, subrank, snapshot.max_rank, 6
+                )
+
+    for laser in sorted(lasers, key=lambda value: value.slot):
+        start_offset = _f32(laser.start_offset)
+        end_offset = _f32(laser.end_offset + laser.speed)
+        if laser.start_length < _f32(end_offset - start_offset):
+            start_offset = _f32(end_offset - laser.start_length)
+        if start_offset < 0.0:
+            start_offset = 0.0
+        full_length = _f32(end_offset - start_offset)
+        timer = laser.timer
+        timer_float = laser.timer_float
+        state = laser.state
+        alive = True
+        state_one_size_x = full_length
+
+        if state == 0:
+            if laser.flags & 1:
+                size_x = full_length
+            else:
+                if laser.start_time <= 0:
+                    raise UnsupportedStatefulModel(
+                        f"laser slot {laser.slot} has invalid warmup state"
+                    )
+                ramp = min(laser.start_time, 30)
+                width_now = (
+                    _f32(timer_float * laser.width / laser.start_time)
+                    if laser.start_time - ramp < timer
+                    else 1.2
+                )
+                size_x = _f32(width_now / 2.0)
+            if timer >= laser.hitbox_start_time:
+                interact(
+                    laser,
+                    start_offset,
+                    end_offset,
+                    size_x,
+                    timer % 12 == 0,
+                )
+            if timer >= laser.start_time:
+                timer = 0
+                timer_float = 0.0
+                state = 1
+                state_one_size_x = size_x
+            else:
+                state_one_size_x = size_x
+
+        if state == 1:
+            interact(
+                laser,
+                start_offset,
+                end_offset,
+                state_one_size_x,
+                timer % 12 == 0,
+            )
+            if timer >= laser.duration:
+                timer = 0
+                timer_float = 0.0
+                state = 2
+                if laser.despawn_duration == 0:
+                    alive = False
+
+        if state == 2 and alive:
+            if laser.flags & 1:
+                size_x = full_length
+            else:
+                width_now = laser.width
+                if laser.despawn_duration > 0:
+                    width_now = _f32(
+                        laser.width
+                        - timer_float * laser.width / laser.despawn_duration
+                    )
+                size_x = _f32(width_now / 2.0)
+            if timer < laser.hitbox_end_delay:
+                interact(
+                    laser,
+                    start_offset,
+                    end_offset,
+                    size_x,
+                    timer % 12 == 0,
+                )
+            if timer >= laser.despawn_duration:
+                alive = False
+
+        if start_offset >= 640.0:
+            alive = False
+        if not alive:
+            continue
+        active.append(replace(
+            laser,
+            start_offset=start_offset,
+            end_offset=end_offset,
+            state=state,
+            timer=timer + 1,
+            timer_float=_f32(timer_float + 1.0),
+        ))
+    return tuple(active), player_state, rank, subrank
+
+
 def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
     """Advance bullets, live ECL emitters, and simple stage timeline state.
 
@@ -1306,10 +1473,6 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
     """
     if snapshot.frame_multiplier != 1.0:
         raise UnsupportedStatefulModel("only frame multiplier one is modeled")
-    if snapshot.lasers:
-        raise UnsupportedStatefulModel(
-            "nominal battle replay does not yet step live lasers"
-        )
     if snapshot.despawning_bullets:
         raise UnsupportedStatefulModel(
             "nominal battle replay does not yet step despawning bullets"
@@ -1366,6 +1529,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         forecast.continuation.rng_seed,
         forecast.continuation.rng_generation,
     )
+    laser_state = list(snapshot.lasers)
     if combat is not None:
         rank, subrank, current_power = _step_items_after_effects(
             combat,
@@ -1373,6 +1537,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             snapshot.player_state,
             snapshot,
             bullets,
+            laser_state,
             next_rng,
         )
         (
@@ -1390,13 +1555,28 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             rank,
             subrank,
         )
+        lasers, player_state, rank, subrank = _step_lasers_after_bullets(
+            tuple(laser_state),
+            (x, y),
+            snapshot,
+            combat,
+            next_rng,
+            player_state,
+            rank,
+            subrank,
+        )
     else:
+        if snapshot.lasers:
+            raise UnsupportedStatefulModel(
+                "live laser replay needs captured combat state"
+            )
         bullets = tuple(step_bullet(bullet, (x, y)) for bullet in bullets)
         despawning_bullets = ()
         player_state = snapshot.player_state
         rank = snapshot.rank
         subrank = snapshot.subrank
         current_power = snapshot.current_power
+        lasers = snapshot.lasers
 
     emitters = forecast.continuation.emitters
     bodies = tuple(
@@ -1422,6 +1602,8 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         y=y,
         input_mask=action_mask(held),
         bullets=tuple(bullets),
+        lasers=lasers,
+        laser_count=len(lasers),
         despawning_bullets=despawning_bullets,
         spawners=emitters,
         enemies=bodies,
@@ -2659,6 +2841,14 @@ class PhysicalParity:
     combat_item_steps: int = 0
     exact_combat_item_steps: int = 0
     exact_combat_power_steps: int = 0
+    laser_births: int = 0
+    laser_steps: int = 0
+    exact_laser_steps: int = 0
+    source_laser_removals: int = 0
+    exact_source_laser_removals: int = 0
+    externally_mutated_laser_steps: int = 0
+    maximum_laser_error: float = 0.0
+    first_laser_mismatch: str = ""
 
 
 def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
@@ -2710,6 +2900,21 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
     combat_item_steps = 0
     exact_combat_item_steps = 0
     exact_combat_power_steps = 0
+    laser_births = 0
+    laser_steps = 0
+    exact_laser_steps = 0
+    source_laser_removals = 0
+    exact_source_laser_removals = 0
+    externally_mutated_laser_steps = 0
+    maximum_laser_error = 0.0
+    first_laser_mismatch = ""
+
+    class _IgnoreLaserEffects:
+        @staticmethod
+        def spawn_post_effects(_effect_ids, _rng):
+            pass
+
+    ignored_laser_effects = _IgnoreLaserEffects()
 
     for left, right in zip(history, history[1:]):
         if right.frame != left.frame + 1:
@@ -3165,6 +3370,82 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         item_slot_births += len(right_items - left_items)
         item_slot_removals += len(left_items - right_items)
 
+        left_lasers = {laser.slot: laser for laser in left.lasers}
+        right_lasers = {laser.slot: laser for laser in right.lasers}
+        laser_births += len(right_lasers.keys() - left_lasers.keys())
+        for slot, before in left_lasers.items():
+            after = right_lasers.get(slot)
+            if after is not None and (
+                before.x != after.x
+                or before.y != after.y
+                or before.angle != after.angle
+            ):
+                # EclManager runs before BulletManager and may rotate or move a
+                # retained laser.  This pass deliberately certifies only the
+                # source manager transition, not an unobserved ECL mutation.
+                externally_mutated_laser_steps += 1
+                continue
+            predicted = _step_lasers_after_bullets(
+                (before,),
+                (right.x, right.y),
+                left,
+                ignored_laser_effects,
+                RngState(left.rng_seed, left.rng_generation),
+                left.player_state,
+                left.rank,
+                left.subrank,
+            )[0]
+            if after is None:
+                if not predicted:
+                    source_laser_removals += 1
+                    exact_source_laser_removals += 1
+                else:
+                    externally_mutated_laser_steps += 1
+                continue
+
+            laser_steps += 1
+            if not predicted:
+                if not first_laser_mismatch:
+                    first_laser_mismatch = (
+                        f"f{left.frame}->{right.frame} slot={slot} "
+                        "predicted removal but laser remained"
+                    )
+                continue
+            expected = predicted[0]
+            laser_error = max(
+                abs(expected.start_offset - after.start_offset),
+                abs(expected.end_offset - after.end_offset),
+                abs(expected.timer_float - after.timer_float),
+            )
+            maximum_laser_error = max(maximum_laser_error, laser_error)
+            exact = (
+                laser_error <= 1e-4
+                and expected.x == after.x
+                and expected.y == after.y
+                and expected.angle == after.angle
+                and expected.start_length == after.start_length
+                and expected.width == after.width
+                and expected.speed == after.speed
+                and expected.start_time == after.start_time
+                and expected.hitbox_start_time == after.hitbox_start_time
+                and expected.duration == after.duration
+                and expected.despawn_duration == after.despawn_duration
+                and expected.hitbox_end_delay == after.hitbox_end_delay
+                and expected.flags == after.flags
+                and expected.state == after.state
+                and expected.timer == after.timer
+            )
+            exact_laser_steps += exact
+            if not exact and not first_laser_mismatch:
+                first_laser_mismatch = (
+                    f"f{left.frame}->{right.frame} slot={slot} "
+                    f"offset={expected.start_offset:.6g},"
+                    f"{expected.end_offset:.6g}/"
+                    f"{after.start_offset:.6g},{after.end_offset:.6g} "
+                    f"state={expected.state},{expected.timer}/"
+                    f"{after.state},{after.timer}"
+                )
+
     return PhysicalParity(
         adjacent_pairs,
         exact_player_steps,
@@ -3213,6 +3494,14 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
         combat_item_steps,
         exact_combat_item_steps,
         exact_combat_power_steps,
+        laser_births,
+        laser_steps,
+        exact_laser_steps,
+        source_laser_removals,
+        exact_source_laser_removals,
+        externally_mutated_laser_steps,
+        maximum_laser_error,
+        first_laser_mismatch,
     )
 
 

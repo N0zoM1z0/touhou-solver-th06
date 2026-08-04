@@ -6,6 +6,7 @@ from th06.barrage_lab.corpus import decode_snapshot
 from th06.barrage_lab.stateful import (
     _NominalCombatStep,
     _step_items_after_effects,
+    _step_lasers_after_bullets,
     step_reimu_a_player_attack,
     step_reimu_a_player_shot,
 )
@@ -15,6 +16,7 @@ from th06.model import (
     Bullet,
     EclInstruction,
     ItemState,
+    Laser,
     PlayerAttackState,
     PlayerShot,
     Snapshot,
@@ -499,8 +501,8 @@ class PlayerAttackTests(unittest.TestCase):
             (root.x, root.y),
             root.player_state,
             root,
-            bullets,
-            RngState(0x1234, 0),
+            bullets=bullets,
+            rng=RngState(0x1234, 0),
         )
 
         self.assertEqual(following, (0, 1, 128))
@@ -509,6 +511,81 @@ class PlayerAttackTests(unittest.TestCase):
         point = combat.items[1]
         self.assertEqual((point.item_type, point.state, point.timer), (6, 1, 1))
         self.assertEqual(combat.item_upper, 1)
+
+    def test_laser_phase_fallthrough_and_repeated_graze_rng(self):
+        attack = _attack_with_shot(1)
+        root = replace(_snapshot(attack), max_rank=32)
+        far = Laser(
+            x=1000.0,
+            y=1000.0,
+            angle=0.0,
+            start_offset=0.0,
+            end_offset=50.0,
+            start_length=100.0,
+            width=16.0,
+            speed=2.0,
+            start_time=10,
+            hitbox_start_time=100,
+            duration=2,
+            despawn_duration=3,
+            hitbox_end_delay=1,
+            timer=9,
+            timer_float=9.0,
+            flags=0,
+            state=0,
+            slot=0,
+        )
+        combat = _NominalCombatStep(root, attack)
+        rng = RngState(0x1234, 0)
+
+        first = _step_lasers_after_bullets(
+            (far,), (root.x, root.y), root, combat, rng, 0, 0, 0
+        )[0][0]
+        second = _step_lasers_after_bullets(
+            (first,), (root.x, root.y), root, combat, rng, 0, 0, 0
+        )[0][0]
+        third = _step_lasers_after_bullets(
+            (second,), (root.x, root.y), root, combat, rng, 0, 0, 0
+        )[0][0]
+        fourth = _step_lasers_after_bullets(
+            (third,), (root.x, root.y), root, combat, rng, 0, 0, 0
+        )[0][0]
+
+        self.assertEqual((first.state, first.timer, first.end_offset), (0, 10, 52.0))
+        self.assertEqual((second.state, second.timer, second.end_offset), (1, 1, 54.0))
+        self.assertEqual((third.state, third.timer), (1, 2))
+        self.assertEqual((fourth.state, fourth.timer), (2, 1))
+
+        graze = replace(
+            far,
+            x=100.0,
+            y=350.0,
+            end_offset=200.0,
+            speed=0.0,
+            start_time=0,
+            hitbox_start_time=0,
+            duration=60,
+            timer=0,
+            timer_float=0.0,
+            state=1,
+        )
+        graze_combat = _NominalCombatStep(root, attack)
+        graze_rng = RngState(0x1234, 0)
+
+        _, state, rank, subrank = _step_lasers_after_bullets(
+            (graze,),
+            (root.x, root.y),
+            root,
+            graze_combat,
+            graze_rng,
+            0,
+            0,
+            0,
+        )
+
+        self.assertEqual((state, rank, subrank), (0, 0, 6))
+        self.assertEqual(graze_combat.post_effect_ids, [8])
+        self.assertEqual(graze_rng.generation_count, 1)
 
 
 if __name__ == "__main__":
