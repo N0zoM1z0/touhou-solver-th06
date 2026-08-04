@@ -349,10 +349,25 @@ run rather than treating the source table alone as promotion evidence.
 The completed f2009-to-local-t160 sweep found targeted h4/h6/h8 identical on
 all eight delivery seeds; target-free h4 retained `up` instead of restoring
 the bottom route. Only sub8 `ecl_time < 160` is now authored as bottom-target
-h4 state `entry-movement`. Run ordinary RNG/default fail-close. Expected
-success is an alive `phase-unavailable` stop under the same stable sub8 boss
-identity at ecl time 160, before its first Hard aimed circle. Verify rank-2
-player-shot births and motion in the adjacent physical window.
+h4 state `entry-movement`. Its ordinary-RNG default fail-close run reached
+f2167/local t160 alive, then stopped exactly as `phase-unavailable` under the
+same stable boss identity before the first aimed circle. There was no HIT,
+Bomb, stale publication, timeout, or earlier authority loss. The boundary is
+`(194.603,379.740)`, Power 9, no hostile bullets, one boss, and all 18
+Hard-safe actions.
+
+The 155 fresh entry decisions measured 0.945 ms median, 1.098 ms p90, and
+1.246 ms maximum. Adjacent replay matched all 254 player/combat/RNG/rank/item/
+Power transitions and all 1,886 player-shot steps, including 56 exact births
+across the Power 4-to-9 window, with no unsupported combat state. This
+physically promotes only `entry-movement`.
+
+Use the exact local-t160 root for the next offline comparison. Model the
+source 16-by-5 player-aimed circle in the complete candidate-conditioned
+battle world and compare the smallest publishable phase-local policies. Keep
+the later local-t414/t444 attack state independently fail-visible unless the
+source transition evidence requires an earlier boundary. Physical promotion
+still requires an ordinary-RNG default fail-close run and adjacent parity.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

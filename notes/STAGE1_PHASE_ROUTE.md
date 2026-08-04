@@ -262,3 +262,22 @@ bottom-target h4 and source state `entry-movement`. At ecl time 160 it returns
 `phase-unavailable` under the same stable boss identity, before executing the
 first Hard circle. The next ordinary-RNG run must reach that boundary alive
 and provide physical parity for the Power-8 rank-2 shots created on the way.
+
+That ordinary-RNG default fail-close run physically promoted the entry state.
+It reached f2167 with sub8 at exact local ECL t160, then stopped alive as
+`phase-unavailable` before publishing an action into the first unauthored
+circle. There was no HIT, Bomb, timeout, stale publication, or earlier Hard
+authority loss. The boundary retained all 18 Hard-safe actions and a
+five-frame held certificate at `(194.603,379.740)`, Power 9, with no hostile
+bullets and one boss slot.
+
+The 155 fresh `entry-movement` decisions measured 0.945 ms median, 1.098 ms
+p90, and 1.246 ms maximum. The retained physical window included five Power
+transitions from 4 through 9 and therefore exercised the newly compiled rank-2
+straight and homing shots. Adjacent replay matched all 254 player-attack,
+enemy-combat, RNG, graze/rank, pending-effect, item, and Power transitions,
+all 1,886 player-shot steps, all 56 shot births, and all five enemy transition
+frames, with no unsupported combat world step. The next offline root is the
+exact local-t160 boundary; it must model the player-conditioned 16-by-5 circle
+and stop again before the later local-t414 attack state unless physical/source
+evidence justifies a smaller boundary.
