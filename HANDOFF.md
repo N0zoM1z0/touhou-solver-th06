@@ -339,6 +339,13 @@ local t160), unless the complete causal sweep proves a slightly larger state
 boundary. Keep the local-t160 attack and later movement/attack states
 independently fail-visible.
 
+The first sweep correctly failed closed when retained Power items raised the
+entry from Power 5 to 8 at f2092. Authoritative Reimu-A rank 2 is now compiled:
+one 48-damage straight shot every five fire ticks and two 14-damage homing orb
+shots every 30 ticks. Ranks 3--8 remain unsupported. Focused source tests pass;
+require adjacent physical parity for these newborn rank-2 shots on the next
+run rather than treating the source table alone as promotion evidence.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

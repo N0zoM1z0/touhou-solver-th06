@@ -237,3 +237,14 @@ same-frame slot update. A focused source regression checks an offscreen
 time-zero boss move: ECL time becomes 2, boss timer 1, and the bounds flag
 remains false. The retained f2008--f2009 transition and all 255 adjacent enemy
 steps now match exactly with no unsupported combat state.
+
+The first exact f2009 entry sweep then failed closed at physical-equivalent
+f2092 rather than fabricating a boss result. Six retained items remain live at
+the entry; Power items are collected at f2015, f2058, and f2092, raising Power
+5 to 8. That crosses from Reimu-A source shot rank 1 into the previously
+uncompiled rank 2 table. Authoritative rank 2 contains the existing straight
+48-damage main shot every five fire ticks plus two 14-damage homing orb shots
+at fire phase zero every 30 ticks, launched at -120 and -60 degrees. Only this
+rank is now compiled; ranks 3--8 remain fail closed. The next physical entry
+run must parity-check rank-2 shot births and motion before the boss-entry
+policy is promoted.
