@@ -75,6 +75,14 @@ reason/provenance
 optional diagnostics
 ```
 
+For fixed timeline structure, prefer a small data-driven source-clock state
+machine over a global scene-classifier tree. The route selects one phase
+first; only that phase's state is evaluated. State names should express source
+or tactical meaning (`child-circle`, `horizontal-band`, `laser-sweep`) and own
+their primitive/horizon/target. A callback-, RNG-, or resource-conditioned
+boss phase may use a private richer machine behind the same intent contract.
+It must not add another common-solver branch.
+
 The policy may use phase-specific corridors, safespots, streaming rules,
 damage alignment, item/Power value, future event timing, RNG-conditioned
 branches, beam search, dynamic programming, or a tiny native evaluator. It

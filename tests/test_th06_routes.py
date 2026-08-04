@@ -12,6 +12,7 @@ from th06.routes.stage4_hard_reimu_a import (
     TIMELINE_PHASES,
     timeline_phase,
 )
+from th06.routes.state_machine import PolicyState, TimelineStateMachine
 from th06.solver import Solver
 
 
@@ -75,7 +76,11 @@ class RoutePhaseTests(unittest.TestCase):
         )
         source_times = {instruction.time for instruction in timeline}
         self.assertTrue(
-            {phase.start for phase in TIMELINE_PHASES if phase.start}
+            {
+                machine.start_time
+                for machine in TIMELINE_PHASES
+                if machine.start_time
+            }
             <= source_times
         )
         self.assertEqual(len(timeline), 404)
@@ -101,17 +106,51 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_phase(2712).phase_id,
             "timeline:t2712:subs5-4-3",
         )
-        self.assertEqual(timeline_phase(2388).horizon, 16)
+        self.assertEqual(
+            timeline_phase(2388).state(2388).state_id,
+            "formation",
+        )
 
     def test_t1004_phase_uses_the_physically_publishable_local_rung(self):
         phase = timeline_phase(1004)
         self.assertEqual(phase.phase_id, "timeline:t1004:subs2-3")
-        self.assertEqual(phase.horizon, 8)
+        self.assertEqual(phase.state(1004).horizon, 8)
 
     def test_t1514_phase_uses_its_measured_publishable_rung(self):
         phase = timeline_phase(1514)
         self.assertEqual(phase.phase_id, "timeline:t1514:sub10")
-        self.assertEqual(phase.horizon, 8)
+        self.assertEqual(phase.state(1514).state_id, "parent-entry")
+        self.assertEqual(phase.state(1584).state_id, "child-circle")
+        self.assertEqual(phase.state(1615).horizon, 8)
+
+    def test_historical_dense_rules_are_owned_by_their_source_states(self):
+        horizontal = timeline_phase(2388)
+        following = timeline_phase(2712)
+
+        self.assertEqual(horizontal.state(2457).state_id, "formation")
+        self.assertEqual(horizontal.state(2457).horizon, 8)
+        self.assertEqual(horizontal.state(2458).state_id, "horizontal-band")
+        self.assertEqual(horizontal.state(2458).horizon, 6)
+        self.assertEqual(following.state(2712).state_id, "dense-aimed-stream")
+        self.assertEqual(following.state(2712).horizon, 6)
+        self.assertEqual(timeline_phase(1878).state(2200).horizon, 12)
+
+    def test_phase_state_machine_can_seek_without_cross_phase_history(self):
+        machine = TimelineStateMachine(
+            "test-phase",
+            (
+                PolicyState(10, "entry", "target-only", 4, (10.0, 20.0)),
+                PolicyState(20, "active", "policy-volume", 8, (30.0, 40.0)),
+            ),
+        )
+
+        active = machine.intent(snapshot(timeline_time=25))
+        entry = machine.intent(snapshot(timeline_time=15))
+
+        self.assertEqual(active.policy_state, "active")
+        self.assertEqual(active.horizon, 8)
+        self.assertEqual(entry.policy_state, "entry")
+        self.assertEqual(entry.horizon, 4)
 
     def test_ecl_phase_identity_survives_pointer_relocation(self):
         first = SimpleNamespace(
@@ -148,6 +187,7 @@ class RoutePhaseTests(unittest.TestCase):
         intent = HardReimuAStage4().intent(snapshot(spawners=(boss,)))
         self.assertIsNotNone(intent)
         self.assertEqual(intent.algorithm, "uncovered")
+        self.assertEqual(intent.policy_state, "uncovered")
         self.assertEqual(
             intent.phase_id,
             "boss:0:sub1:life_cb22:timer_cb23:nonspell",
@@ -161,7 +201,18 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertIn(decision.action, hard_actions)
         self.assertEqual(decision.route_id, "hard-reimu-a-stage4")
         self.assertEqual(decision.phase_id, "timeline:t0:setup")
+        self.assertEqual(decision.policy_state, "staging")
         self.assertEqual(decision.effort_horizon, 8)
+
+    def test_common_solver_runs_only_the_selected_dense_phase_state(self):
+        decision = Solver(decision_budget_ms=100.0).decide(
+            snapshot(timeline_time=2458)
+        )
+
+        self.assertEqual(decision.reason, "ok")
+        self.assertEqual(decision.phase_id, "timeline:t2388:subs11-13")
+        self.assertEqual(decision.policy_state, "horizontal-band")
+        self.assertEqual(decision.effort_horizon, 6)
 
     def test_missing_route_is_fail_visible_even_when_hard_exists(self):
         decision = Solver().decide(snapshot(stage=3))

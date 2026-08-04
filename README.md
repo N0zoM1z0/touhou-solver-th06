@@ -30,6 +30,8 @@ at annotated tag `pre-phase-route-pivot-20260804`.
 - `scripts/th06/solver.py` is the small common authority and route dispatch.
 - `scripts/th06/routes/` contains route keys, source-phase identity, and the
   authored route packs. The current pilot is Hard/Reimu-A/Stage 4.
+- `scripts/th06/routes/state_machine.py` contains isolated source-clock policy
+  states; only the selected route phase can emit an intent.
 - `scripts/th06/barrage_lab/` provides source-derived/stateful offline
   workloads. It is an experiment bed, not a clear oracle.
 - `tests/corpus/counterexamples/` retains small understood shared-model and
@@ -110,7 +112,7 @@ causal battle simulation: candidate-conditioned aim, damage/kill/retirement,
 callbacks, and resulting RNG/item effects still require phase-driven work.
 
 The first Stage 4 route pack currently covers audited pre-boss timeline
-sections with route-selected bounded local policy horizons. Boss ECL phases
-are deliberately reported as `phase-unavailable` until authored. This
-fail-visible boundary is intentional; no anonymous universal fallback hides
-missing route work.
+sections with route-selected, source-clock policy states and bounded local
+horizons. Boss ECL phases are deliberately reported as `phase-unavailable`
+until authored. This fail-visible boundary is intentional; no anonymous
+universal fallback hides missing route work.

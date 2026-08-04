@@ -28,6 +28,7 @@ fresh coherent snapshot
     -> route-neutral source future + delivery-aware Hard-4
     -> exact route key (difficulty/character/shot/stage)
     -> stable source phase
+    -> phase-local source-clock policy state
     -> route-selected short policy primitive
     -> intersect with fresh Hard
     -> publish one action
@@ -39,10 +40,19 @@ fresh coherent snapshot
 `phase-unavailable`. There is no anonymous fallback planner.
 
 The first route is `hard-reimu-a-stage4`. Its pre-boss phase manifest is
-audited against the installed Stage 4 ECL timeline. Each section currently
-uses the retained local policy-volume primitive at a route-selected horizon
-and a soft staging target. These are bootstrap parameters, not physically
-tuned claims. Boss ECL phases are intentionally uncovered.
+audited against the installed Stage 4 ECL timeline. Each section now owns an
+isolated state machine (`parent-entry`, `child-circle`, `horizontal-band`,
+`tail`, and similar source states). A state owns its local primitive, horizon,
+target, commitment, and provenance; only the selected phase machine executes.
+The current machines use the retained local policy-volume primitive. Boss ECL
+phases are intentionally uncovered.
+
+The historical Stage 4 clear solver was inspected in a detached worktree. Its
+useful dense-wave evidence has been extracted without restoring its global
+scene classifier: the old f2625--f2709 h6 publication/escape behavior belongs
+only to the t2388 horizontal-band and t2712 dense-aimed states. The physically
+measured t1004 and t1514 states remain h8. Every decision now logs
+`policy_state` separately from the stable source `phase_id`.
 
 The common layer retains sole authority over collision/source physics,
 Hard eligibility, unknown fail-close, input delivery, and no-Bomb. A route
@@ -88,10 +98,10 @@ Retained algorithm tests cover source physics, Hard and delivery semantics,
 future world behavior, native/reference parity, and local primitives that a
 phase may deliberately select.
 
-Current checks:
+Current checks after the state-machine extraction:
 
-- Linux: 267 tests passed, 25 skipped;
-- Windows/native: 267 tests passed, no skips/failures;
+- Linux: 272 tests passed, 25 skipped;
+- Windows/native: 272 tests passed, no skips/failures;
 - rebuilt `build/th06_safety.dll` SHA-256:
   `e8ab022e4091bb17df0a1bc01f0a98e7ab1eea131ff1cb6ca7c06992e187e1a2`.
 
@@ -106,8 +116,9 @@ old boundary with 317 decisions, zero stale results, zero timeouts, and 5.926
 ms median solve time. The next stop was alive at f1615 in
 `timeline:t1514:sub10`: h12 measured 19.785 ms median with 10 stale results and
 18 timeouts. Offline retained-root replay kept all compared horizons alive for
-32 frames, while h8 used materially fewer commands. t1514 is now changed to
-h8 and awaits physical rerun.
+32 frames, while h8 used materially fewer commands. t1514 is now h8 and its
+f1615 boundary maps specifically to policy state `child-circle`; it awaits a
+physical rerun.
 
 ## Immediate experiment
 
@@ -121,7 +132,7 @@ Use ordinary RNG, default fail-close, non-PTY launch, and no diagnostic flags.
 Expected outcomes after the t1004 h8 correction:
 
 1. a pre-boss policy fails first, in which case the trace must name its exact
-   `route_id` and `phase_id`; or
+   `route_id`, `phase_id`, and `policy_state`; or
 2. pre-boss play reaches the first boss, where the deliberate
    `phase-unavailable` stop must report the stable boss ECL phase.
 

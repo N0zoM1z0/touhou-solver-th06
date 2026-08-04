@@ -34,6 +34,7 @@ class RouteIntent:
     """
 
     phase_id: str
+    policy_state: str
     algorithm: str
     horizon: int
     target: tuple[float, float] | None

@@ -1,70 +1,185 @@
 """Hard/Reimu-A Stage 4 route pilot.
 
-The timeline section starts below were audited from the installed
-``ecldata4.ecl``.  They are source timeline times at natural spawn gaps, not
-game-frame counterexamples.  This first policy intentionally keeps the route
-data small: each section chooses a bounded local primitive and a soft staging
-point.  Physical iteration will replace individual entries with compiled
-state-conditioned policies as each phase is reached.
+The route is a table of isolated source-phase state machines.  Their state
+boundaries come from installed timeline spawns and the ECL-local delay before
+the relevant child/shoot instruction.  The table deliberately contains no
+global bullet-count or wall-position classifier: only the selected source
+phase runs, and each state names the local primitive it owns.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from ..model import Snapshot
 from .base import RouteIntent, RouteKey
 from .phase import boss_phase_id
+from .state_machine import PolicyState, TimelineStateMachine
 
 
-@dataclass(frozen=True)
-class TimelinePhase:
-    start: int
-    phase_id: str
-    horizon: int
-    target: tuple[float, float]
+BOTTOM_CENTER = (192.0, 380.0)
 
 
-# Source event groups from the installed Stage 4 timeline.  The names retain
-# the source time and spawned sub IDs so an entry can be re-audited without a
-# spell-name database.  The t2388 and t2712 groups bracket the dense crossing
-# waves seen in the current physical Stage 4 workload.
+def state(
+    start_time: int,
+    state_id: str,
+    horizon: int,
+    provenance: str,
+) -> PolicyState:
+    return PolicyState(
+        start_time=start_time,
+        state_id=state_id,
+        algorithm="policy-volume",
+        horizon=horizon,
+        target=BOTTOM_CENTER,
+        provenance=provenance,
+    )
+
+
+def phase(phase_id: str, *states: PolicyState) -> TimelineStateMachine:
+    return TimelineStateMachine(phase_id, tuple(states))
+
+
+# Source event groups from installed ecldata4.ecl.  Sub-state boundaries are
+# source events, not captured failure frames.  Historical frames only select
+# the local primitive/horizon after the source phase has already been fixed.
 TIMELINE_PHASES = (
-    TimelinePhase(0, "timeline:t0:setup", 8, (192.0, 380.0)),
-    TimelinePhase(440, "timeline:t440:sub0", 8, (192.0, 380.0)),
-    # The first post-pivot physical run measured h12 at 16.76 ms median and
-    # 27.72 ms maximum in this section, with 17 stale publications before its
-    # f1329 stop.  Stateful replay on the retained f1290--f1327 battle roots
-    # kept h8 alive while publishing the missed downward f1320 correction.
-    TimelinePhase(1004, "timeline:t1004:subs2-3", 8, (192.0, 380.0)),
-    # The next physical run crossed t1004 with zero stale results, then
-    # measured this h12 section at 19.79 ms median with 10 stale publications
-    # and 18 timeouts before f1615.  Retained battle roots keep h8 alive for
-    # 32 frames with 2.64 mean commands versus h12's 4.50.
-    TimelinePhase(1514, "timeline:t1514:sub10", 8, (192.0, 380.0)),
-    TimelinePhase(1878, "timeline:t1878:subs3-2", 12, (192.0, 380.0)),
-    TimelinePhase(2388, "timeline:t2388:subs11-13", 16, (192.0, 380.0)),
-    TimelinePhase(2712, "timeline:t2712:subs5-4-3", 12, (192.0, 380.0)),
-    TimelinePhase(3452, "timeline:t3452:sub14", 12, (192.0, 380.0)),
-    TimelinePhase(4132, "timeline:t4132:sub21", 16, (192.0, 380.0)),
-    TimelinePhase(4932, "timeline:t4932:sub6-a", 12, (192.0, 380.0)),
-    TimelinePhase(5212, "timeline:t5212:sub6-b", 12, (192.0, 380.0)),
-    TimelinePhase(5492, "timeline:t5492:sub7", 12, (192.0, 380.0)),
-    TimelinePhase(5772, "timeline:t5772:subs3-16-18", 16, (192.0, 380.0)),
-    TimelinePhase(6586, "timeline:t6586:subs16-18-7", 16, (192.0, 380.0)),
-    TimelinePhase(7494, "timeline:t7494:subs11-17", 12, (192.0, 380.0)),
-    TimelinePhase(7644, "timeline:t7644:subs3-11-17", 16, (192.0, 380.0)),
-    TimelinePhase(8044, "timeline:t8044:sub3", 12, (192.0, 380.0)),
-    TimelinePhase(8414, "timeline:t8414:subs8-9", 16, (192.0, 380.0)),
-    TimelinePhase(9844, "timeline:t9844:subs11-9", 16, (192.0, 380.0)),
-    TimelinePhase(10694, "timeline:t10694:boss-entry", 8, (192.0, 380.0)),
+    phase(
+        "timeline:t0:setup",
+        state(0, "staging", 8, "quiet route entry"),
+    ),
+    phase(
+        "timeline:t440:sub0",
+        state(440, "parent-entry", 8, "timeline sub0 parents"),
+        # sub0 reaches ENEMYCREATE sub1 at local ECL t70.
+        state(510, "child-circle", 8, "sub0 child sub1 at local t70"),
+        state(575, "tail", 8, "last t504 parent child emitted by t574"),
+    ),
+    phase(
+        "timeline:t1004:subs2-3",
+        # Subs 2/3 set and shoot their aimed fans at ECL t0.
+        state(
+            1004,
+            "aimed-stream",
+            8,
+            "physical t1004 h8 crossed the old f1329 publication boundary",
+        ),
+        state(1365, "tail", 8, "last immediate fan spawned at t1364"),
+    ),
+    phase(
+        "timeline:t1514:sub10",
+        state(1514, "parent-entry", 8, "timeline sub10 parents"),
+        # sub10 creates sub1 at local ECL t70; the current f1615 boundary is
+        # therefore inside this state rather than an anonymous multi-enemy
+        # scene.  The historical clear solver also recorded multi-enemy cost
+        # trouble near f1565.
+        state(
+            1584,
+            "child-circle",
+            8,
+            "sub10 child sub1 at local t70; physical f1615 h12 timed out",
+        ),
+        state(1649, "tail", 8, "last t1578 parent child emitted by t1648"),
+    ),
+    phase(
+        "timeline:t1878:subs3-2",
+        state(1878, "aimed-stream", 12, "subs3/2 immediate aimed fans"),
+        state(2239, "tail", 8, "last immediate fan spawned at t2238"),
+    ),
+    phase(
+        "timeline:t2388:subs11-13",
+        state(2388, "formation", 8, "subs11/13 shoot at local ECL t70"),
+        # Old physical CEs f2625/f2652/f2663/f2665/f2668/f2709 all belong to
+        # this exact pre-midboss source phase.  The Stage 4 clear used the
+        # bounded h6 primitive here once the horizontal bands matured; making
+        # that phase ownership explicit removes the old >=400-bullet branch.
+        state(
+            2458,
+            "horizontal-band",
+            6,
+            "historical Stage 4 horizontal-band h6 publication/escape CEs",
+        ),
+    ),
+    phase(
+        "timeline:t2712:subs5-4-3",
+        # Historical f2760/f2912 are in this immediate aimed-fan group and
+        # likewise needed the bounded dense h6 rung without paying for it in
+        # unrelated phases.
+        state(
+            2712,
+            "dense-aimed-stream",
+            6,
+            "historical Stage 4 f2760/f2912 bounded dense rung",
+        ),
+        state(3263, "tail", 8, "last immediate fan spawned at t3262"),
+    ),
+    phase(
+        "timeline:t3452:sub14",
+        state(3452, "formation", 8, "sub14 shoots at local ECL t30"),
+        # f4091 measured an unnecessary h8 pass at 392 bullets, but also
+        # showed this source group needs a bounded continuation rather than a
+        # target-only rule.  h8 is retained and isolated to the group.
+        state(
+            3482,
+            "dense-radial",
+            8,
+            "historical Stage 4 f4091 dense publication evidence",
+        ),
+        state(3723, "tail", 8, "last t3692 spawn fires by t3722"),
+    ),
+    phase(
+        "timeline:t4132:sub21",
+        state(4132, "midboss-entry", 12, "source midboss spawn/interrupt"),
+    ),
+    phase(
+        "timeline:t4932:sub6-a",
+        state(4932, "formation-a", 12, "installed t4932 sub6 group"),
+    ),
+    phase(
+        "timeline:t5212:sub6-b",
+        state(5212, "formation-b", 12, "installed t5212 sub6 group"),
+    ),
+    phase(
+        "timeline:t5492:sub7",
+        state(5492, "formation", 12, "installed t5492 sub7 group"),
+    ),
+    phase(
+        "timeline:t5772:subs3-16-18",
+        state(5772, "mixed-entry", 16, "installed subs3/16/18 group"),
+    ),
+    phase(
+        "timeline:t6586:subs16-18-7",
+        state(6586, "mixed-entry", 16, "installed subs16/18/7 group"),
+    ),
+    phase(
+        "timeline:t7494:subs11-17",
+        state(7494, "delayed-circle", 12, "subs11/17 delayed source shots"),
+    ),
+    phase(
+        "timeline:t7644:subs3-11-17",
+        state(7644, "mixed-stream", 16, "installed subs3/11/17 group"),
+    ),
+    phase(
+        "timeline:t8044:sub3",
+        state(8044, "aimed-stream", 12, "sub3 immediate aimed fans"),
+    ),
+    phase(
+        "timeline:t8414:subs8-9",
+        state(8414, "dense-aimed-stream", 16, "96 installed subs8/9 spawns"),
+    ),
+    phase(
+        "timeline:t9844:subs11-9",
+        state(9844, "mixed-stream", 16, "53 installed subs11/9 spawns"),
+    ),
+    phase(
+        "timeline:t10694:boss-entry",
+        state(10694, "dialogue-entry", 8, "source message/boss entry"),
+    ),
 )
 
 
-def timeline_phase(timeline_time: int) -> TimelinePhase:
+def timeline_phase(timeline_time: int) -> TimelineStateMachine:
     return max(
-        (phase for phase in TIMELINE_PHASES if phase.start <= timeline_time),
-        key=lambda phase: phase.start,
+        (machine for machine in TIMELINE_PHASES if machine.start_time <= timeline_time),
+        key=lambda machine: machine.start_time,
     )
 
 
@@ -80,11 +195,9 @@ class HardReimuAStage4:
                 boss,
                 bool(snapshot.player_attack and snapshot.player_attack.spell_active),
             )
-            # Boss policy is deliberately exposed as uncovered until its ECL
-            # phases are audited and authored.  Falling back to an anonymous
-            # universal planner here would hide route work that remains.
             return RouteIntent(
                 phase_id=phase_id,
+                policy_state="uncovered",
                 algorithm="uncovered",
                 horizon=4,
                 target=None,
@@ -92,12 +205,4 @@ class HardReimuAStage4:
                 provenance="boss ECL phase has not been authored",
             )
 
-        phase = timeline_phase(snapshot.timeline_time)
-        return RouteIntent(
-            phase_id=phase.phase_id,
-            algorithm="policy-volume",
-            horizon=phase.horizon,
-            target=phase.target,
-            commitment_frames=4,
-            provenance="installed ecldata4.ecl timeline event groups",
-        )
+        return timeline_phase(snapshot.timeline_time).intent(snapshot)

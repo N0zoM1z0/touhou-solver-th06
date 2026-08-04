@@ -303,6 +303,7 @@ class Solver:
                 ),
                 route_id=pack.route_id,
                 phase_id=intent.phase_id,
+                policy_state=intent.policy_state,
                 proposal_source=intent.provenance,
             )
 
@@ -353,5 +354,6 @@ class Solver:
             ),
             route_id=pack.route_id,
             phase_id=intent.phase_id,
+            policy_state=intent.policy_state,
             proposal_source=proposal_source,
         )

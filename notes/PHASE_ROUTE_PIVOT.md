@@ -141,3 +141,26 @@ missed its late correction window. On seven retained f1568--f1607 battle
 roots, h8/h12/h16 all survived 32 frames; h8 used 2.64 mean commands versus
 h12's 4.50 and h16's 8.93. The next phase-local falsifier changes only t1514
 to h8.
+
+## Legacy-policy extraction
+
+The historical Stage 4 clear checkpoint `17fd93a` and the complete pre-pivot
+checkpoint were inspected in a detached temporary worktree. The clear solver
+contained no `snapshot.stage` branch; its 840 lines used global combinations
+of bullet density, lasers, enemy count, boundary relief, Hard-set width, and
+continuation cost as implicit phase classifiers. By the later Stage 5 line the
+same approach had reached 3122 solver lines and competing scheduling rules.
+
+The replacement now represents each Stage 4 source phase as an isolated,
+seekable source-clock state machine. It logs a stable `phase_id` and a separate
+`policy_state`. t1514, for example, progresses from `parent-entry` to
+`child-circle` at source t1584 because sub10 reaches ENEMYCREATE sub1 at local
+ECL t70; the physical f1615 boundary is in that state. Historical dense CEs
+f2625--f2709 map before the midboss to the t2388/t2712 source phases, so their
+bounded h6 primitive is now owned only by `horizontal-band` and
+`dense-aimed-stream`. No bullet-count condition was restored.
+
+The state representation is intentionally deterministic under offline seek:
+replaying t2458 directly selects the same state without mutable controller
+history. Future RNG/resource/callback machines may implement the same private
+intent contract, while common Hard authority remains unchanged.

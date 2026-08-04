@@ -241,7 +241,7 @@ def run(args: argparse.Namespace) -> int:
                 "frame_multiplier", "action", "safe", "horizon", "held_horizon",
                 "effort_horizon",
                 "effort_safe", "repairable",
-                "route_id", "phase_id", "proposal_source",
+                "route_id", "phase_id", "policy_state", "proposal_source",
                 "clearance", "solve_ms",
                 "dialogue", "skip", "advance_pulse", "authority_stop", "reason",
             ))
@@ -535,6 +535,7 @@ def run(args: argparse.Namespace) -> int:
                     decision.effort_safe_count, decision.repairable_count,
                     decision.route_id,
                     decision.phase_id,
+                    decision.policy_state,
                     decision.proposal_source,
                     f"{decision.clearance:.3f}",
                     f"{solve_ms:.3f}",
@@ -553,7 +554,8 @@ def run(args: argparse.Namespace) -> int:
                         f"repairable={decision.repairable_count} "
                         f"h={decision.horizon}/{decision.held_horizon} "
                         f"route={decision.route_id or '-'} "
-                        f"phase={decision.phase_id or '-'} reason={row_reason}",
+                        f"phase={decision.phase_id or '-'} "
+                        f"policy={decision.policy_state or '-'} reason={row_reason}",
                         flush=True,
                     )
                 last_reason = row_reason

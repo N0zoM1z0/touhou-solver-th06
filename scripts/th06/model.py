@@ -443,6 +443,7 @@ class Decision:
     suppression_source: str = ""
     route_id: str = ""
     phase_id: str = ""
+    policy_state: str = ""
     proposal_source: str = ""
 
 
