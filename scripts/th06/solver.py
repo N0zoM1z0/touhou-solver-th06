@@ -52,7 +52,7 @@ POLICY_DEADLINE_GUARD_MS = 0.5
 # final poll overshoot as well as the ordinary publication handoff.
 TERMINAL_DEADLINE_GUARD_MS = 1.5
 BASE_RECOVERY_CONFIRMATIONS = 2
-PUBLICATION_RECOVERY_CONFIRMATIONS = 2
+PUBLICATION_RECOVERY_FRACTION = 0.02
 
 
 class EffortController:
@@ -90,7 +90,6 @@ class EffortController:
         self.last_limit = HARD_SAFETY_HORIZON
         self.base_recovery_confirmations = 0
         self.base_recovery_last_frame: int | None = None
-        self.publication_recovery_confirmations = 0
 
     @staticmethod
     def rollout_work(
@@ -738,27 +737,18 @@ class EffortController:
             self.last_limit = HARD_SAFETY_HORIZON
             self.base_recovery_confirmations = 0
             self.base_recovery_last_frame = None
-            self.publication_recovery_confirmations = 0
         else:
             if self.publication_scale < 1.0:
-                self.publication_recovery_confirmations += 1
-                if (
-                    self.publication_recovery_confirmations
-                    >= PUBLICATION_RECOVERY_CONFIRMATIONS
-                ):
-                    # The stale proposal was never published.  Two subsequent
-                    # on-time Hard publications are fresh physical evidence
-                    # that the transient latency has passed; keeping the
-                    # compute penalty for dozens more frames can itself starve
-                    # the first turn-capable continuation.
+                # A cheap constrained publication proves only that its reduced
+                # budget fits; it is not evidence that the formerly stale full
+                # budget has become publishable.  Recover additively toward the
+                # ceiling so each larger compute rung is reintroduced through
+                # measured physical publications instead of a two-frame jump.
+                self.publication_scale += (
+                    1.0 - self.publication_scale
+                ) * PUBLICATION_RECOVERY_FRACTION
+                if 1.0 - self.publication_scale < 0.01:
                     self.publication_scale = 1.0
-                    self.publication_recovery_confirmations = 0
-                else:
-                    self.publication_scale += (
-                        1.0 - self.publication_scale
-                    ) * 0.02
-            else:
-                self.publication_recovery_confirmations = 0
 
 
 class Solver:

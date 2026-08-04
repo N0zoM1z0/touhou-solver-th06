@@ -3050,7 +3050,7 @@ class AnytimePolicyTests(unittest.TestCase):
         self.assertLess(controller.budget_ms(), before)
         self.assertEqual(controller.last_limit, HARD_SAFETY_HORIZON)
 
-    def test_two_fresh_publications_release_transient_budget_penalty(self):
+    def test_fresh_publications_recover_budget_gradually(self):
         controller = EffortController(12.5)
         state = snapshot(
             bullets=tuple(
@@ -3070,6 +3070,7 @@ class AnytimePolicyTests(unittest.TestCase):
         reduced = controller.budget_ms()
         first = controller.choose_limit(state, 3, 2.4)
         controller.observe_publication(False)
+        first_recovery = controller.budget_ms()
         second = controller.choose_limit(
             replace(state, frame=101),
             3,
@@ -3089,11 +3090,13 @@ class AnytimePolicyTests(unittest.TestCase):
         )
 
         self.assertLess(reduced, 12.5)
-        self.assertEqual(restored, 12.5)
+        self.assertLess(reduced, first_recovery)
+        self.assertLess(first_recovery, restored)
+        self.assertLess(restored, 12.5)
         self.assertEqual(first, HARD_SAFETY_HORIZON)
         self.assertEqual(second, HARD_SAFETY_HORIZON)
         self.assertEqual(third, HARD_SAFETY_HORIZON)
-        self.assertEqual(fourth, BASE_POLICY_HORIZON)
+        self.assertEqual(fourth, HARD_SAFETY_HORIZON)
 
     def test_commitment_requires_a_fresh_preferred_certificate(self):
         ranker = ProposalRanker()
