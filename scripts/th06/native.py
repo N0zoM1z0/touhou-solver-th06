@@ -710,6 +710,29 @@ def _timeline_ecl_program(
     return program
 
 
+def _with_installed_interrupt_programs(
+    process: NativeProcess,
+    program: tuple[EclInstruction, ...],
+    interrupts: tuple[int, ...],
+) -> tuple[EclInstruction, ...]:
+    """Add source graphs reachable through a live Enemy interrupt table."""
+    program_by_address = {
+        instruction.address: instruction for instruction in program
+    }
+    for sub_id in sorted(set(interrupts)):
+        if sub_id < 0:
+            continue
+        for instruction in _read_ecl_program(
+            process,
+            process.ecl_subroutines[sub_id],
+        ):
+            program_by_address.setdefault(instruction.address, instruction)
+    return tuple(
+        program_by_address[address]
+        for address in sorted(program_by_address)
+    )
+
+
 def _read_message_program(
     process: NativeProcess,
     msg_file: int,
@@ -1703,6 +1726,15 @@ def _read_snapshot_once(
             raise RuntimeError(
                 f"invalid ECL interrupt state at enemy slot {index}"
             )
+        # ENEMYINTERRUPTSET may already be behind the live instruction
+        # pointer, while the stage timeline can still set runInterrupt on a
+        # boss.  The table is authoritative state, so seed every installed
+        # target graph instead of relying only on future fallthrough.
+        ecl_program = _with_installed_interrupt_programs(
+            process,
+            ecl_program,
+            tuple(interrupts),
+        )
         enemy_address = (
             ADDR_ENEMY_MANAGER + ENEMY_ARRAY_OFFSET + index * ENEMY_STRIDE
         )

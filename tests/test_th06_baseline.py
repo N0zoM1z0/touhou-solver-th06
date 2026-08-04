@@ -1211,6 +1211,33 @@ class BaselineTests(unittest.TestCase):
             {start.address, fallthrough.address, child.address},
         )
 
+    def test_live_interrupt_table_seeds_past_registered_subroutine(self):
+        current = EclInstruction(
+            0x1000, -1, -1, 12, 0xFF, bytes(12).hex()
+        )
+        interrupt = EclInstruction(
+            0x2000, -1, -1, 12, 0xFF, bytes(12).hex()
+        )
+        instructions = {
+            current.address: current,
+            interrupt.address: interrupt,
+        }
+        process = type("Process", (), {
+            "ecl_subroutines": (0x3000, interrupt.address),
+            "read_ecl_instruction": lambda _self, address: instructions[address],
+        })()
+
+        program = native._with_installed_interrupt_programs(
+            process,
+            (current,),
+            (1, -1, 1),
+        )
+
+        self.assertEqual(
+            [instruction.address for instruction in program],
+            [current.address, interrupt.address],
+        )
+
     def test_native_spatial_replanning_matches_reference_scores(self):
         if os.name != "nt":
             self.skipTest("native kernel is loaded only by Windows Python")
