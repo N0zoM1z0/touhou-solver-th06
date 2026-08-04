@@ -545,6 +545,18 @@ transitions (including 236 ECL angle mutations), and both source laser
 removals. Use exact local-t211 next. Audit the movement and subsequent spell
 attack boundary from installed ECL before exposing another state.
 
+The local-t211 audit finds source random-in-bounds movement at speed 2 for 120
+ticks, followed by a t331 jump back to t120. Target-free h6/h8 survive all
+eight exact movement cycles. A 32-world high-pressure corpus derived through
+1,072 updates and 756 births keeps both at 32/32; h6 uses fewer commands and
+h8 has no survival win. Only `211 <= ecl_time < 331` is now authored as
+target-free h6 `random-movement`.
+
+Run ordinary RNG/default fail-close and require an alive stop at exact local
+t331 before the rewind. Validate RNG-conditioned heading/movement, accumulated
+aimed circles, combat, and RNG with adjacent parity. Keep the t331 rewind and
+any later spell-end callback fail-visible.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.

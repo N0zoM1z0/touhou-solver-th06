@@ -346,8 +346,29 @@ class RoutePhaseTests(unittest.TestCase):
             spawners=(boss,),
             player_attack=replace(player_attack(), spell_active=True),
         ))
-        self.assertEqual(spell_movement.algorithm, "uncovered")
-        self.assertEqual(spell_movement.policy_state, "uncovered")
+        self.assertEqual(spell_movement.algorithm, "policy-volume")
+        self.assertEqual(spell_movement.policy_state, "random-movement")
+        self.assertEqual(spell_movement.horizon, 6)
+        self.assertIsNone(spell_movement.target)
+
+        boss.ecl_time = 330
+        movement_tail = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3491,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(movement_tail.policy_state, "random-movement")
+
+        boss.ecl_time = 331
+        cycle_rewind = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=3492,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(cycle_rewind.algorithm, "uncovered")
+        self.assertEqual(cycle_rewind.policy_state, "uncovered")
 
     def test_stage4_timeline_boundaries_are_source_timeline_times(self):
         self.assertEqual(timeline_phase(2387).phase_id, "timeline:t1878:subs3-2")

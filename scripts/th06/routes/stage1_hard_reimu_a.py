@@ -296,9 +296,22 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                     "retire after the t151 loop and ECL advances to t210"
                 ),
             )
+        if boss.ecl_time < 331:
+            return RouteIntent(
+                phase_id=phase_id,
+                policy_state="random-movement",
+                algorithm="policy-volume",
+                horizon=6,
+                target=None,
+                commitment_frames=4,
+                provenance=(
+                    "physical local-t211 root; source random-in-bounds "
+                    "heading and 120-tick movement lead to the t331 rewind"
+                ),
+            )
         return uncovered(
             phase_id,
-            "Stage 1 sub9 spell at or after the local-t211 movement "
+            "Stage 1 sub9 spell at or after the local-t331 cycle rewind "
             "transition has not been authored",
         )
     return uncovered(

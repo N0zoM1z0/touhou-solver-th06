@@ -559,3 +559,27 @@ validate the preceding ECL mutation and later BulletManager update together.
 The corrected report matches all 326/326 retained laser transitions, including
 all 236 opposed angle mutations, plus both source-defined laser removals, with
 zero geometry/timer error. The next exact root is local t211.
+
+## sub9 random-movement candidate
+
+Installed sub9 executes three instructions at local t211: random movement in
+the active source bounds, speed 2.0, then a 120-tick decelerating movement.
+The delayed aimed-circle interval continues throughout. At local t331 a source
+jump rewinds the spell to t120, recreating the pattern/laser cycle; that jump
+is excluded from this candidate so a new physical boundary can validate it
+independently. The boss has life 256 on the exact root, but the first complete
+movement cycle remains sub9 under every tested candidate branch; spell-end
+semantics are therefore not needed to claim this bounded state.
+
+Target-free h6/h8 both survived all eight complete 120-update exact-root
+delivery seeds. h6 used fewer commands and retained 2.43--7.00 minimum
+clearance across the seeds; h8 spent more commands for 4.56--8.54 clearance.
+A higher-pressure corpus derived 32 complete worlds through 1,072 Hard-safe
+warmup updates and 756 births, spanning 17 enemy-combat, 32 player-attack, and
+17 RNG states. Across 32 measured 56-update cases, h6/h8 both survived 32/32
+with no deeper win. h6 used 4.63 mean commands versus 5.88; h8 raised mean
+clearance from 7.42 to 8.69 without changing survival.
+
+The smallest falsifier is therefore target-free policy-volume h6 for
+`211 <= ecl_time < 331`, state `random-movement`. Local t331 remains explicit
+`phase-unavailable` before the rewind into the already authored t120 cycle.
