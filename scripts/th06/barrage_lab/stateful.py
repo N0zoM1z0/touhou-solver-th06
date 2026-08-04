@@ -9,6 +9,7 @@ approximated.
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass, replace
 import math
 import struct
@@ -39,6 +40,7 @@ from ..model import (
 from ..ranking import ProposalRanker
 from ..safety import transition_actions
 from ..safety import certify_actions
+from ..safety import DELIVERY_DELAYS
 from ..viability import (
     delivery_segment_viability_scores,
     replanning_scores as source_replanning_scores,
@@ -72,6 +74,8 @@ TERMINAL_METRICS = (
     "count-focus-clearance",
     "count-focus-clearance-confirmed",
     "clearance-count",
+    "causal-world-count",
+    "causal-split-count",
 )
 # BulletManager::OnUpdate advances these three spawn states before calling the
 # installed bullet ANM script.  The standard archive completes the scripts on
@@ -109,7 +113,23 @@ class UnsupportedStatefulModel(ValueError):
 
 
 def _f32(value: float) -> float:
-    return struct.unpack("<f", struct.pack("<f", value))[0]
+    return ctypes.c_float(value).value
+
+
+def _copy_bullet(bullet: Bullet, **changes) -> Bullet:
+    """Copy the flat hot-path record without ``dataclasses.replace`` reflection."""
+    clone = object.__new__(Bullet)
+    clone.__dict__.update(bullet.__dict__)
+    clone.__dict__.update(changes)
+    return clone
+
+
+def _copy_player_shot(shot: PlayerShot, **changes) -> PlayerShot:
+    """Copy one flat player-shot slot without reflective field discovery."""
+    clone = object.__new__(PlayerShot)
+    clone.__dict__.update(shot.__dict__)
+    clone.__dict__.update(changes)
+    return clone
 
 
 def action_mask(action: Action) -> int:
@@ -226,7 +246,7 @@ def step_fired_bullet(
         vx = _f32(math.cos(angle) * current_speed)
         vy = _f32(math.sin(angle) * current_speed)
 
-    return replace(
+    return _copy_bullet(
         bullet,
         x=_f32(x + vx),
         y=_f32(y + vy),
@@ -253,13 +273,13 @@ def step_bullet(
             f"bullet slot {bullet.slot} is in unsupported state {bullet.state}"
         )
     divisor = _SPAWN_DIVISOR[bullet.state]
-    spawning = replace(
+    spawning = _copy_bullet(
         bullet,
         x=_f32(_f32(bullet.x) + _f32(_f32(bullet.vx) / divisor)),
         y=_f32(_f32(bullet.y) + _f32(_f32(bullet.vy) / divisor)),
     )
     if bullet.timer < _SPAWN_FINAL_TIMER[bullet.state]:
-        return replace(
+        return _copy_bullet(
             spawning,
             timer=bullet.timer + 1,
             timer_float=_f32(bullet.timer_float + 1.0),
@@ -267,7 +287,7 @@ def step_bullet(
     # ExecuteScript completed: source resets the timer, changes state, and
     # deliberately falls through into BULLET_STATE_FIRED in this same update.
     return step_fired_bullet(
-        replace(
+        _copy_bullet(
             spawning,
             state=1,
             timer=0,
@@ -359,7 +379,7 @@ def step_reimu_a_player_shot(
     anm_exit = 10000 if shot.state == 1 else 30
     if shot.anm_timer >= anm_exit:
         return None
-    return replace(
+    return _copy_player_shot(
         shot,
         x=x,
         y=y,
@@ -804,7 +824,7 @@ class _NominalCombatStep:
                     continue
                 damage += shot.damage
                 self._spawn_effects((5,), rng)
-                shots[index] = replace(
+                shots[index] = _copy_player_shot(
                     shot,
                     state=2,
                     vx=_f32(shot.vx / 8.0),
@@ -993,7 +1013,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         slot = next(free_slots, None)
         if slot is None:
             break
-        bullets.append(replace(bullet, slot=slot))
+        bullets.append(_copy_bullet(bullet, slot=slot))
     bullets = [step_bullet(bullet, (x, y)) for bullet in bullets]
 
     emitters = forecast.continuation.emitters
@@ -1050,19 +1070,25 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
 
 def collides_now(snapshot: Snapshot) -> bool:
     """Check the source kill boxes at the already-updated current frame."""
+    def touches(
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+    ) -> bool:
+        return not (
+            left > snapshot.x + snapshot.half_width
+            or snapshot.x - snapshot.half_width > right
+            or top > snapshot.y + snapshot.half_height
+            or snapshot.y - snapshot.half_height > bottom
+        )
+
     bullet_collision = any(
-        _within_margin(
-            snapshot.x,
-            snapshot.y,
-            snapshot.half_width,
-            snapshot.half_height,
-            (
-                bullet.x - bullet.half_width,
-                bullet.y - bullet.half_height,
-                bullet.x + bullet.half_width,
-                bullet.y + bullet.half_height,
-            ),
-            0.0,
+        touches(
+            bullet.x - bullet.half_width,
+            bullet.y - bullet.half_height,
+            bullet.x + bullet.half_width,
+            bullet.y + bullet.half_height,
         )
         for bullet in snapshot.bullets
         if bullet.state == 1
@@ -1070,18 +1096,11 @@ def collides_now(snapshot: Snapshot) -> bool:
     if bullet_collision:
         return True
     return any(
-        _within_margin(
-            snapshot.x,
-            snapshot.y,
-            snapshot.half_width,
-            snapshot.half_height,
-            (
-                enemy.x - enemy.half_width,
-                enemy.y - enemy.half_height,
-                enemy.x + enemy.half_width,
-                enemy.y + enemy.half_height,
-            ),
-            0.0,
+        touches(
+            enemy.x - enemy.half_width,
+            enemy.y - enemy.half_height,
+            enemy.x + enemy.half_width,
+            enemy.y + enemy.half_height,
         )
         for enemy in snapshot.enemies
     )
@@ -1107,6 +1126,203 @@ def current_bullet_clearance(snapshot: Snapshot) -> float:
             if bullet.state == 1
         ),
         default=999.0,
+    )
+
+
+def _delivery_action_branches(
+    snapshot: Snapshot,
+    candidate: Action,
+    frames: int,
+) -> tuple[tuple[Action, ...], ...]:
+    """Enumerate the same bounded delivery/prefix branches as Hard safety."""
+    current = action_from_input(snapshot.input_mask)
+    prefixes = transition_actions(current, candidate)
+    branches = []
+    for delay in DELIVERY_DELAYS:
+        transition_branches = (None,) + (prefixes if delay > 0 else ())
+        for prefix in transition_branches:
+            actions = []
+            for frame in range(1, frames + 1):
+                if prefix is not None:
+                    action = (
+                        current
+                        if frame < delay
+                        else prefix
+                        if frame == delay
+                        else candidate
+                    )
+                else:
+                    action = current if frame <= delay else candidate
+                actions.append(action)
+            sequence = tuple(actions)
+            if sequence not in branches:
+                branches.append(sequence)
+    return tuple(branches)
+
+
+def causal_world_terminal_counts(
+    snapshot: Snapshot,
+    candidates: tuple[SafeAction, ...],
+    segment_length: int,
+    horizon: int,
+    *,
+    continuation_actions: tuple[Action, ...] = CONTROL_ACTIONS,
+) -> dict[Action, int]:
+    """Count deduplicated nominal battle states behind each Hard candidate.
+
+    Unlike the shared static soft forecast, every branch advances the complete
+    compact battle world. Candidate movement therefore changes aimed births,
+    Reimu-A orbs and shots, enemy damage/death/callbacks, and their modeled RNG
+    consequences. The caller still supplies the Hard-certified first actions;
+    an unsupported nominal transition contributes no proposal evidence.
+
+    Later proposal continuations use the ordinary fixed-segment rung, but count
+    unique physical states rather than action spellings. This is an offline
+    comparison metric, not safety authority.
+    """
+    if segment_length <= 0 or horizon < segment_length:
+        raise ValueError("causal world horizon must cover one positive segment")
+    if not continuation_actions:
+        raise ValueError("causal world continuation actions cannot be empty")
+
+    def advance(
+        start: Snapshot,
+        actions: tuple[Action, ...],
+    ) -> Snapshot | None:
+        state = start
+        try:
+            for action in actions:
+                state = step_nominal_battle_world(state, action)
+                if collides_now(state):
+                    return None
+        except UnsupportedStatefulModel:
+            return None
+        return state
+
+    scores = {}
+    for candidate in candidates:
+        branch_counts = []
+        for delivery in _delivery_action_branches(
+            snapshot, candidate.action, segment_length
+        ):
+            first = advance(snapshot, delivery)
+            frontier = set() if first is None else {first}
+            for start_frame in range(segment_length, horizon, segment_length):
+                width = min(segment_length, horizon - start_frame)
+                next_frontier = set()
+                for state in frontier:
+                    for action in continuation_actions:
+                        following = advance(state, (action,) * width)
+                        if following is not None:
+                            next_frontier.add(following)
+                frontier = next_frontier
+                if not frontier:
+                    break
+            branch_counts.append(len(frontier))
+        scores[candidate.action] = min(branch_counts, default=0)
+    return scores
+
+
+def causal_split_terminal_counts(
+    snapshot: Snapshot,
+    candidates: tuple[SafeAction, ...],
+    segment_length: int,
+    horizon: int,
+    continuation_score: Callable[[Snapshot, int], int],
+) -> dict[Action, int]:
+    """Advance candidate-conditioned combat once, then score the fresh world.
+
+    This is the affordable rung between a shared static forecast and the full
+    causal-world frontier above. Every physical delivery/prefix branch runs
+    through the exact compact battle transition for the first segment. The
+    supplied continuation planner then starts from that branch-specific world;
+    the worst delivery branch remains the candidate's proposal score.
+    """
+    if segment_length <= 0 or horizon < segment_length:
+        raise ValueError("causal split horizon must cover one positive segment")
+
+    remaining = horizon - segment_length
+    scores = {}
+    for candidate in candidates:
+        branch_scores = []
+        for delivery in _delivery_action_branches(
+            snapshot, candidate.action, segment_length
+        ):
+            state = snapshot
+            try:
+                for action in delivery:
+                    state = step_nominal_battle_world(state, action)
+                    if collides_now(state):
+                        state = None
+                        break
+            except UnsupportedStatefulModel:
+                state = None
+            branch_scores.append(
+                0
+                if state is None
+                else 1
+                if remaining == 0
+                else max(0, int(continuation_score(state, remaining)))
+            )
+        scores[candidate.action] = min(branch_scores, default=0)
+    return scores
+
+
+@dataclass(frozen=True)
+class CausalBranchDiversity:
+    supported_actions: int
+    unique_enemy_combat_states: int
+    unique_player_attack_states: int
+    unique_rng_states: int
+    unique_bullet_counts: int
+
+
+def causal_branch_diversity(
+    snapshot: Snapshot,
+    frames: int,
+    *,
+    actions: tuple[Action, ...] = CONTROL_ACTIONS,
+) -> CausalBranchDiversity:
+    """Measure whether candidate paths actually fork the compact world."""
+    if frames <= 0 or not actions:
+        raise ValueError("causal branch probe dimensions must be positive")
+    results = []
+    for action in actions:
+        state = snapshot
+        try:
+            for _ in range(frames):
+                state = step_nominal_battle_world(state, action)
+                if collides_now(state):
+                    state = None
+                    break
+        except UnsupportedStatefulModel:
+            state = None
+        if state is not None:
+            results.append(state)
+
+    enemy_states = {
+        tuple(
+            (
+                emitter.slot,
+                emitter.life,
+                emitter.interactable,
+                emitter.damageable,
+                emitter.death_callback_sub,
+                (
+                    emitter.next_instruction.address
+                    if emitter.next_instruction is not None else None
+                ),
+            )
+            for emitter in state.spawners
+        )
+        for state in results
+    }
+    return CausalBranchDiversity(
+        len(results),
+        len(enemy_states),
+        len({state.player_attack for state in results}),
+        len({(state.rng_seed, state.rng_generation) for state in results}),
+        len({len(state.bullets) for state in results}),
     )
 
 
@@ -1136,6 +1352,50 @@ class ExactTerminalPolicy:
         self.metric_confirmation: Action | None = None
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
+        if self.metric in ("causal-world-count", "causal-split-count"):
+            candidates = certify_actions(
+                snapshot, 4, actions=CONTROL_ACTIONS
+            )
+            if not candidates:
+                return None
+            if self.metric == "causal-world-count":
+                scores = causal_world_terminal_counts(
+                    snapshot, candidates, 4, self.horizon
+                )
+            else:
+                def continuation_score(state, remaining):
+                    split = min(4, remaining)
+                    continuation = certify_actions(
+                        state, split, actions=CONTROL_ACTIONS
+                    )
+                    if not continuation:
+                        return 0
+                    if remaining <= 4:
+                        return len({
+                            (_f32(item.final_x), _f32(item.final_y))
+                            for item in continuation
+                        })
+                    values = terminal_reachability_counts(
+                        state, continuation, 4, remaining
+                    )
+                    return max(values.values(), default=0)
+
+                scores = causal_split_terminal_counts(
+                    snapshot,
+                    candidates,
+                    4,
+                    self.horizon,
+                    continuation_score,
+                )
+            best = max(scores.values(), default=0)
+            preferred = frozenset(
+                action for action, score in scores.items()
+                if best > 0 and score == best
+            )
+            return self.ranker.choose(
+                snapshot, candidates, preferred
+            ).action
+
         hard = certify_linear_source(snapshot, 4)
         if not hard.actions:
             return None
@@ -1396,7 +1656,53 @@ class NativeTerminalPolicy:
         )
         if not hard:
             return None
-        if self.horizon == 4:
+        if self.metric == "causal-world-count":
+            scores = causal_world_terminal_counts(
+                snapshot, hard, 4, self.horizon
+            )
+            best = max(scores.values(), default=0)
+            preferred = frozenset(
+                action for action, score in scores.items()
+                if best > 0 and score == best
+            )
+        elif self.metric == "causal-split-count":
+            def continuation_score(state, remaining):
+                split = min(4, remaining)
+                continuation = self.kernel.certify_selected(
+                    state,
+                    split,
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                )
+                if not continuation:
+                    return 0
+                if remaining <= 4:
+                    return len({
+                        (_f32(item.final_x), _f32(item.final_y))
+                        for item in continuation
+                    })
+                values = self.kernel.terminal_counts(
+                    state,
+                    continuation,
+                    4,
+                    remaining,
+                    collision_margin=0.35,
+                )
+                return max(values.values(), default=0)
+
+            scores = causal_split_terminal_counts(
+                snapshot,
+                hard,
+                4,
+                self.horizon,
+                continuation_score,
+            )
+            best = max(scores.values(), default=0)
+            preferred = frozenset(
+                action for action, score in scores.items()
+                if best > 0 and score == best
+            )
+        elif self.horizon == 4:
             preferred = frozenset()
         elif self.metric in ("count-vector", "local-count-vector"):
             rungs = _terminal_rungs(self.horizon)
@@ -2406,6 +2712,9 @@ class StatefulSweepSummary:
     case_metrics: tuple[
         tuple[int, tuple[tuple[int, str, int, int, float], ...]], ...
     ]
+    first_actions: tuple[
+        tuple[int, tuple[tuple[int, str], ...]], ...
+    ]
 
 
 @dataclass(frozen=True)
@@ -2417,6 +2726,9 @@ class NominalBattleDerivationSummary:
     total_warmup_updates: int
     total_born_bullets: int
     source_root_frames: tuple[int, ...]
+    unique_enemy_combat_states: int
+    unique_player_attack_states: int
+    unique_rng_states: int
 
 
 class _HardWorldExplorationPolicy:
@@ -2468,10 +2780,11 @@ def derive_nominal_battle_worlds(
     """Grow full battle states through safe, pickup-aware nominal play.
 
     Each output retains the captured bullet pool, enemy VM/timeline state,
-    shared RNG and slot occupancy.  The varied player history also changes
-    source aim and bullet age before the measured policy begins.  These worlds
-    remain nominal because player-shot damage and every RNG consumer are not
-    yet represented.
+    shared RNG and slot occupancy. The varied player history changes source
+    aim, Reimu-A shots, enemy damage/death/callbacks, and bullet age before the
+    measured policy begins. These worlds remain proposal-only nominal states:
+    active global ANM consumers outside the compact combat/ECL model are still
+    an explicit RNG boundary.
     """
     if not roots or cases <= 0 or maximum_warmup_frames <= 0:
         raise ValueError("nominal battle derivation dimensions must be positive")
@@ -2507,6 +2820,19 @@ def derive_nominal_battle_worlds(
         if result.outcome == "survived":
             worlds.append(history[-1])
 
+    enemy_states = {
+        tuple(
+            (
+                emitter.slot,
+                emitter.life,
+                emitter.interactable,
+                emitter.damageable,
+                emitter.death_callback_sub,
+            )
+            for emitter in world.spawners
+        )
+        for world in worlds
+    }
     return tuple(worlds), NominalBattleDerivationSummary(
         cases,
         len(worlds),
@@ -2515,6 +2841,9 @@ def derive_nominal_battle_worlds(
         total_updates,
         total_births,
         tuple(sorted(source_frames)),
+        len(enemy_states),
+        len({world.player_attack for world in worlds}),
+        len({(world.rng_seed, world.rng_generation) for world in worlds}),
     )
 
 
@@ -2807,6 +3136,7 @@ def run_stateful_sweep(
     decisions = {horizon: 0 for horizon in horizons}
     minimum_clearances = {horizon: 0.0 for horizon in horizons}
     case_metrics = {horizon: [] for horizon in horizons}
+    first_actions = {horizon: [] for horizon in horizons}
     wins = Counter()
     viable_cases = 0
     first_advantage = None
@@ -2866,6 +3196,11 @@ def run_stateful_sweep(
                 result.survived_frames,
                 result.commands,
                 result.minimum_clearance,
+            ))
+            first_actions[horizon].append((
+                seed,
+                result.decision_trace[0][1]
+                if result.decision_trace else "",
             ))
         for shallow_horizon, deep_horizon in zip(horizons, horizons[1:]):
             shallow = results[shallow_horizon]
@@ -2928,6 +3263,10 @@ def run_stateful_sweep(
         birth_events_per_case,
         tuple(
             (horizon, tuple(case_metrics[horizon]))
+            for horizon in horizons
+        ),
+        tuple(
+            (horizon, tuple(first_actions[horizon]))
             for horizon in horizons
         ),
     ), first_advantage

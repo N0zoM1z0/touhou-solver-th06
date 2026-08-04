@@ -115,9 +115,13 @@ def decode_snapshot(raw: dict) -> Snapshot:
 
 
 def load_failure_history(path: Path) -> tuple[Snapshot, ...]:
-    """Load the ordered physical snapshots retained in one failure artifact."""
+    """Load ordered physical snapshots retained by a runtime diagnostic."""
     artifact = json.loads(path.read_text(encoding="utf-8"))
-    raw_history = artifact.get("snapshot_history") or (artifact["snapshot"],)
+    raw_history = (
+        artifact.get("snapshot_history")
+        or artifact.get("mismatch_snapshots")
+        or (artifact["snapshot"],)
+    )
     history = tuple(decode_snapshot(raw) for raw in raw_history)
     if any(right.frame <= left.frame for left, right in zip(history, history[1:])):
         raise ValueError("runtime snapshot history must have increasing frames")

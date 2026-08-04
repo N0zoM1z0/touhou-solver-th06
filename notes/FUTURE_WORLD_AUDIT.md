@@ -507,3 +507,65 @@ their supported domain, not a Stage clear and not yet a stable multi-frame
 physical CE.  The next barrage-lab promotion must preserve the external RNG
 boundary, use candidate paths for aim and damage, and compare deeper branches
 only when their source RNG dependencies are complete.
+
+## Candidate-conditioned stateful corpus promotion (2026-08-04)
+
+The barrage lab now has two explicit proposal-only causal metrics.  The full
+`causal-world-count` oracle advances every bounded delivery/prefix branch and
+every fixed-segment continuation through the compact battle world, deduplicates
+complete `Snapshot` states, and counts no unsupported transition.  The cheaper
+`causal-split-count` advances the first four physical delivery frames through
+that same world, then starts the existing terminal planner from the resulting
+branch-specific state.  In both cases Hard supplies the candidate set; neither
+metric changes safety eligibility.
+
+A focused integrated regression makes the causal contract concrete without a
+stage or coordinate branch in the solver.  From one synthetic source-valid ECL
+world, `left_fast` and `right_fast` aim the same opcode-67 bullet differently.
+Only the right candidate's newly spawned rank-9 main shots overlap the enemy,
+so only that branch applies damage, enters death mode 1, installs the captured
+death callback, consumes the modeled effect RNG, and emits the callback bullet
+on the following frame.  This exercises candidate path -> aim/shot -> kill ->
+callback -> future hazard/RNG in one independent test.
+
+Runtime diagnostic artifacts containing selected parity snapshots can now be
+used directly as physical battle roots.  A Windows-native smoke run from
+physical f1042 preserved the adjacent parity report and replayed the full
+battle world.  A 32-seed, 32-frame native sweep of that root took 23.07 s:
+
+- h4 stopped on lease authority in 8/32 histories at update 20 and survived
+  all 32 updates in the other 24;
+- h8 and h12 survived all 32/32 histories;
+- mean minimum clearance was 2.95, 5.34, and 13.51 for h4/h8/h12;
+- h8 beat h4 in the same eight delivery seeds.  This is a repeatable offline
+  algorithm family, not physical clear evidence.
+
+Varied Hard-safe nominal warmup from f1042 generated 26/32 complete worlds over
+up to 64 updates (four authority stops and two lease-authority stops), with 192
+future bullet births, 22 enemy combat signatures, 26 player-attack states, and
+22 RNG states.  Corpus conditioning now measures candidate causality itself:
+it retains a root only when the current Hard-4 actions, continued for a stated
+proposal horizon, produce multiple enemy combat states.  The filter is generic
+and has no stage/frame/coordinate/bullet-count key.  In this sample no root
+forked enemy state by h4 or h8; one of 26 forked by h16, with two enemy states,
+two RNG states, and 17 player-attack states.
+
+That one conditioned root did not yet justify promotion.  Over an eight-update
+paired replay, static `count` and `causal-split-count` both first chose `left`,
+issued two commands, survived all eight updates, and had the same 7.55 minimum
+clearance.  Static ranking took 0.159 s; causal split took 6.40 s.  The causal
+model therefore exposes real branch state but has not improved this physical
+root's decision.  More physical combat roots are required; tuning this result
+would be a counterexample special case.
+
+Measured Python cost also constrained the implementation.  The initial full
+h8 causal frontier exceeded 25 s per decision and retained about 330 MB through
+a zero-hit whole-Snapshot transition cache.  Removing that cache kept only
+frontier state deduplication.  Replacing reflective `dataclasses.replace` on
+flat hostile/player-shot records and the general margin-distance calculation
+for exact current-frame AABB overlap preserved 356/356 hostile-bullet, 116/116
+player-shot, and all retained enemy-transition adjacent parity.  A single h8
+oracle candidate fell from about 2.6 s to 0.68 s; the full 18-candidate oracle
+is still about 20 s and remains a reference, not a hot path.  Further native
+work is justified only after more conditioned roots show that this causal
+ranking changes useful decisions.

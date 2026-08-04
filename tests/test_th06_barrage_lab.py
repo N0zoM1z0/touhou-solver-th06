@@ -34,6 +34,7 @@ from th06.barrage_lab.temporal import run_proposal_temporal_sweep
 from th06.barrage_lab.stateful import (
     ExactTerminalPolicy,
     UnsupportedStatefulModel,
+    causal_branch_diversity,
     derive_nominal_battle_worlds,
     physical_step_parity,
     run_closed_loop,
@@ -51,11 +52,19 @@ from th06.barrage_lab.stateful import (
     _terminal_rungs,
 )
 from th06.hazards.bullets import hazard_box
+from th06.hazards.ecl import source_enemy_template
 from th06.hazards.world import (
     WorldBirthForecast,
     WorldForecastContinuation,
 )
-from th06.model import CONTROL_ACTIONS, Bullet, EclInstruction, SafeAction
+from th06.model import (
+    CONTROL_ACTIONS,
+    Bullet,
+    EclInstruction,
+    PlayerAttackState,
+    SafeAction,
+    Snapshot,
+)
 
 
 class BitWriter:
@@ -291,6 +300,120 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual((following.rng_seed, following.rng_generation), (0x4567, 99))
         self.assertEqual(len(following.bullets), 1)
         self.assertEqual(following.bullets[0].slot, 0)
+
+    def test_candidate_path_changes_aim_damage_death_and_callback_birth(self):
+        def instruction(address, time, opcode, args=b""):
+            size = 12 + len(args)
+            raw = struct.pack(
+                "<ihhBBBB", time, opcode, size, 0, 4, 0, 0
+            ) + args
+            return EclInstruction(address, time, opcode, size, 4, raw.hex())
+
+        def aimed_bullet(address):
+            return instruction(
+                address,
+                0,
+                67,
+                struct.pack(
+                    "<hhiiffffi", 2, 0, 1, 1, 4.0, 4.0, 0.0, 0.0, 4
+                ),
+            )
+
+        initial = aimed_bullet(0x1000)
+        initial_wait = instruction(0x102C, 999, 0)
+        callback = aimed_bullet(0x2000)
+        callback_wait = instruction(0x202C, 999, 0)
+        program = (initial, initial_wait, callback, callback_wait)
+        emitter = source_enemy_template(
+            program, (initial.address, callback.address),
+            0, 124.0, 112.0, 40,
+        )
+        self.assertIsNotNone(emitter)
+        emitter = replace(
+            emitter,
+            slot=0,
+            has_been_in_bounds=True,
+            sprite_half_width=8.0,
+            sprite_half_height=8.0,
+            death_mode=1,
+            death_callback_sub=1,
+        )
+        attack = PlayerAttackState(
+            shots=(),
+            last_enemy_hit_x=-999.0,
+            last_enemy_hit_y=-999.0,
+            orb_state=1,
+            is_focus=False,
+            focus_timer_previous=-999,
+            focus_timer=0,
+            focus_timer_float=0.0,
+            # Timer five fires the four main shots but not the 16-frame orb
+            # shots, so the collision difference comes only from the path.
+            fire_timer_previous=4,
+            fire_timer=5,
+            fire_timer_float=5.0,
+            orb_positions=((76.0, 120.0), (124.0, 120.0)),
+            shot_type=0,
+            bomb_active=False,
+            spell_active=False,
+        )
+        root = Snapshot(
+            frame=10,
+            stage=5,
+            player_state=0,
+            x=100.0,
+            y=120.0,
+            half_width=1.25,
+            half_height=1.25,
+            normal_speed=4.0,
+            focus_speed=2.0,
+            normal_diagonal_speed=2.828427,
+            focus_diagonal_speed=1.414214,
+            frame_multiplier=1.0,
+            input_mask=0x05,
+            bullets=(),
+            laser_count=0,
+            in_menu=False,
+            time_stopped=False,
+            replay_or_demo=False,
+            spawners=(emitter,),
+            difficulty=2,
+            bullet_sizes=((3.0, 3.0),) * 3,
+            rng_seed=0x1234,
+            current_power=128,
+            timeline_complete=True,
+            player_attack=attack,
+            effect_active_upper_bound=0,
+            item_active_upper_bound=0,
+        )
+        actions = {action.name: action for action in CONTROL_ACTIONS}
+
+        left = step_nominal_battle_world(root, actions["left_fast"])
+        right = step_nominal_battle_world(root, actions["right_fast"])
+
+        self.assertNotEqual(left.bullets[0].angle, right.bullets[0].angle)
+        self.assertEqual((left.spawners[0].life, left.spawners[0].interactable), (40, True))
+        self.assertEqual((right.spawners[0].life, right.spawners[0].interactable), (0, False))
+        self.assertEqual(right.spawners[0].next_instruction, callback)
+        self.assertGreater(right.rng_generation, left.rng_generation)
+
+        left_callback_frame = step_nominal_battle_world(
+            left, actions["left_fast"]
+        )
+        right_callback_frame = step_nominal_battle_world(
+            right, actions["right_fast"]
+        )
+        self.assertEqual(len(left_callback_frame.bullets), 1)
+        self.assertEqual(len(right_callback_frame.bullets), 2)
+
+        diversity = causal_branch_diversity(
+            root,
+            1,
+            actions=(actions["left_fast"], actions["right_fast"]),
+        )
+        self.assertEqual(diversity.supported_actions, 2)
+        self.assertEqual(diversity.unique_enemy_combat_states, 2)
+        self.assertEqual(diversity.unique_rng_states, 2)
 
     def test_nominal_battle_corpus_is_derived_through_stateful_play(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

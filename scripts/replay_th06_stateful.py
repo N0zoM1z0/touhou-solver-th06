@@ -22,6 +22,7 @@ from th06.barrage_lab.stateful import (
     NativeTerminalPolicy,
     PolicyAdvantage,
     TERMINAL_METRICS,
+    causal_branch_diversity,
     derive_nominal_battle_worlds,
     physical_step_parity,
     run_closed_loop,
@@ -38,7 +39,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "artifact", type=Path,
-        help="online failure artifact containing snapshot_history",
+        help=(
+            "online artifact containing snapshot_history, selected parity "
+            "snapshots, or one snapshot"
+        ),
     )
     parser.add_argument(
         "--archive", type=Path,
@@ -76,6 +80,27 @@ def parse_args() -> argparse.Namespace:
         help=(
             "derive each physical battle corpus case through a varied 1..N "
             "frame Hard-safe nominal rollout before measuring it"
+        ),
+    )
+    parser.add_argument(
+        "--battle-warmup-cases", type=int,
+        help=(
+            "derive this many varied battle roots before the measured sweep "
+            "(defaults to --seeds)"
+        ),
+    )
+    parser.add_argument(
+        "--minimum-causal-enemy-states", type=int, default=0,
+        help=(
+            "after battle warmup, retain roots whose Hard-4 candidate paths "
+            "produce at least this many enemy combat states"
+        ),
+    )
+    parser.add_argument(
+        "--causal-probe-frames", type=int, default=8,
+        help=(
+            "proposal-only constant continuation used to condition causal "
+            "battle roots; the candidate set still comes from Hard-4"
         ),
     )
     parser.add_argument(
@@ -135,7 +160,13 @@ def main() -> int:
         or args.frames <= 0
         or args.birth_events < 0
         or args.battle_warmup_frames < 0
+        or (
+            args.battle_warmup_cases is not None
+            and args.battle_warmup_cases <= 0
+        )
         or args.minimum_horizontal_bands < 0
+        or args.minimum_causal_enemy_states < 0
+        or args.causal_probe_frames < 4
     ):
         raise ValueError("seeds and frames must be positive")
     if args.corpus_density_scale <= 0.0:
@@ -143,7 +174,9 @@ def main() -> int:
     if args.physical_initial_world and args.physical_battle_world:
         raise ValueError("choose one physical initial-world mode")
     if (
-        args.battle_warmup_frames or args.minimum_horizontal_bands
+        args.battle_warmup_frames
+        or args.minimum_horizontal_bands
+        or args.minimum_causal_enemy_states
     ) and not args.physical_battle_world:
         raise ValueError(
             "battle warmup and band filtering require --physical-battle-world"
@@ -209,7 +242,11 @@ def main() -> int:
             from th06.kernels.safety import NativeSafetyKernel
             kernel = NativeSafetyKernel()
         raw = json.loads(args.artifact.read_text(encoding="utf-8"))
-        raw_history = raw.get("snapshot_history") or (raw["snapshot"],)
+        raw_history = (
+            raw.get("snapshot_history")
+            or raw.get("mismatch_snapshots")
+            or (raw["snapshot"],)
+        )
         templates = (
             ()
             if args.physical_initial_world or args.physical_battle_world
@@ -225,10 +262,11 @@ def main() -> int:
             selected_history if args.physical_battle_world else ()
         )
         battle_derivation = None
+        causal_conditioning = None
         if battle_worlds and args.battle_warmup_frames:
             battle_worlds, battle_derivation = derive_nominal_battle_worlds(
                 battle_worlds,
-                cases=args.seeds,
+                cases=args.battle_warmup_cases or args.seeds,
                 maximum_warmup_frames=args.battle_warmup_frames,
                 certifier=lambda snapshot: kernel.certify_selected(
                     snapshot,
@@ -241,6 +279,51 @@ def main() -> int:
                 raise RuntimeError(
                     "no nominal battle warmup retained fresh Hard authority"
                 )
+        if battle_worlds and args.minimum_causal_enemy_states:
+            examined = len(battle_worlds)
+            conditioned = []
+            diversity_rows = []
+            for world in battle_worlds:
+                hard = kernel.certify_selected(
+                    world,
+                    4,
+                    CONTROL_ACTIONS,
+                    collision_margin=0.35,
+                )
+                diversity = causal_branch_diversity(
+                    world,
+                    args.causal_probe_frames,
+                    actions=tuple(item.action for item in hard),
+                ) if hard else None
+                if diversity is not None:
+                    diversity_rows.append(diversity)
+                    if (
+                        diversity.unique_enemy_combat_states
+                        >= args.minimum_causal_enemy_states
+                    ):
+                        conditioned.append(world)
+            battle_worlds = tuple(conditioned)
+            if not battle_worlds:
+                raise RuntimeError(
+                    "no nominal battle root meets causal enemy diversity"
+                )
+            causal_conditioning = {
+                "examined_worlds": examined,
+                "retained_worlds": len(battle_worlds),
+                "minimum_enemy_states": args.minimum_causal_enemy_states,
+                "probe_frames": args.causal_probe_frames,
+                "maximum_enemy_states": max(
+                    item.unique_enemy_combat_states
+                    for item in diversity_rows
+                ),
+                "maximum_rng_states": max(
+                    item.unique_rng_states for item in diversity_rows
+                ),
+                "maximum_player_attack_states": max(
+                    item.unique_player_attack_states
+                    for item in diversity_rows
+                ),
+            }
         catalogue = load_ecl_bullet_catalogue(args.archive)
         comparisons = {}
         summaries = {}
@@ -513,10 +596,18 @@ def main() -> int:
                 ),
                 "total_born_bullets": battle_derivation.total_born_bullets,
                 "source_root_frames": battle_derivation.source_root_frames,
+                "unique_enemy_combat_states": (
+                    battle_derivation.unique_enemy_combat_states
+                ),
+                "unique_player_attack_states": (
+                    battle_derivation.unique_player_attack_states
+                ),
+                "unique_rng_states": battle_derivation.unique_rng_states,
             }
             if battle_derivation is not None
             else None
         )
+        output["causal_conditioning"] = causal_conditioning
         if advantage is not None and args.shrink:
             advantage = shrink_horizon_advantage(
                 advantage,
