@@ -144,6 +144,34 @@ def _combat_emitter(**changes):
 
 
 class PlayerAttackTests(unittest.TestCase):
+    def test_periodic_timeline_subrank_precedes_battle_update(self):
+        attack = replace(_attack_with_shot(1), shots=())
+        root = replace(
+            _snapshot(attack),
+            frame=1920,
+            timeline_time=1920,
+            timeline_time_float=1920.0,
+            timeline_time_previous=1919,
+            timeline_complete=True,
+            lives_remaining=2,
+            rank=16,
+            subrank=85,
+            max_rank=32,
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        following = step_nominal_battle_world(root, stay)
+
+        # RunEclTimeline computes 2400 - 2 * 240 = 1920 and applies +100
+        # before the rest of the source battle update. The remainder stays.
+        self.assertEqual((following.rank, following.subrank), (17, 85))
+        self.assertEqual(following.timeline_time_previous, 1920)
+
+        stalled = step_nominal_battle_world(
+            replace(root, timeline_time_previous=1920), stay
+        )
+        self.assertEqual((stalled.rank, stalled.subrank), (16, 85))
+
     def test_combat_pool_and_enemy_death_layout_matches_source(self):
         self.assertEqual(ENEMY_DEATH_ANM_OFFSET, 0xE3C)
         self.assertEqual(ENEMY_RANDOM_ITEM_SPAWN_INDEX_OFFSET, 0xEE5B8)

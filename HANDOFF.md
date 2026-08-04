@@ -298,10 +298,21 @@ through t2007. Targeted h4/h6/h8 were identical across all eight complete
 407-frame delivery seeds, so deeper continuation adds no information.
 Target-free h4 also survived 8/8 but consistently moved upward; the retained
 bottom-center proposal agrees with the historical Stage 1 clear's positioning
-lesson and the current resource/midboss objective. Physically falsify this
-minimal h4 phase with ordinary RNG/default fail-close. Keep the t2008 sub8
-midboss entry uncovered, and expect runtime boss identity to supersede the
-timeline label as soon as the newborn source enemy publishes its boss state.
+lesson and the current resource/midboss objective. Its ordinary-RNG default
+fail-close run completed both states without HIT, Bomb, timeout, or authority
+loss and stopped exactly at f2008/t2008. The boundary is
+`(192.887,382.225)`, Power 6, no bullets, and all 18 Hard-safe actions. The
+source sub8 slot has not executed yet, so the stable phase remains the timeline
+entry rather than a boss identity.
+
+The final adjacent replay exposed and fixed one general source omission:
+`RunEclTimeline` performs its periodic +100 subrank transition at
+`timelineTime % (2400 - livesRemaining * 240) == 0`. The f1920--f1921 update
+now matches, bringing the retained window to 255/255 exact combat/rank/RNG/
+item/Power transitions with no unsupported state. Inspect sub8's installed
+ECL and author the smallest t2008 insertion bridge; after the newborn enemy
+sets its boss state, switch to the stable source boss identity and leave the
+first unaudited midboss state fail-visible.
 
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;

@@ -77,6 +77,7 @@ GAME_MAX_RANK_OFFSET = 0x1A74
 GAME_MIN_RANK_OFFSET = 0x1A78
 GAME_SUBRANK_OFFSET = 0x1A7C
 GAME_CURRENT_POWER_OFFSET = 0x1810
+GAME_LIVES_REMAINING_OFFSET = 0x181A
 GAME_CHARACTER_OFFSET = 0x181D
 GAME_SHOT_TYPE_OFFSET = 0x181E
 PLAYER_POSITION_OFFSET = 0x440
@@ -1394,7 +1395,7 @@ def _read_snapshot_once(
         native_pools,
         manager_relative(ENEMY_TIMELINE_INSTRUCTION_OFFSET),
     )[0]
-    _timeline_previous, timeline_subframe, timeline_time = struct.unpack_from(
+    timeline_previous, timeline_subframe, timeline_time = struct.unpack_from(
         "<ifi",
         native_pools,
         manager_relative(ENEMY_TIMELINE_TIMER_OFFSET),
@@ -1462,6 +1463,11 @@ def _read_snapshot_once(
     current_power = struct.unpack(
         "<H", process.read(ADDR_GAME_MANAGER + GAME_CURRENT_POWER_OFFSET, 2)
     )[0]
+    lives_remaining = struct.unpack(
+        "<b", process.read(ADDR_GAME_MANAGER + GAME_LIVES_REMAINING_OFFSET, 1)
+    )[0]
+    if not 0 <= lives_remaining <= 8:
+        raise RuntimeError("invalid source remaining-life count")
     reported_effect_count = struct.unpack(
         "<i", process.read(ADDR_EFFECT_MANAGER + EFFECT_ACTIVE_COUNT_OFFSET, 4)
     )[0]
@@ -2324,6 +2330,8 @@ def _read_snapshot_once(
         tuple(item_states),
         item_next_index,
         timeline_boss_slots,
+        lives_remaining,
+        timeline_previous,
     )
 
 

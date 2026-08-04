@@ -416,6 +416,15 @@ class Snapshot:
     # retain a pointer after that slot stops being a boss, so it is distinct
     # from Enemy::flags.isBoss / bossId captured in ``spawners``.
     timeline_boss_slots: tuple[int, ...] = ()
+    # EnemyManager::RunEclTimeline uses the remaining-life count to schedule
+    # its periodic +100 subrank transition. A no-miss route starts at two,
+    # but source-valid offline battle worlds must carry the live value.
+    lives_remaining: int = 2
+    # ZunTimer::HasTicked compares these values before the current timeline
+    # update. ``None`` keeps older corpus fixtures backward compatible; a
+    # positive legacy timer is known to have ticked in the supported no-wait
+    # battle replay.
+    timeline_time_previous: int | None = None
 
 
 @dataclass(frozen=True)

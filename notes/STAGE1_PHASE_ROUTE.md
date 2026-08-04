@@ -174,3 +174,25 @@ private `mirrored-formations` state ends after the last t1808 parent and a
 `tail` state carries only to t2007. The t2008 sub8 midboss remains uncovered;
 once its ECL sets the boss state, stable boss source identity must take
 precedence over the timeline label.
+
+The ordinary-RNG default fail-close run physically promoted the phase. It
+completed both states without HIT, Bomb, timeout, or Hard-authority loss and
+stopped exactly at f2008/t2008 with `phase-unavailable`. The source sub8 slot
+had not executed yet at this boundary, so the stop correctly retained the
+timeline entry identity rather than inventing a boss identity. The player was
+at `(192.887,382.225)` with Power 6, no bullets, and all 18 Hard-safe actions.
+All 350 phase decisions were fresh. `mirrored-formations` measured 3.072 ms
+median/5.185 ms p90/14.305 ms maximum; the tail measured
+0.618/2.998/4.665 ms.
+
+Adjacent replay initially matched 254/255 rank transitions despite exact
+player, enemy, shot, RNG, item, and Power state. The differing f1920--f1921
+transition exposed a missing authoritative rule rather than a route failure:
+`RunEclTimeline` adds 100 subrank whenever its ticked timer is divisible by
+`2400 - livesRemaining * 240`. With two lives the interval is 1920. The
+battle world now carries the live remaining-life count and timer-previous
+value and applies that transition before timeline/ECL work. The same retained
+window now matches all 255 combat/rank transitions, 2,091 player-shot steps,
+and all 24 enemy transition frames with no unsupported state. The next phase
+must author only the t2008 insertion bridge and then identify sub8 from its
+source ECL state.

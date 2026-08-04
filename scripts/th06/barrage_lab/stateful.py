@@ -1543,6 +1543,31 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             "nominal battle replay needs resolved timeline wait state"
         )
 
+    # EnemyManager::RunEclTimeline performs this before spawning or updating
+    # enemy ECL. The timer's previous/current pair at the captured boundary
+    # is the source authority for HasTicked(). Older retained artifacts lack
+    # ``timeline_time_previous``; inside this no-wait, multiplier-one rung, a
+    # positive advancing timeline is the equivalent state.
+    timeline_ticked = (
+        snapshot.timeline_time > 0
+        if snapshot.timeline_time_previous is None
+        else snapshot.timeline_time != snapshot.timeline_time_previous
+    )
+    if not snapshot.message_active and timeline_ticked:
+        subrank_interval = 10 * 4 * 60 - snapshot.lives_remaining * 4 * 60
+        if subrank_interval <= 0:
+            raise UnsupportedStatefulModel(
+                "invalid remaining-life count for periodic subrank"
+            )
+        if snapshot.timeline_time % subrank_interval == 0:
+            rank, subrank = _increase_subrank(
+                snapshot.rank,
+                snapshot.subrank,
+                snapshot.max_rank,
+                100,
+            )
+            snapshot = replace(snapshot, rank=rank, subrank=subrank)
+
     x, y = _step_player(snapshot, snapshot.x, snapshot.y, held)
     combat = None
     attack = snapshot.player_attack
@@ -1653,6 +1678,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         frame=snapshot.frame + 1,
         timeline_time=snapshot.timeline_time + 1,
         timeline_time_float=snapshot.timeline_time_float + 1.0,
+        timeline_time_previous=snapshot.timeline_time,
         timeline_instructions=remaining_timeline,
         timeline_complete=(
             snapshot.timeline_complete or not remaining_timeline
