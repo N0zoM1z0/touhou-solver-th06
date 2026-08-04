@@ -1904,6 +1904,65 @@ class AnytimePolicyTests(unittest.TestCase):
             [(12, 20)],
         )
 
+        class BudgetConsumingGateKernel(DeepViabilityKernel):
+            def delivery_segment_viability_progressive(
+                self,
+                _state,
+                candidates,
+                _segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin,
+                budget_ms,
+            ):
+                self.calls.append((
+                    "repeated_pickup",
+                    minimum_horizon,
+                    maximum_horizon,
+                    tuple(candidate.action for candidate in candidates),
+                    budget_ms,
+                ))
+                self.clock.advance_ms(budget_ms)
+                return (
+                    16,
+                    {candidate.action: 1 for candidate in candidates},
+                    False,
+                )
+
+        reserved_clock = ManualClock()
+        reserved_kernel = BudgetConsumingGateKernel(
+            reserved_clock,
+            hard,
+            delivery_scores={candidate.action: 1 for candidate in hard},
+            terminal_scores_by_horizon={
+                16: {
+                    shallow: 1,
+                    deep_robust: 20,
+                    hard[2].action: 2,
+                },
+            },
+            flexible_completed_horizon=16,
+        )
+        reserved_solver = self.solver(
+            reserved_kernel,
+            reserved_clock,
+        )
+        reserved_solver.effort.choose_limit = lambda *_args: 20
+        reserved_solver.effort.projection_ms_per_work = 0.0
+
+        reserved = reserved_solver.decide(state)
+
+        self.assertEqual(reserved.action, deep_robust)
+        self.assertIn(
+            ("terminal_progressive", 12, 16),
+            [call[:3] for call in reserved_kernel.calls],
+        )
+        repeated_call = next(
+            call for call in reserved_kernel.calls
+            if call[0] == "repeated_pickup"
+        )
+        self.assertLess(repeated_call[4], 8.0)
+
     def test_constrained_publication_budget_keeps_exact_local_ranking(self):
         clock = ManualClock()
         local_winner = self.hard[1]

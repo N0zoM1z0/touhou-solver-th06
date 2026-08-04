@@ -1725,13 +1725,43 @@ class Solver:
                         repeated_pickup_native is not None
                         and maximum_horizon > segment_delivery_horizon
                     ):
+                        # A coalesced deeper membership scan is a gate, not a
+                        # ranking.  Do not let an expensive non-unique prefix
+                        # consume the entire residual and hand its broad set
+                        # to a soft tie-breaker.  Reserve the ordinary
+                        # promotion remainder for at least one complete
+                        # terminal-ranking rung.  A cheap or unique exact
+                        # result returns before its allowance is exhausted.
+                        if maximum_horizon > minimum_horizon:
+                            terminal_reserve_ms = (
+                                self.effort.policy_estimate_ms(
+                                    snapshot,
+                                    len(planning_candidates),
+                                    minimum_horizon,
+                                )
+                            )
+                            if terminal_reserve_ms is None:
+                                terminal_reserve_ms = remaining_ms * (
+                                    1.0 - PROMOTION_BUDGET_FRACTION
+                                )
+                            robust_budget_ms = min(
+                                remaining_ms * PROMOTION_BUDGET_FRACTION,
+                                max(
+                                    0.0,
+                                    remaining_ms - terminal_reserve_ms,
+                                ),
+                            )
+                        else:
+                            robust_budget_ms = remaining_ms
+                        if robust_budget_ms <= 0.0:
+                            return False
                         robust_result = (
                             self._budgeted_delivery_segment_viability(
                                 snapshot,
                                 planning_candidates,
                                 minimum_horizon,
                                 maximum_horizon,
-                                remaining_ms,
+                                robust_budget_ms,
                             )
                         )
                         if robust_result is None:
@@ -2929,7 +2959,11 @@ class Solver:
             chosen.clearance,
             HARD_SAFETY_HORIZON,
             "ok",
-            max(frontier_horizon, policy_horizon),
+            max(
+                frontier_horizon,
+                policy_horizon,
+                segment_delivery_horizon,
+            ),
             len(preferred),
             0,
             held_horizon,
