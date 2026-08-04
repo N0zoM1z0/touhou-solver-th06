@@ -192,6 +192,8 @@ ENEMY_BULLET_PROPS_OFFSET = 0xD00
 ENEMY_SHOOT_INTERVAL_OFFSET = 0xD54
 ENEMY_SHOOT_TIMER_SUBFRAME_OFFSET = 0xD5C
 ENEMY_SHOOT_TIMER_OFFSET = 0xD60
+ENEMY_LASER_POINTERS_OFFSET = 0xDB8
+ENEMY_LASER_STORE_OFFSET = 0xE38
 ENEMY_DEATH_ANM_OFFSET = 0xE3C
 ENEMY_FLAGS_OFFSET = 0xE50
 ENEMY_LOWER_MOVE_LIMIT_OFFSET = 0xE60
@@ -2136,6 +2138,34 @@ def _read_snapshot_once(
             raise RuntimeError(
                 f"invalid ECL interrupt state at enemy slot {index}"
             )
+        laser_pointers = struct.unpack_from(
+            "<" + "I" * 32,
+            enemy_pool,
+            base + ENEMY_LASER_POINTERS_OFFSET,
+        )
+        laser_slots = []
+        for pointer in laser_pointers:
+            if pointer == 0:
+                laser_slots.append(-1)
+                continue
+            relative_laser = pointer - ADDR_LASER_ARRAY
+            if (
+                relative_laser < 0
+                or relative_laser % LASER_STRIDE
+                or relative_laser // LASER_STRIDE >= LASER_COUNT
+            ):
+                raise RuntimeError(
+                    f"invalid laser pointer 0x{pointer:08X} "
+                    f"at enemy slot {index}"
+                )
+            laser_slots.append(relative_laser // LASER_STRIDE)
+        laser_store = struct.unpack_from(
+            "<i", enemy_pool, base + ENEMY_LASER_STORE_OFFSET
+        )[0]
+        if not 0 <= laser_store < 32:
+            raise RuntimeError(
+                f"invalid laser store {laser_store} at enemy slot {index}"
+            )
         # ENEMYINTERRUPTSET may already be behind the live instruction
         # pointer, while the stage timeline can still set runInterrupt on a
         # boss.  The table is authoritative state, so seed every installed
@@ -2222,6 +2252,8 @@ def _read_snapshot_once(
             death_anm2,
             death_anm3,
             item_drop,
+            tuple(laser_slots),
+            laser_store,
         ))
     return Snapshot(
         frame, stage, player_state, x, y, half_width, half_height,

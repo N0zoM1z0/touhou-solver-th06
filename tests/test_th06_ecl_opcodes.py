@@ -740,6 +740,83 @@ class EclOpcodeCoverageTests(unittest.TestCase):
         self.assertEqual(blocked.covered_frames, 3)
         self.assertIn("aimed ECL laser creation", blocked.reason)
 
+    def test_exact_laser_world_preserves_pointer_and_mutation_order(self):
+        class LaserWorld:
+            def __init__(self):
+                self.lasers = {}
+
+            def spawn_laser(self, laser):
+                slot = next(index for index in range(64) if index not in self.lasers)
+                self.lasers[slot] = replace(laser, slot=slot)
+                return slot
+
+            def laser_at(self, slot):
+                return self.lasers.get(slot)
+
+            def replace_laser(self, slot, laser):
+                self.lasers[slot] = replace(laser, slot=slot)
+
+        create = instruction(
+            0x1000,
+            86,
+            struct.pack(
+                "<hhffffffiiiiii",
+                0, 6, 0.0, 2.0, 0.0, 20.0, 100.0, 16.0,
+                10, 60, 8, 2, 3, 0,
+            ),
+            0x40,
+        )
+        rotate_from_player = instruction(
+            0x1040, 89, struct.pack("<ifff", 0, 0.25, 0.0, 0.0), 0x1C
+        )
+        offset = instruction(
+            0x105C, 90, struct.pack("<ifff", 0, 20.0, 40.0, 0.0), 0x1C
+        )
+        test = instruction(
+            0x1078, 91, struct.pack("<ifff", 0, 0.0, 0.0, 0.0), 0x1C
+        )
+        cancel = instruction(
+            0x1094, 92, struct.pack("<ifff", 0, 0.0, 0.0, 0.0), 0x1C
+        )
+        clear = instruction(0x10B0, 134, b"", 0x0C)
+        sentinel = EclInstruction(0x10BC, -1, 0, 0, 0, bytes(12).hex())
+        source = replace(
+            emitter(create, sentinel),
+            ecl_program=(
+                create,
+                rotate_from_player,
+                offset,
+                test,
+                cancel,
+                clear,
+                sentinel,
+            ),
+        )
+        world = LaserWorld()
+        player = (200.0, 400.0)
+
+        forecast = forecast_ecl_births(
+            source,
+            (player,),
+            difficulty=2,
+            rank=0,
+            bullet_sizes=(),
+            rng=RngState(0x1234, 0),
+            model_player_damage=False,
+            record_enemy_kill_all=True,
+            laser_world=world,
+        )
+
+        self.assertEqual(forecast.covered_frames, 1, forecast.reason)
+        self.assertEqual(forecast.next_spawner.ecl_compare, 0)
+        self.assertEqual(forecast.next_spawner.laser_slots, (-1,) * 32)
+        self.assertEqual(tuple(world.lasers), (0,))
+        laser = world.lasers[0]
+        expected_angle = math.atan2(400.0 - 20.0, 200.0 - 10.0) + 0.25
+        self.assertTrue(math.isclose(laser.angle, expected_angle, abs_tol=1e-6))
+        self.assertEqual((laser.x, laser.y), (30.0, 60.0))
+        self.assertEqual((laser.state, laser.timer, laser.timer_float), (2, 0, 0.0))
+
     def test_boss_timer_setup_remains_covered_before_its_callback(self):
         timer = instruction(0x1000, 112, struct.pack("<i", 0), 0x10)
         threshold = instruction(0x1010, 115, struct.pack("<i", 1200), 0x10)

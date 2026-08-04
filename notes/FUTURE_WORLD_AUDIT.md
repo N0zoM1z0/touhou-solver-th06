@@ -731,3 +731,29 @@ the BulletManager state machine only.  ECL laser creation, pointer ownership,
 rotation, aimed rotation, offset, test, cancel, and clear-all are the next
 future-world boundary and must remain unsupported until their same-frame
 ordering is modeled.
+
+Checkpoint work after `adc5857` closes that exact nominal boundary.  Each
+captured enemy now carries its 32 raw laser-pool pointer identities and
+`laserStore`; inactive pointers are retained because a later pool reuse can
+make them alias a new live laser.  The shared nominal world allocates the
+first free slot in the source 64-entry pool and executes opcodes 85--92 and
+134 in ECL order: create/aimed create, store selection, relative rotation,
+candidate-conditioned re-aim, offset, liveness test, cancel, and pointer-table
+clear.  A created beam then joins BulletManager's later priority-11 pass in
+the same update.  Focused tests verify both pointer/mutation order and the
+same-frame `endOffset 20 -> 22`, `timer 0 -> 1` transition.
+
+Hard forecasting deliberately still uses its earlier fail-closed boundary
+when a newly created laser can become collidable inside the certified window.
+The exact implementation above improves stateful causal fuzzing and soft
+nominal branches; it does not silently grant Hard authority before a
+multi-frame future-laser hazard stream has been modeled and checked.
+
+A 30-second ordinary-RNG, default fail-close, non-PTY Stage 5 diagnostic then
+validated the enlarged native capture against the exact supported EXE.  It
+ended only because the time window expired, after reaching f1500 with no HIT
+or authority stop.  The run exercised snapshots containing one to six enemy
+slots without a pointer-layout, phase, or coherence failure.  All inputs were
+released, exact PID 55288 was stopped, and no game, agent, or high-CPU worker
+remained.  This is capture/integration evidence, not a Stage clear and not
+physical parity for a future laser creation event.

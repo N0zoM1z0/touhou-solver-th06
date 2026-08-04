@@ -652,6 +652,13 @@ class _NominalCombatStep:
         if not 0 <= self.item_next_index < 512:
             raise UnsupportedStatefulModel("source item next index is invalid")
         self.current_power = snapshot.current_power
+        self.lasers = {laser.slot: laser for laser in snapshot.lasers}
+        if (
+            len(self.lasers) != len(snapshot.lasers)
+            or any(not 0 <= slot < 64 for slot in self.lasers)
+            or snapshot.laser_count != len(self.lasers)
+        ):
+            raise UnsupportedStatefulModel("source laser slots are incomplete")
         self.random_spawn_index = snapshot.random_item_spawn_index
         self.random_table_index = snapshot.random_item_table_index
         self.allocated_effects: list[int] = []
@@ -661,6 +668,25 @@ class _NominalCombatStep:
             raise UnsupportedStatefulModel(
                 "nominal combat does not model active player bombs"
             )
+
+    def spawn_laser(self, laser: Laser) -> int:
+        """Allocate the first free BulletManager laser slot."""
+        slot = next(
+            (index for index in range(64) if index not in self.lasers),
+            None,
+        )
+        if slot is None:
+            raise UnsupportedStatefulModel("source laser pool is full")
+        self.lasers[slot] = replace(laser, slot=slot)
+        return slot
+
+    def laser_at(self, slot: int) -> Laser | None:
+        return self.lasers.get(slot)
+
+    def replace_laser(self, slot: int, laser: Laser) -> None:
+        if slot not in self.lasers:
+            return
+        self.lasers[slot] = replace(laser, slot=slot)
 
     def observe_effect_spawns(self, effect_ids) -> None:
         effect_ids = tuple(effect_ids)
@@ -1529,8 +1555,8 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         forecast.continuation.rng_seed,
         forecast.continuation.rng_generation,
     )
-    laser_state = list(snapshot.lasers)
     if combat is not None:
+        laser_state = list(combat.lasers.values())
         rank, subrank, current_power = _step_items_after_effects(
             combat,
             (x, y),
@@ -3116,6 +3142,8 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                             and predicted.timer_callback_sub
                             == actual.timer_callback_sub
                             and predicted.item_drop == actual.item_drop
+                            and predicted.laser_slots == actual.laser_slots
+                            and predicted.laser_store == actual.laser_store
                         ):
                             enemy_exact = False
                             enemy_mismatch_detail = (
@@ -3153,7 +3181,11 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                                 f"{actual.timer_callback_threshold},"
                                 f"{actual.timer_callback_sub} "
                                 f"item={predicted.item_drop}/"
-                                f"{actual.item_drop}"
+                                f"{actual.item_drop} "
+                                f"laser_store={predicted.laser_store}/"
+                                f"{actual.laser_store} "
+                                f"laser_ptrs={predicted.laser_slots}/"
+                                f"{actual.laser_slots}"
                             )
                             break
                 if not enemy_exact and not first_combat_enemy_mismatch:

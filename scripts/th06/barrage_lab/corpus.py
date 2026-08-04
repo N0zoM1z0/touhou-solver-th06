@@ -76,6 +76,8 @@ def decode_snapshot(raw: dict) -> Snapshot:
                     item.get("bullet_effect_ints", (0,) * 4)
                 ),
                 "interrupts": tuple(item.get("interrupts", (-1,) * 8)),
+                "laser_slots": tuple(item.get("laser_slots", (-1,) * 32)),
+                "laser_store": item.get("laser_store", 0),
             }
         )
         for item in values.get("spawners", ())

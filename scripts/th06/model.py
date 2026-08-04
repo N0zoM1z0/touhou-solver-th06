@@ -339,6 +339,11 @@ class EnemySpawner:
     death_anm2: int = 0
     death_anm3: int = 0
     item_drop: int = -2
+    # Enemy::lasers keeps raw pointers into BulletManager's 64-slot pool.
+    # A pointer may remain after its laser becomes inactive and later alias a
+    # reused slot, so pointer identity is physical ECL state, not presentation.
+    laser_slots: tuple[int, ...] = (-1,) * 32
+    laser_store: int = 0
 
 
 @dataclass(frozen=True)

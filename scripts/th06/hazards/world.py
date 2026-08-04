@@ -654,6 +654,7 @@ def _forecast_nominal_from_state(
                 radial_births=False,
                 model_player_damage=False,
                 record_enemy_kill_all=combat is not None,
+                laser_world=combat,
             )
             if inline.covered_frames < 1:
                 return WorldBirthForecast(
@@ -730,6 +731,7 @@ def _forecast_nominal_from_state(
                     radial_births=False,
                     model_player_damage=combat is None,
                     record_enemy_kill_all=combat is not None,
+                    laser_world=combat,
                 )
             except UnsupportedBirthModel as error:
                 return WorldBirthForecast(

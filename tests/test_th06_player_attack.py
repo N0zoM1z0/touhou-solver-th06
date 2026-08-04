@@ -7,6 +7,7 @@ from th06.barrage_lab.stateful import (
     _NominalCombatStep,
     _step_items_after_effects,
     _step_lasers_after_bullets,
+    step_nominal_battle_world,
     step_reimu_a_player_attack,
     step_reimu_a_player_shot,
 )
@@ -14,6 +15,7 @@ from th06.hazards.ecl import source_enemy_template
 from th06.hazards.rng import RngState
 from th06.model import (
     Bullet,
+    CONTROL_ACTIONS,
     EclInstruction,
     ItemState,
     Laser,
@@ -586,6 +588,41 @@ class PlayerAttackTests(unittest.TestCase):
         self.assertEqual((state, rank, subrank), (0, 0, 6))
         self.assertEqual(graze_combat.post_effect_ids, [8])
         self.assertEqual(graze_rng.generation_count, 1)
+
+    def test_ecl_laser_birth_joins_same_frame_bullet_manager_pass(self):
+        raw = struct.pack(
+            "<ihhBBBBhhffffffiiiiii",
+            0, 85, 0x40, 0, 4, 0, 0,
+            0, 6, 0.5, 2.0, 0.0, 20.0, 100.0, 16.0,
+            10, 60, 8, 2, 3, 0,
+        )
+        create = EclInstruction(0x1000, 0, 85, 0x40, 4, raw.hex())
+        wait_raw = struct.pack("<ihhBBBB", 50, 0, 0x0C, 0, 4, 0, 0)
+        wait = EclInstruction(0x1040, 50, 0, 0x0C, 4, wait_raw.hex())
+        source = source_enemy_template(
+            (create, wait),
+            (0x1000,),
+            0,
+            50.0,
+            50.0,
+            10,
+        )
+        self.assertIsNotNone(source)
+        root = replace(
+            _snapshot(_attack_with_shot(1)),
+            current_power=128,
+            spawners=(replace(source, slot=0),),
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        following = step_nominal_battle_world(root, stay)
+
+        self.assertEqual(following.laser_count, 1)
+        laser = following.lasers[0]
+        self.assertEqual((laser.slot, laser.state, laser.timer), (0, 0, 1))
+        self.assertEqual((laser.x, laser.y), (50.0, 50.0))
+        self.assertEqual(laser.end_offset, 22.0)
+        self.assertEqual(following.spawners[0].laser_slots[0], 0)
 
 
 if __name__ == "__main__":
