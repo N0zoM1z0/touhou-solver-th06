@@ -677,3 +677,34 @@ first damaging circle state, and run the full sub8 life/timer race offline.
 Compare survival-equivalent policies using candidate-conditioned future boss
 position and player-shot damage/kill timing. Hard eligibility and h8 survival
 evidence must remain unchanged; only the soft route ranking may change.
+
+The explicit diagnostic stop captured that root at f2167/local t160: player
+`(191.473,383.983)`, Power 10, no hostile bullet/laser, ten live Reimu-A
+shots, boss life 5916 at `(320,128)`, life callback 500/sub9, and timer
+159/1440/sub7. The diagnostic branch was removed immediately and never became
+route coverage.
+
+The installed source movement records already expose the required lead target
+without a scene table. While movement mode 2 is active, the destination is
+`move_start_x + move_interp_x`; otherwise it is the live boss x. The sub8
+sequence therefore yields its authored horizontal waypoints directly from the
+captured ECL state. Player y is retained, so this proposal changes only
+horizontal attack alignment inside actions already tied for strongest h8
+continuation evidence.
+
+From the exact t160 world, a 600-update probe showed why live-x chasing is the
+wrong model: baseline boss life was 2478--2766, live-x was 2764--2860, while
+source-destination alignment reached 2140--2236. The complete 1300-update
+race was then run across eight delivery seeds. Baseline reached life-callback
+sub9 on 7/8 and reproduced the physical timeout on seed 7, entering sub7 at
+timer 1440 with life 526. Its successful callbacks took 862--1110 updates.
+Source-destination alignment survived all eight and reached sub9 on 8/8 in
+845--959 updates, with minimum clearance 1.247--5.155.
+
+The route now applies this destination only as a tie-break inside the existing
+h8 `first-circle-movement`, `paired-circles-movement`, and
+`late-circles-loop` policies. Hard-4 eligibility, h8 continuation scores,
+commitments, source physics, and every spell policy are unchanged. The next
+ordinary-RNG physical run must show a sub9 life callback rather than sub7
+timeout, with no HIT or publication regression, before this attack-tempo
+repair is promoted.

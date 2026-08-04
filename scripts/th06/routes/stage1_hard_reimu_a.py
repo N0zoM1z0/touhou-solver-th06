@@ -14,6 +14,19 @@ from .state_machine import PolicyState, TimelineStateMachine
 
 
 BOTTOM_CENTER = (192.0, 380.0)
+MOVEMENT_LEFT = 8.0
+MOVEMENT_RIGHT = 376.0
+
+
+def source_destination_alignment(snapshot: Snapshot, boss) -> tuple[float, float]:
+    """Aim inside an h8 tie at the boss's captured source destination."""
+    target_x = boss.x
+    if boss.movement_mode == 2:
+        target_x = boss.move_start_x + boss.move_interp_x
+    return (
+        min(max(target_x, MOVEMENT_LEFT), MOVEMENT_RIGHT),
+        snapshot.y,
+    )
 
 
 SETUP = TimelineStateMachine(
@@ -205,12 +218,13 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             policy_state="first-circle-movement",
             algorithm="policy-volume",
             horizon=8,
-            target=None,
+            target=source_destination_alignment(snapshot, boss),
             commitment_frames=4,
             provenance=(
                 "physical local-t160 root; complete candidate-conditioned "
                 "battle sweeps cover the Hard 16x5 aimed circle and the "
-                "following source movement through local t413"
+                "following source movement through local t413; equal h8 "
+                "continuations align to the captured destination"
             ),
         )
     if is_sub8_nonspell and boss.ecl_time < 738:
@@ -219,12 +233,13 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             policy_state="paired-circles-movement",
             algorithm="policy-volume",
             horizon=8,
-            target=None,
+            target=source_destination_alignment(snapshot, boss),
             commitment_frames=4,
             provenance=(
                 "physical local-t414 root; complete candidate-conditioned "
                 "battle sweeps cover the local-t414/t444 Hard aimed "
-                "circles and the t526 movement through local t737"
+                "circles and the t526 movement through local t737; equal "
+                "h8 continuations align to the captured destination"
             ),
         )
     if is_sub8_nonspell and boss.ecl_time <= 840:
@@ -233,12 +248,13 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             policy_state="late-circles-loop",
             algorithm="policy-volume",
             horizon=8,
-            target=None,
+            target=source_destination_alignment(snapshot, boss),
             commitment_frames=4,
             provenance=(
                 "physical local-t738 root; candidate-conditioned sweeps "
                 "cover the t738/t768 Hard circles and the source t840 "
-                "jump back to local t193"
+                "jump back to local t193 while equal h8 continuations "
+                "align to the captured destination"
             ),
         )
     if ecl_subroutine_index(boss) == 9 and spell_active:

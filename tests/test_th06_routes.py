@@ -195,6 +195,10 @@ class RoutePhaseTests(unittest.TestCase):
             life_callback_sub=9,
             timer_callback_sub=7,
             ecl_time=2,
+            x=320.0,
+            movement_mode=0,
+            move_start_x=0.0,
+            move_interp_x=0.0,
         )
 
         intent = HardReimuAStage1().intent(snapshot(
@@ -221,8 +225,18 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(first_attack.algorithm, "policy-volume")
         self.assertEqual(first_attack.policy_state, "first-circle-movement")
         self.assertEqual(first_attack.horizon, 8)
-        self.assertIsNone(first_attack.target)
+        self.assertEqual(first_attack.target, (320.0, 380.0))
         self.assertEqual(first_attack.phase_id, intent.phase_id)
+
+        boss.movement_mode = 2
+        boss.move_start_x = 320.0
+        boss.move_interp_x = -128.0
+        moving_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=2209,
+            spawners=(boss,),
+        ))
+        self.assertEqual(moving_attack.target, (192.0, 380.0))
 
         boss.ecl_time = 414
         second_attack = HardReimuAStage1().intent(snapshot(
@@ -233,7 +247,7 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(second_attack.algorithm, "policy-volume")
         self.assertEqual(second_attack.policy_state, "paired-circles-movement")
         self.assertEqual(second_attack.horizon, 8)
-        self.assertIsNone(second_attack.target)
+        self.assertEqual(second_attack.target, (192.0, 380.0))
         self.assertEqual(second_attack.phase_id, intent.phase_id)
 
         boss.ecl_time = 738
@@ -245,7 +259,7 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(third_attack.algorithm, "policy-volume")
         self.assertEqual(third_attack.policy_state, "late-circles-loop")
         self.assertEqual(third_attack.horizon, 8)
-        self.assertIsNone(third_attack.target)
+        self.assertEqual(third_attack.target, (192.0, 380.0))
         self.assertEqual(third_attack.phase_id, intent.phase_id)
 
         boss.ecl_time = 840

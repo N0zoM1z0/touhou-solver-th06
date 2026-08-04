@@ -610,6 +610,22 @@ with an explicit diagnostic fail-close, then compare candidate-conditioned
 future damage/kill/lead policies over the complete life-versus-timer race.
 Hard and h8 continuation authority must remain unchanged.
 
+The exact diagnostic root is f2167/local t160 with boss life 5916, timer 159,
+Power 10, no hostile bullets/lasers, and complete attack/RNG/item state. A
+full eight-seed offline race now reproduces the problem: target-free h8 reaches
+sub9 on 7/8 but seed 7 times out to sub7 at life 526; successful callbacks
+take 862--1110 updates. Live boss-x chasing is not a repair. Using the
+captured source movement destination (`move_start_x + move_interp_x` while
+interpolating, live x otherwise) reaches sub9 on 8/8 in 845--959 updates with
+1.247--5.155 minimum clearance.
+
+That destination is now only a soft tie-break inside the unchanged h8
+continuation winners for all three damaging sub8 policy states. Hard-4,
+horizon, commitments, and physics are unchanged. Run ordinary RNG/default
+fail-close next. Promotion requires sub9 rather than the sub7 timeout, no HIT,
+Bomb, stale authority stop, or publication regression. If it succeeds, then
+return to the retained f4237/sub6 local-t0 SpellEnd boundary.
+
 Do not continue opportunistically into the deferred Stage 4 f2200 stop while
 Stage 1 is the active route. The route packs are intentionally independent;
 physical promotion of one phase must not alter another phase's policy.
