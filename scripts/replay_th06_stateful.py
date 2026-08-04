@@ -310,6 +310,9 @@ def main() -> int:
             causal_conditioning = {
                 "examined_worlds": examined,
                 "retained_worlds": len(battle_worlds),
+                "retained_frames": tuple(
+                    world.frame for world in battle_worlds
+                ),
                 "minimum_enemy_states": args.minimum_causal_enemy_states,
                 "probe_frames": args.causal_probe_frames,
                 "maximum_enemy_states": max(

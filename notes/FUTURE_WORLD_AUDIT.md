@@ -569,3 +569,53 @@ oracle candidate fell from about 2.6 s to 0.68 s; the full 18-candidate oracle
 is still about 20 s and remains a reference, not a hot path.  Further native
 work is justified only after more conditioned roots show that this causal
 ranking changes useful decisions.
+
+### Fresh physical combat corpus (2026-08-04)
+
+A subsequent default fail-close, ordinary-RNG Hard/Reimu-A Practice Stage 5
+trial used the exact supported EXE, native-C++ solver, and the diagnostic life
+patch.  It stopped at f2973 on `hard-safe-set-empty`, with the player still in
+the alive state.  The agent released every key, stopped exact PID 55676, and a
+process audit found no game or agent left running.  This was an authority stop,
+not a HIT and not a clear.  The ignored failure artifact retains 256 complete
+attack/world roots from f2635--2973.
+
+The 176 adjacent physical pairs in that history materially extend combat
+coverage:
+
+- hostile fired bullets matched 57,835/57,835 and spawning bullets matched
+  7,855/7,855, with zero maximum error;
+- complete player-shot transitions matched 10,396/10,396 and all 176 attack
+  states matched; maximum shot position error was 3.05e-5;
+- all 176 supported enemy steps matched, including all 99 frames containing
+  one of 114 life changes, two slot births, or four removals;
+- combat RNG matched 145/176.  The first mismatch, f2665->2666, advances four
+  exogenous generations while all five enemy slots and every modeled combat
+  transition match.  This is the same uncaptured global-ANM boundary, not a
+  damage/kill mismatch.
+
+Ninety-nine adjacent roots actually changed enemy life or occupancy, but none
+of eight selected low-life/death roots forked enemy state inside the first four
+candidate frames.  This is expected: existing Reimu-A shots largely inherit
+the previous target/path; current movement changes newborn main/orb shots and
+needs several frames to alter damage.  Conditioning the same current Hard-4
+candidate set with a 16-frame proposal continuation retained four physical
+roots (f2711, f2716, f2720, f2724).  They reached as many as three enemy combat
+states, three RNG states, and 18 player-attack states.  The conditioning horizon
+changes corpus selection only; it does not extend Hard eligibility.
+
+One-decision paired replay changed first action on two of those four roots:
+static `count` chose `up_right/up_right/up/up_left`, while causal split chose
+`up_right/up/up/up`.  Eight-update independent follow-ups gave mixed evidence:
+
+- f2716: both survived; causal `up` raised minimum clearance from 9.46 to
+  10.78, but issued three commands instead of zero and cost 4.48 s versus
+  0.17 s;
+- f2724: both survived with identical 13.23 clearance; causal `up` used one
+  command instead of static `up_right`'s two, but cost 10.59 s versus 0.20 s.
+
+Thus the candidate-conditioned model now finds real solver decision divergence
+on physical battle states, but this sample proves neither survival benefit nor
+an online-affordable implementation.  Keep it offline, enlarge the physical
+conditioned corpus, and diagnose the earliest causal differences before any
+production ranking or native combat-kernel promotion.
