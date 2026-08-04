@@ -1141,6 +1141,44 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual(chosen, right)
         self.assertEqual(certify.call_args_list[1].args[1], 6)
 
+    def test_constant_clearance_ranks_only_the_unchanged_action_reserve(self):
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        snapshot = replace(
+            generate_barrage_case((opcode,), 5, target_bullets=1).snapshot,
+            bullets=(),
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        hard = mock.Mock(
+            actions=(right.name, left.name),
+            terminal_positions=(
+                (right.name, snapshot.x, snapshot.y),
+                (left.name, snapshot.x, snapshot.y),
+            ),
+        )
+        reserve = (
+            SafeAction(right, 8.0, snapshot.x, snapshot.y),
+            SafeAction(left, 3.0, snapshot.x, snapshot.y),
+        )
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.certify_linear_source",
+            return_value=hard,
+        ), mock.patch(
+            "th06.barrage_lab.stateful.certify_actions",
+            return_value=reserve,
+        ) as certify:
+            chosen = ExactTerminalPolicy(
+                5, metric="constant-clearance"
+            )(snapshot)
+
+        self.assertEqual(chosen, right)
+        self.assertEqual(certify.call_args.args[1], 5)
+
     def test_constant_frontier_count_excludes_deep_winner_outside_reserve(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         snapshot = replace(

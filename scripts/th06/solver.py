@@ -470,6 +470,24 @@ class Solver:
             preferred = frozenset(
                 candidate.action for candidate in constant
             )
+        elif intent.algorithm == "constant-clearance":
+            constant = self._certify_selected(
+                snapshot,
+                intent.horizon,
+                tuple(hard_actions),
+            )
+            completed_horizon = intent.horizon
+            best_clearance = max(
+                (candidate.clearance for candidate in constant),
+                default=None,
+            )
+            preferred = frozenset(
+                candidate.action for candidate in constant
+                if (
+                    best_clearance is not None
+                    and candidate.clearance == best_clearance
+                )
+            )
         elif intent.algorithm == "constant-frontier-count":
             elapsed_ms = (self.clock() - started) * 1000.0
             budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS

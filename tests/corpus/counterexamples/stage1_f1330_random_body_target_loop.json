@@ -8,16 +8,16 @@
     "failure_frame": 1330
   },
   "runner": "stage1_phase_policy",
-  "contract": "The source t1220 random-body insertion uses target-free h6 policy volume; the bottom waypoint must not rank survival-equivalent actions back into the residual aimed-stream tail.",
-  "summary": "At f1325 and f1327 the physical world still had 17 Hard-safe actions, but bottom-target diagonal oscillation plus the f1329 stale carry reached an empty Hard set at f1330. From exact f1270, target h4 survived 6/8 eighty-update delivery seeds, target-free h4 survived 0/8, and target-free h6 survived 8/8 with fewer commands and higher minimum clearance. H8 added no survival win.",
+  "contract": "The source t1220 random-body insertion remains target-free; the bottom waypoint must not rank survival-equivalent actions back into the residual aimed-stream tail. Its current primitive also incorporates the later independent f1362 ranking counterexample.",
+  "summary": "At f1325 and f1327 the physical world still had 17 Hard-safe actions, but bottom-target diagonal oscillation plus the f1329 stale carry reached an empty Hard set at f1330. The target was removed. A later default run disproved target-free h6 policy volume, so the stable route contract now uses the separately measured target-free constant-clearance h5 primitive.",
   "input": {
     "timeline_time": 1325
   },
   "expect": {
     "phase_id": "timeline:t1220:random-subs0-1-body-stream",
     "policy_state": "random-insertion",
-    "algorithm": "policy-volume",
-    "horizon": 6,
+    "algorithm": "constant-clearance",
+    "horizon": 5,
     "target": null
   }
 }

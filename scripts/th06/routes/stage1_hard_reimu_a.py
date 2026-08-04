@@ -132,13 +132,15 @@ RANDOM_BODY_STREAM = TimelineStateMachine(
         PolicyState(
             1220,
             "random-insertion",
-            "policy-volume",
-            6,
+            "constant-clearance",
+            5,
             None,
             provenance=(
-                "physical f1330 target-loop counterexample; installed "
-                "random-x sub0/sub1 parents through t1400, with target-free "
-                "h6 surviving all paired stateful delivery worlds"
+                "physical f1330 removed the bottom target; physical f1362 "
+                "then rejected h6 continuation ties at f1345/f1357. The "
+                "installed random-x sub0/sub1 parents run through t1400; "
+                "target-free constant-clearance h5 survived 64/64 complete "
+                "entry worlds within the measured publication budget"
             ),
         ),
         PolicyState(

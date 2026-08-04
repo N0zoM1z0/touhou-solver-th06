@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "stage1-f1362-random-insertion-clearance",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "failure_frame": 1362
+  },
+  "runner": "stage1_phase_policy",
+  "contract": "The complete t1220 random-insertion state uses one target-free constant-clearance h5 primitive; no frame, coordinate, bullet-count, or counterexample branch is permitted.",
+  "summary": "Default fail-close stopped at f1362 after stale left input, but the consequential decisions were earlier. At f1345 h6 policy volume retained left among fifteen tied proposals while h8 already uniquely selected down-fast; at f1357 h6 again retained left while h8 allowed only right/right-fast. Adjacent combat parity was exact for all 240 retained pairs. From exact f1220, constant-clearance h5 survived 64/64 complete 180-frame delivery worlds with 8.973 worst clearance; the actual Hard pipeline measured 2.162/3.102/4.816 ms median/p90/p99 and no call exceeded 12.5 ms.",
+  "input": {
+    "timeline_time": 1357
+  },
+  "expect": {
+    "phase_id": "timeline:t1220:random-subs0-1-body-stream",
+    "policy_state": "random-insertion",
+    "algorithm": "constant-clearance",
+    "horizon": 5,
+    "target": null
+  }
+}

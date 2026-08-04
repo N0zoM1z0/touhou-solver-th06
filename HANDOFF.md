@@ -1044,3 +1044,49 @@ destination (unless the life callback fires first), with no HIT, Bomb, stale
 authority loss, or earlier stop. Recheck shaped adjacent parity and diagnose
 the earliest consequential state if it fails. Release input and stop the exact
 PID afterward.
+
+Checkpoint `6850396` made that run possible, but the run exposed an earlier
+integration dependency instead of reaching sub14. Default fail-close stopped
+alive at f1362 in `timeline:t1220:random-subs0-1-body-stream/random-insertion`
+with an empty Hard set, no HIT, and no Bomb. Input was released and exact PID
+60704 was stopped. No trial or offline worker remained.
+
+The empty terminal was again downstream. At f1345 there were 17 Hard actions;
+target-free h6 policy volume kept the observed `left` among fifteen tied soft
+proposals, while h8/h10 continuation evidence already uniquely selected
+`down_fast`. At f1357 h6 again retained `left`, while h8 allowed only
+`right/right_fast`. The late f1358/f1360 stale retries carried left input into
+the f1362 stop. This physically rejects the old h6 ranking for the whole source
+state; it does not justify a frame or coordinate branch.
+
+The captured model is authoritative for this comparison. All 240 retained
+adjacent pairs matched player, combat enemy, Reimu-A attack, RNG, graze, Rank,
+item, and Power transitions. All 11,341 mature-bullet steps, 378 spawning
+steps, 41 player-shot births, 936 shot steps, and 24 enemy transitions were
+exact, with no unsupported transition.
+
+Exact-entry f1220 stateful sweeps compared complete 180-frame worlds through
+t1400. Policy-volume h6/h8/h10/h12 each survived 32/32, but h8 used the fewest
+commands and raised mean clearance from h6's 4.831 to 8.542. At h8,
+count-clearance achieved 19.855 mean and 14.615 worst clearance but its actual
+pipeline measured 9.963/13.425/19.327 ms median/p90/p99 and was rejected for
+publication cost. Constant-frontier h8 survived 64/64 but had only 0.988 worst
+clearance.
+
+The selected primitive is target-free `constant-clearance` h5: certify the
+unchanged-action h5 reserve, then rank that reserve by its own minimum path
+clearance. Hard-4 remains the sole eligibility authority. It has no branching
+continuation search and no scene-dependent condition. H4, h5, h6, and h8 each
+survived 64/64 complete entry worlds; h5 provides the measured cost/clearance
+balance at 14.023 mean and 8.973 worst clearance. Across 5,668 actual Hard plus
+h5 pipeline decisions it measured 2.162 ms median, 3.102 ms p90, 4.816 ms p99,
+7.576 ms maximum, and zero calls above 12.5 ms. The independent compact CE is
+`tests/corpus/counterexamples/stage1_f1362_random_insertion_clearance.json`.
+
+Current validation is 276 Linux tests plus 218 subtests passed with 25 native
+skips, and 301 Windows/native tests passed. Rerun ordinary RNG/default
+fail-close Practice Stage 1. First require crossing f1362 and the t1220 state
+without stale authority loss. If it reaches the already authored boss route,
+the outstanding sub14 expectation remains an alive stop after t200 at stable
+sub13/sub12/sub15 (or an earlier life callback), with no HIT or Bomb. Diagnose
+the earliest consequential state of any new failure and clean up the exact PID.

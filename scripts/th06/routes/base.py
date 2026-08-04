@@ -32,11 +32,12 @@ class RouteIntent:
     ``count-clearance`` ranks those continuations first by deduplicated
     terminal volume and then by their best terminal hazard clearance.
     ``constant-frontier`` keeps the subset that survives one unchanged-action
-    segment at that horizon. ``constant-frontier-count`` retains that whole
-    reserve as an eligibility filter, then ranks only inside it by terminal
-    reachable-state count. A later phase may instead provide already compiled
-    ``preferred_actions`` or use ``target-only``. No field can add an action
-    to Hard.
+    segment at that horizon. ``constant-clearance`` ranks that reserve by the
+    minimum hazard clearance along the same unchanged-action segment.
+    ``constant-frontier-count`` retains the whole reserve as an eligibility
+    filter, then ranks only inside it by terminal reachable-state count. A
+    later phase may instead provide already compiled ``preferred_actions`` or
+    use ``target-only``. No field can add an action to Hard.
     """
 
     phase_id: str
@@ -53,6 +54,7 @@ class RouteIntent:
             "policy-volume",
             "count-clearance",
             "constant-frontier",
+            "constant-clearance",
             "constant-frontier-count",
             "target-only",
             "uncovered",

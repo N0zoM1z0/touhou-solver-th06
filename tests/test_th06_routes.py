@@ -4,7 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from th06.barrage_lab.assets import load_stage_timeline
-from th06.model import BUTTON_FOCUS, ItemState, PlayerAttackState, Snapshot
+from th06.model import (
+    BUTTON_FOCUS,
+    CONTROL_ACTIONS,
+    ItemState,
+    PlayerAttackState,
+    SafeAction,
+    Snapshot,
+)
 from th06.routes.base import RouteIntent, RouteKey
 from th06.routes.phase import boss_phase_id, ecl_subroutine_index
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
@@ -158,8 +165,8 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(dense_tail.policy_state, "compressed-sub2-tail")
         self.assertEqual(random_stream.phase_id, RANDOM_BODY_STREAM.phase_id)
         self.assertEqual(random_stream.policy_state, "random-insertion")
-        self.assertEqual(random_stream.algorithm, "policy-volume")
-        self.assertEqual(random_stream.horizon, 6)
+        self.assertEqual(random_stream.algorithm, "constant-clearance")
+        self.assertEqual(random_stream.horizon, 5)
         self.assertIsNone(random_stream.target)
         self.assertEqual(random_tail.policy_state, "tail")
         self.assertEqual(second_stream.phase_id, SECOND_BODY_STREAM.phase_id)
@@ -836,6 +843,43 @@ class RoutePhaseTests(unittest.TestCase):
             decision.proposal_source,
             "constant-frontier-count",
         )
+
+    def test_common_solver_ranks_constant_reserve_by_its_clearance(self):
+        class ConstantClearancePack:
+            key = RouteKey(2, 0, 0, 4)
+            route_id = "constant-clearance-test"
+
+            @staticmethod
+            def intent(_snapshot):
+                return RouteIntent(
+                    "test:phase",
+                    "constant-clearance",
+                    "constant-clearance",
+                    5,
+                    None,
+                    4,
+                )
+
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        solver = Solver(
+            routes=RouteRegistry((ConstantClearancePack(),)),
+        )
+        solver._certify_selected = lambda *_args, **_kwargs: (
+            SafeAction(right, 8.0, 200.0, 380.0),
+            SafeAction(left, 3.0, 184.0, 380.0),
+        )
+
+        decision = solver.decide(snapshot())
+
+        self.assertEqual(decision.action, right)
+        self.assertEqual(decision.effort_horizon, 5)
+        self.assertEqual(decision.effort_safe_count, 1)
+        self.assertEqual(decision.proposal_source, "constant-clearance")
 
     def test_common_solver_discards_commitment_across_policy_states(self):
         class TrackingRanker(ProposalRanker):

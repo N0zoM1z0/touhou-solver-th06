@@ -72,6 +72,7 @@ TERMINAL_METRICS = (
     "count",
     "policy-volume",
     "constant-frontier",
+    "constant-clearance",
     "count-vector",
     "local-count-vector",
     "replanning-count",
@@ -2254,7 +2255,21 @@ class ExactTerminalPolicy:
             )
             for name in hard.actions
         )
-        if self.metric == "constant-frontier":
+        if self.metric == "constant-clearance":
+            reserve = certify_actions(
+                snapshot,
+                self.horizon,
+                actions=tuple(candidate.action for candidate in candidates),
+            )
+            best = max(
+                (candidate.clearance for candidate in reserve),
+                default=None,
+            )
+            preferred = frozenset(
+                candidate.action for candidate in reserve
+                if best is not None and candidate.clearance == best
+            )
+        elif self.metric == "constant-frontier":
             constant = certify_linear_source(
                 snapshot,
                 self.horizon,
@@ -2601,6 +2616,21 @@ class NativeTerminalPolicy:
             preferred = frozenset(
                 action for action, score in scores.items()
                 if best > 0 and score == best
+            )
+        elif self.metric == "constant-clearance":
+            reserve = self.kernel.certify_selected(
+                snapshot,
+                self.horizon,
+                tuple(candidate.action for candidate in hard),
+                collision_margin=0.35,
+            )
+            best = max(
+                (candidate.clearance for candidate in reserve),
+                default=None,
+            )
+            preferred = frozenset(
+                candidate.action for candidate in reserve
+                if best is not None and candidate.clearance == best
             )
         elif self.metric == "constant-frontier":
             constant = self.kernel.certify_selected(
