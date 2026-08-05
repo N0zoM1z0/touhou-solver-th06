@@ -268,6 +268,98 @@ class PeriodicBirthTests(unittest.TestCase):
         self.assertIsNotNone(nominal.continuation)
         self.assertEqual(nominal.continuation.elapsed_frames, 4)
 
+    def test_timeline_spawn_uses_gui_boss_present_not_lingering_boss_slot(self):
+        bullet_args = struct.pack(
+            "<hhii ffff I",
+            0, 0, 1, 1, 4.0, 4.0, 0.0, 0.0, 4,
+        )
+        bullet = EclInstruction(
+            0x1000,
+            0,
+            68,
+            0x30,
+            4,
+            (
+                struct.pack("<ihhBBBB", 0, 68, 0x30, 0, 4, 0, 0)
+                + bullet_args
+            ).hex(),
+        )
+        sentinel = EclInstruction(
+            0x1030,
+            -1,
+            -1,
+            12,
+            0xFF,
+            struct.pack(
+                "<ihhBBBB", -1, -1, 12, 0, 0xFF, 0, 0
+            ).hex(),
+        )
+        waiting = EclInstruction(
+            0x2000,
+            10000,
+            0,
+            12,
+            0xFF,
+            struct.pack(
+                "<ihhBBBB", 10000, 0, 12, 0, 0xFF, 0, 0
+            ).hex(),
+        )
+        program = (bullet, sentinel, waiting)
+        lingering = spawner(
+            pattern(),
+            slot=0,
+            life=0,
+            interactable=False,
+            is_boss=True,
+            boss_id=0,
+            next_instruction=waiting,
+            ecl_program=program,
+            ecl_subroutines=(0x1000,),
+        )
+        transition = StageTimelineInstruction(
+            0x3000,
+            100,
+            0,
+            0,
+            28,
+            struct.pack(
+                "<hhhhfffhhI",
+                100, 0, 0, 28, 32.0, 60.0, 0.0, 10, -1, 100,
+            ).hex(),
+        )
+        values = dict(
+            bullet_sizes=((3.0, 3.0),),
+            spawners=(lingering,),
+            timeline_time=100,
+            timeline_instructions=(transition,),
+            ecl_subroutines=(0x1000,),
+            timeline_ecl_program=program,
+        )
+        positions = ((100.0, 400.0),) * 2
+
+        for mode in ("fail-closed", "nominal"):
+            clear_gui = forecast_world_births(
+                snapshot(100, boss_present=False, **values),
+                positions,
+                rng_mode=mode,
+            )
+            live_gui = forecast_world_births(
+                snapshot(100, boss_present=True, **values),
+                positions,
+                rng_mode=mode,
+            )
+            self.assertEqual(clear_gui.covered_frames, 2, clear_gui.reason)
+            self.assertEqual(live_gui.covered_frames, 2, live_gui.reason)
+            self.assertEqual([len(frame) for frame in clear_gui.births], [1, 0])
+            self.assertEqual([len(frame) for frame in live_gui.births], [0, 0])
+
+        self.assertIsNotNone(clear_gui.continuation)
+        self.assertEqual(len(clear_gui.continuation.emitters), 2)
+        self.assertFalse(clear_gui.continuation.boss_present)
+        self.assertIsNotNone(live_gui.continuation)
+        self.assertEqual(len(live_gui.continuation.emitters), 1)
+        self.assertTrue(live_gui.continuation.boss_present)
+
     def test_hard_world_encloses_random_timeline_enemy_position(self):
         waiting = EclInstruction(
             0x1000,

@@ -254,15 +254,17 @@ def post_midboss_resource_intent(snapshot: Snapshot) -> RouteIntent:
     return RouteIntent(
         phase_id=POST_MIDBOSS_RESOURCE_PHASE_ID,
         policy_state="power-item-collection",
-        algorithm="policy-volume",
-        horizon=8,
+        algorithm="constant-clearance",
+        horizon=5,
         target=power_item_alignment(snapshot),
         commitment_frames=4,
         provenance=(
-            "physical f4637 resource root; installed t4498-t4978 life-3 "
-            "sub0 parents drop random items and emit no Hard bullets; "
-            "the f5060 body-collision counterexample requires fresh h8 "
-            "continuation before item-distance tie-breaking; common Hard-4 "
+            "physical f4703/f4773 resource failure; installed t4498-t4978 "
+            "life-3 sub0 parents drop random items and emit no Hard bullets. "
+            "Targeted constant-clearance h5 rejects the early upward item "
+            "chase, survives 64/64 late-root and 47/47 varied viable battle "
+            "worlds, and still avoids the older f5054 body approach; Power "
+            "alignment breaks only equal h5 clearance and common Hard-4 "
             "remains unchanged"
         ),
     )

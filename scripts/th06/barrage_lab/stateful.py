@@ -706,6 +706,7 @@ class _NominalCombatStep:
         self.despawned_bullet_slots: frozenset[int] = frozenset()
         self.spell_started = False
         self.spell_ended = False
+        self.boss_present_write: bool | None = None
         self.lasers = {laser.slot: laser for laser in snapshot.lasers}
         if (
             len(self.lasers) != len(snapshot.lasers)
@@ -1026,6 +1027,8 @@ class _NominalCombatStep:
         )
         removed = mode == 0
         if mode == 3:
+            # EnemyManager writes this unconditionally in death mode 3.
+            self.boss_present_write = False
             emitter = replace(
                 emitter, life=1, damageable=False, death_mode=0
             )
@@ -1033,6 +1036,8 @@ class _NominalCombatStep:
         else:
             if mode == 1:
                 emitter = replace(emitter, interactable=False)
+            if mode in (0, 1) and emitter.is_boss:
+                self.boss_present_write = False
             if emitter.item_drop >= 0:
                 self._spawn_effects((emitter.death_anm2 + 4,) * 3, rng)
                 self.spawn_item(
@@ -1062,6 +1067,11 @@ class _NominalCombatStep:
             emitter = replace(emitter, death_callback_sub=-1)
             emitter = self._reset_callback_state(emitter)
         return None if removed else emitter
+
+    def consume_boss_present_write(self) -> bool | None:
+        value = self.boss_present_write
+        self.boss_present_write = None
+        return value
 
     def post_emitter(
         self,
@@ -1903,6 +1913,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             if combat is not None
             else snapshot.item_next_index
         ),
+        boss_present=forecast.continuation.boss_present,
     )
 
 

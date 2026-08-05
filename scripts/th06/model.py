@@ -425,6 +425,11 @@ class Snapshot:
     # positive legacy timer is known to have ticked in the supported no-wait
     # battle replay.
     timeline_time_previous: int | None = None
+    # EnemyManager::RunEclTimeline gates enemy records on Gui::bossPresent,
+    # not on an occupied Enemy slot's isBoss flag.  A death-mode-1 boss can
+    # remain in the pool after Enemy::Despawn has cleared this byte. ``None``
+    # keeps older retained artifacts explicit rather than inventing its value.
+    boss_present: bool | None = None
 
 
 @dataclass(frozen=True)

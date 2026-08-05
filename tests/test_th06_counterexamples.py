@@ -93,6 +93,167 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 self.assertEqual(state.horizon, expected["horizon"])
                 self.assertEqual(state.target, expected["target"])
 
+    def test_stage1_resource_clearance_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "resource_clearance_policy"
+        )
+        self.assertTrue(cases, "resource-clearance corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                state = decode_snapshot(values["snapshot"])
+                hard = certify_actions(
+                    state, 4, actions=CONTROL_ACTIONS
+                )
+                self.assertEqual(len(hard), expected["hard_actions"])
+
+                scores = nominal_policy_scores(
+                    state,
+                    hard,
+                    4,
+                    values["policy_horizon"],
+                    continuation_actions=CONTROL_ACTIONS,
+                )
+                best_score = max(scores.values(), default=0)
+                self.assertEqual(
+                    best_score, expected["policy_best_score"]
+                )
+                policy = frozenset(
+                    action for action, score in scores.items()
+                    if best_score > 0 and score == best_score
+                )
+                policy_target = preferred_target_actions(
+                    hard, policy, tuple(values["target"])
+                )
+                self.assertEqual(
+                    sorted(action.name for action in policy_target),
+                    sorted(expected["policy_target_actions"]),
+                )
+
+                reserve = certify_actions(
+                    state,
+                    values["clearance_horizon"],
+                    actions=tuple(candidate.action for candidate in hard),
+                )
+                best_clearance = max(
+                    (candidate.clearance for candidate in reserve),
+                    default=None,
+                )
+                clearance = frozenset(
+                    candidate.action for candidate in reserve
+                    if (
+                        best_clearance is not None
+                        and candidate.clearance == best_clearance
+                    )
+                )
+                clearance_target = preferred_target_actions(
+                    hard, clearance, tuple(values["target"])
+                )
+                self.assertEqual(
+                    sorted(action.name for action in clearance_target),
+                    sorted(expected["clearance_target_actions"]),
+                )
+
+    def test_timeline_gui_boss_gate_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "timeline_gui_boss_gate"
+        )
+        self.assertTrue(cases, "timeline GUI boss-gate corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                program = tuple(
+                    EclInstruction(**instruction)
+                    for instruction in values["ecl_program"]
+                )
+                child = source_enemy_template(
+                    program,
+                    (values["subroutine"],),
+                    0,
+                    83.0,
+                    103.0,
+                    0,
+                )
+                self.assertIsNotNone(child)
+                waiting = next(
+                    instruction for instruction in program
+                    if instruction.time == 10000
+                )
+                lingering = replace(
+                    child,
+                    slot=0,
+                    life=0,
+                    interactable=False,
+                    is_boss=True,
+                    boss_id=0,
+                    ecl_time=96,
+                    ecl_time_float=96.0,
+                    next_instruction=waiting,
+                )
+                root = Snapshot(
+                    frame=case["origin"]["target_frame"],
+                    stage=case["origin"]["stage"],
+                    player_state=0,
+                    x=128.0,
+                    y=230.0,
+                    half_width=1.25,
+                    half_height=1.25,
+                    normal_speed=4.0,
+                    focus_speed=2.0,
+                    normal_diagonal_speed=2.8284270763397217,
+                    focus_diagonal_speed=1.4142135381698608,
+                    frame_multiplier=1.0,
+                    input_mask=0x25,
+                    bullets=(),
+                    laser_count=0,
+                    in_menu=False,
+                    time_stopped=False,
+                    replay_or_demo=False,
+                    spawners=(lingering,),
+                    difficulty=2,
+                    timeline_time=values["timeline_time"],
+                    timeline_instructions=(StageTimelineInstruction(
+                        **values["timeline_instruction"]
+                    ),),
+                    ecl_subroutines=(values["subroutine"],),
+                    timeline_ecl_program=program,
+                    boss_present=values["boss_present"],
+                )
+                positions = ((128.0, 230.0),) * 2
+                nominal_clear = forecast_world_births(
+                    root, positions, rng_mode="nominal"
+                )
+                nominal_live = forecast_world_births(
+                    replace(root, boss_present=True),
+                    positions,
+                    rng_mode="nominal",
+                )
+                self.assertEqual(
+                    [item.slot for item in nominal_clear.continuation.emitters],
+                    expected["nominal_emitter_slots_when_clear"],
+                )
+                self.assertEqual(
+                    [item.slot for item in nominal_live.continuation.emitters],
+                    expected["nominal_emitter_slots_when_live"],
+                )
+
+                hard_clear = forecast_world_births(root, positions)
+                hard_live = forecast_world_births(
+                    replace(root, boss_present=True), positions
+                )
+                self.assertEqual(
+                    [len(frame) for frame in hard_clear.body_hazards],
+                    expected["hard_body_counts_when_clear"],
+                )
+                self.assertEqual(
+                    [len(frame) for frame in hard_live.body_hazards],
+                    expected["hard_body_counts_when_live"],
+                )
+
     def test_nominal_spell_start_transition_counterexamples(self):
         cases = tuple(
             case for case in load_cases()

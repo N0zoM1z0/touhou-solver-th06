@@ -245,6 +245,7 @@ GUI_MSG_INSTRUCTION_OFFSET = 0x4
 GUI_MSG_INDEX_OFFSET = 0x8
 GUI_MSG_IGNORE_WAIT_OFFSET = 0x6A0
 GUI_MSG_SKIPPABLE_OFFSET = 0x6A4
+GUI_BOSS_PRESENT_OFFSET = 0x20
 
 
 @dataclass(frozen=True)
@@ -1582,6 +1583,13 @@ def _read_snapshot_once(
     if shot_type not in (0, 1):
         raise RuntimeError(f"invalid player shot type {shot_type}")
     gui_impl = struct.unpack("<I", process.read(ADDR_GUI + 4, 4))[0]
+    boss_present_raw = process.read(
+        ADDR_GUI + GUI_BOSS_PRESENT_OFFSET, 1
+    )[0]
+    if boss_present_raw not in (0, 1):
+        raise RuntimeError(
+            f"invalid GUI boss-present flag {boss_present_raw}"
+        )
     if gui_impl and not 0x10000 <= gui_impl < 0x80000000:
         raise RuntimeError(f"invalid GuiImpl pointer 0x{gui_impl:08X}")
     if gui_impl:
@@ -2348,6 +2356,7 @@ def _read_snapshot_once(
         timeline_boss_slots,
         lives_remaining,
         timeline_previous,
+        bool(boss_present_raw),
     )
 
 

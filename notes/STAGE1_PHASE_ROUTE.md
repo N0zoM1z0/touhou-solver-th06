@@ -1400,3 +1400,70 @@ decisions, solve time is 2.783/3.505/5.603/6.829 ms median/p90/p99/maximum,
 with zero decisions over 12.5 ms and no timeout. The destination routes remain
 independent and common Hard-4 authority is unchanged. The next experiment is
 an ordinary-RNG default fail-close Stage 1 run.
+
+## resource replay correction after the sub13 integration run
+
+The attempted sub13 promotion did not reach the main boss. It stopped alive
+at f4773 inside the earlier t4498 random-item resource formation, without HIT
+or Bomb. The terminal empty Hard set is not the cause. At f4703 all eighteen
+Hard-4 actions are still available, but h8 policy volume gives every action
+the same score 17. The live Small Power target therefore selects `up` and
+starts the long climb that later 29--32 ms stale publications cannot repair.
+
+Before comparing policies, the retained world exposed one source-semantic
+error. Slot zero still contains a life-zero, non-interactable death-mode-1
+boss marked `isBoss`, yet physical RunEclTimeline creates the t4498 children.
+The authoritative distinction is:
+
+- `EnemyManager::RunEclTimeline` tests `g_Gui.BossPresent()` for opcodes 0--7;
+- `Enemy::Despawn` clears `g_Gui.bossPresent` for a boss even when death mode 1
+  retains its occupied slot;
+- `ECL_OPCODE_BOSSSET` is the other authoritative writer of this GUI byte.
+
+Native snapshots now capture `Gui + 0x20` as `boss_present`. Old artifacts use
+`None` rather than guessing. Nominal insertion reads the fresh value. Hard may
+suppress a lead-zero timeline record when fresh `true` proves the source does
+so, but it continues to insert farther future records because the separately
+forecast boss may despawn before them. Thus source correction does not become
+unsafe future pruning.
+
+When the old artifact is shaped with `boss_present=false`, a fact directly
+proved by the observed births, all 226 adjacent combat worlds become exact.
+This includes all 22 enemy transitions, player attack, RNG, graze, Rank, item,
+and Power state. The three repaired mismatches are precisely the two-child
+formation insertions at t4498, t4514, and t4530. The independent physical
+contract is `stage1_f4498_gui_boss_gate.json`.
+
+The corrected nominal hot path also splits a forecast at its first and last
+timeline write. ECL slices on either side use the existing no-shared-RNG batch
+guard; a shared RNG read or child-creation dependency returns to the exact
+framewise path. Adjacent physical parity remains 226/226. On the measured h5
+formation boundary this reduces the redundant nominal suffix/prefix work and
+keeps production publication inside budget.
+
+The new phase primitive is targeted constant-clearance h5. It keeps only the
+actions with maximum minimum clearance in the unchanged-action h5 reserve,
+then lets the live Power position break any remaining tie. It remains soft:
+Hard-4 is still the only eligibility authority. At f4703 this selects
+`down_left` instead of the old `up`; the minimized body/target contract is
+`stage1_f4703_resource_clearance.json`. At the older f5054 compact resource CE
+it selects `right`, not the shallow target's unsafe `down`.
+
+The selection evidence is deliberately stateful:
+
+- constant-clearance h4 stops on two of 64 late-root delivery worlds, at
+  f4803 and f4818;
+- h5 survives the same 64/64 worlds;
+- 48 warmup worlds were generated through 2,488 source updates, spanning 11
+  enemy-combat, 48 player-attack, and five RNG states; 47 have fresh initial
+  Hard authority and h5 survives 47/47 for 64 frames;
+- removing the Power target adds no survival and roughly doubles commands, so
+  resource collection stays subordinate rather than disappearing;
+- the actual production Solver on 94 consecutive retained physical snapshots
+  measures 2.878 ms median, 4.638 ms p90, 6.765 ms maximum, with no call above
+  12.5 ms and every result `ok/constant-clearance`.
+
+Linux validation is 307 tests passed with 25 native-only skips; Windows/native
+validation is 307 passed. The next physical falsifier must first cross f4703
+and f4773. Reaching the boss afterward only resumes the still-unpromoted sub13
+candidate; it does not retroactively validate sub13.

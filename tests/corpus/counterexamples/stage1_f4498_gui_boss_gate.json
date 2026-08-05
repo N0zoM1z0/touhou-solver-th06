@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "id": "stage1-f4498-gui-boss-gate",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "target_frame": 4498,
+    "failure_frame": 4773
+  },
+  "runner": "timeline_gui_boss_gate",
+  "contract": "RunEclTimeline gates an enemy record on fresh Gui::bossPresent, not on a lingering death-mode boss slot's isBoss flag.",
+  "summary": "Physical f4498 retained a life-zero non-interactable isBoss slot after Enemy::Despawn, while two source timeline children nevertheless appeared at f4499. The source writes Gui::bossPresent=false during boss despawn; using slot identity suppressed all three later formation pairs in nominal replay.",
+  "input": {
+    "boss_present": false,
+    "timeline_time": 4498,
+    "subroutine": 165433152,
+    "timeline_instruction": {
+      "address": 165455770,
+      "time": 4498,
+      "arg0": 0,
+      "opcode": 0,
+      "size": 28,
+      "raw_hex": "9211000000001c0000000042000000c2000000000300ffff2c010000"
+    },
+    "ecl_program": [
+      {"address": 165433152, "time": 0, "opcode": 97, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006100100000ffff0000000000"},
+      {"address": 165433168, "time": 0, "opcode": 103, "offset_to_next": 24, "skip_for_difficulty": 255, "raw_hex": "000000006700180000ffff000000e0410000e04100000042"},
+      {"address": 165433192, "time": 0, "opcode": 100, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "000000006400100000ffff0001030000"},
+      {"address": 165433208, "time": 0, "opcode": 45, "offset_to_next": 20, "skip_for_difficulty": 255, "raw_hex": "000000002d00140000ffff00db0fc93f00000040"},
+      {"address": 165433228, "time": 0, "opcode": 78, "offset_to_next": 12, "skip_for_difficulty": 8, "raw_hex": "000000004e000c000008ff00"},
+      {"address": 165433240, "time": 0, "opcode": 67, "offset_to_next": 44, "skip_for_difficulty": 8, "raw_hex": "0000000043002c000008ff000000060001000000010000000000404000000000000000000000000004000000"},
+      {"address": 165433284, "time": 0, "opcode": 79, "offset_to_next": 12, "skip_for_difficulty": 8, "raw_hex": "000000004f000c000008ff00"},
+      {"address": 165433296, "time": 0, "opcode": 77, "offset_to_next": 16, "skip_for_difficulty": 8, "raw_hex": "000000004d0010000008ff0078000000"},
+      {"address": 165433312, "time": 40, "opcode": 46, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "280000002e00100000ffff00db0fc9bc"},
+      {"address": 165433328, "time": 120, "opcode": 46, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "780000002e00100000ffff007cd9a03c"},
+      {"address": 165433344, "time": 220, "opcode": 46, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "dc0000002e00100000ffff0000000000"},
+      {"address": 165433360, "time": 10000, "opcode": 1, "offset_to_next": 16, "skip_for_difficulty": 255, "raw_hex": "102700000100100000ffff0000000000"},
+      {"address": 165433376, "time": -1, "opcode": -1, "offset_to_next": 12, "skip_for_difficulty": 255, "raw_hex": "ffffffffffff0c0000ffff00"}
+    ]
+  },
+  "expect": {
+    "nominal_emitter_slots_when_clear": [0, 1],
+    "nominal_emitter_slots_when_live": [0],
+    "hard_body_counts_when_clear": [1, 1],
+    "hard_body_counts_when_live": [0, 0]
+  }
+}

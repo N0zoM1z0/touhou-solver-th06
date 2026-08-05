@@ -54,6 +54,20 @@ class WorldForecastContinuation:
     rng_generation: int
     framewise: bool
     elapsed_frames: int = 0
+    boss_present: bool | None = None
+
+
+def _boss_present_after_emitter(
+    current: bool | None,
+    before: EnemySpawner,
+    after: EnemySpawner | None,
+) -> bool | None:
+    """Apply source-visible BOSSSET/Despawn writes represented by ECL state."""
+    if after is None:
+        return False if before.is_boss else current
+    if before.is_boss != after.is_boss:
+        return after.is_boss
+    return current
 
 
 class _NominalRngConsumed(Exception):
@@ -381,6 +395,12 @@ def _forecast_hard_timeline_births(
         for emitter in snapshot.spawners
         if emitter.boss_id >= 0
     }
+    # At lead zero RunEclTimeline runs before any enemy update, so a fresh
+    # true byte proves every current-time spawn is suppressed. At later leads
+    # the separately forecast live boss may despawn first; keep those births
+    # instead of turning current state into unsafe future pruning. ``None`` is
+    # an older artifact and likewise keeps the conservative insertion.
+    boss_present = snapshot.boss_present
     for lead, instruction in scheduled_timeline(
         snapshot.timeline_instructions,
         snapshot.timeline_time,
@@ -408,6 +428,8 @@ def _forecast_hard_timeline_births(
                     f"at 0x{instruction.address:08x}",
                     tuple(map(tuple, bodies)),
                 )
+            continue
+        if lead == 0 and boss_present is True:
             continue
         spawn = decode_enemy_spawn(instruction)
         if spawn is None:
@@ -525,6 +547,10 @@ def _forecast_hard_timeline_births(
                 ),
                 item_drop=spawn.item_drop,
         )
+        if lead == 0 and boss_present is False and child.is_boss:
+            # SpawnEnemy executes time-zero BOSSSET inline. A following
+            # timeline record at the same timer observes the written byte.
+            boss_present = True
         if child.boss_id >= 0:
             known_boss_ids.add(child.boss_id)
         ordinary = _forecast_hard_emitter(
@@ -575,6 +601,7 @@ def _forecast_nominal_without_shared_rng(
     player_positions: tuple[tuple[float, float], ...],
     emitters: tuple[EnemySpawner, ...],
     rng: RngState,
+    boss_present: bool | None,
 ) -> WorldBirthForecast | None:
     """Batch independent emitters only after proving that none reads RNG.
 
@@ -622,6 +649,9 @@ def _forecast_nominal_without_shared_rng(
             bodies[frame_index].extend(frame_bodies)
         if forecast.next_spawner is not None:
             next_emitters.append(forecast.next_spawner)
+        boss_present = _boss_present_after_emitter(
+            boss_present, emitter, forecast.next_spawner
+        )
     return WorldBirthForecast(
         tuple(tuple(frame) for frame in births),
         _project_hazards(births, False),
@@ -633,6 +663,7 @@ def _forecast_nominal_without_shared_rng(
             rng.generation_count,
             True,
             len(player_positions),
+            boss_present,
         ),
     )
 
@@ -687,6 +718,7 @@ def _forecast_nominal_from_state(
     framewise: bool,
     start_lead: int = 0,
     combat=None,
+    boss_present: bool | None = None,
 ) -> WorldBirthForecast:
     births: list[list[Bullet]] = [[] for _ in player_positions]
     bodies: list[list[tuple[float, float, float, float]]] = [
@@ -695,10 +727,67 @@ def _forecast_nominal_from_state(
     timeline_transitions = _nominal_timeline_transitions(
         snapshot, start_lead, len(player_positions)
     )
+    if boss_present is None:
+        boss_present = snapshot.boss_present
     if timeline_transitions:
         framewise = True
     if combat is not None:
         framewise = True
+    if combat is None and timeline_transitions:
+        # Preserve the frame/slot ordering through the last timeline write,
+        # and let the existing no-shared-RNG guard batch untouched prefixes
+        # and tails. Previously one spawn anywhere in the window forced every
+        # frame through the 255-slot loop even when the exact ECL slices on
+        # either side were commutative. If a slice reads RNG or creates a
+        # child, that guard returns ``None`` and the ordinary framewise path
+        # remains authoritative.
+        transition_prefix_start = (
+            min(lead for lead, _instruction in timeline_transitions)
+            - start_lead
+        )
+        if transition_prefix_start > 0:
+            prefix = _forecast_nominal_from_state(
+                snapshot,
+                player_positions[:transition_prefix_start],
+                emitters,
+                rng,
+                framewise=framewise,
+                start_lead=start_lead,
+                boss_present=boss_present,
+            )
+            if (
+                prefix.covered_frames == transition_prefix_start
+                and prefix.continuation is not None
+            ):
+                return extend_nominal_world_births(
+                    snapshot,
+                    prefix,
+                    player_positions[transition_prefix_start:],
+                )
+        transition_prefix_frames = (
+            max(lead for lead, _instruction in timeline_transitions)
+            - start_lead
+            + 1
+        )
+        if transition_prefix_frames < len(player_positions):
+            prefix = _forecast_nominal_from_state(
+                snapshot,
+                player_positions[:transition_prefix_frames],
+                emitters,
+                rng,
+                framewise=True,
+                start_lead=start_lead,
+                boss_present=boss_present,
+            )
+            if (
+                prefix.covered_frames == transition_prefix_frames
+                and prefix.continuation is not None
+            ):
+                return extend_nominal_world_births(
+                    snapshot,
+                    prefix,
+                    player_positions[transition_prefix_frames:],
+                )
     if not framewise:
         if not emitters:
             return WorldBirthForecast(
@@ -709,6 +798,7 @@ def _forecast_nominal_from_state(
                 continuation=WorldForecastContinuation(
                     (), rng.seed, rng.generation_count, False,
                     start_lead + len(player_positions),
+                    boss_present,
                 ),
             )
         if len(emitters) != 1:
@@ -753,6 +843,9 @@ def _forecast_nominal_from_state(
                 rng.generation_count,
                 False,
                 start_lead + len(player_positions),
+                _boss_present_after_emitter(
+                    boss_present, emitter, forecast.next_spawner
+                ),
             )
             if (
                 forecast.covered_frames == len(player_positions)
@@ -774,7 +867,7 @@ def _forecast_nominal_from_state(
 
     if not timeline_transitions and combat is None:
         batched = _forecast_nominal_without_shared_rng(
-            snapshot, player_positions, emitters, rng
+            snapshot, player_positions, emitters, rng, boss_present
         )
         if batched is not None:
             return replace(
@@ -826,8 +919,15 @@ def _forecast_nominal_from_state(
                 )
                 continue
 
-            # RunEclTimeline suppresses enemy records while a boss is live.
-            if any(emitter.is_boss for emitter in slots.values()):
+            # The source gate is Gui::bossPresent. Older artifacts did not
+            # capture it, so retain the previous slot-based fallback only for
+            # those records rather than inventing a byte value.
+            timeline_boss_present = (
+                boss_present
+                if boss_present is not None
+                else any(emitter.is_boss for emitter in slots.values())
+            )
+            if timeline_boss_present:
                 continue
             spawn = decode_enemy_spawn(instruction)
             if spawn is None:
@@ -919,7 +1019,7 @@ def _forecast_nominal_from_state(
                     tuple(tuple(frame) for frame in bodies),
                 )
             if inline.next_spawner is not None:
-                slots[free_slot] = replace(
+                inserted = replace(
                     inline.next_spawner,
                     slot=free_slot,
                     invert_x=spawn.invert_x,
@@ -930,6 +1030,10 @@ def _forecast_nominal_from_state(
                     ),
                     item_drop=spawn.item_drop,
                 )
+                slots[free_slot] = inserted
+                boss_present = _boss_present_after_emitter(
+                    boss_present, child, inserted
+                )
             elif not inline.finished:
                 return WorldBirthForecast(
                     tuple(tuple(frame) for frame in births),
@@ -938,6 +1042,10 @@ def _forecast_nominal_from_state(
                     f"nominal timeline emitter {spawn.sub_id}: "
                     f"{inline.reason}",
                     tuple(tuple(frame) for frame in bodies),
+                )
+            else:
+                boss_present = _boss_present_after_emitter(
+                    boss_present, child, None
                 )
 
         for slot in range(SOURCE_ENEMY_SLOT_COUNT):
@@ -1013,6 +1121,8 @@ def _forecast_nominal_from_state(
                 forecast.created_emitters, free_slots
             ):
                 slots[child_slot] = replace(child, slot=child_slot)
+                if child.is_boss:
+                    boss_present = True
             if forecast.next_spawner is None:
                 if not forecast.finished:
                     return WorldBirthForecast(
@@ -1022,10 +1132,19 @@ def _forecast_nominal_from_state(
                         f"emitter {emitter.slot}: {forecast.reason}",
                     )
                 slots.pop(slot, None)
+                boss_present = _boss_present_after_emitter(
+                    boss_present, emitter, None
+                )
             else:
                 next_emitter = replace(forecast.next_spawner, slot=slot)
+                boss_present = _boss_present_after_emitter(
+                    boss_present, emitter, next_emitter
+                )
                 if combat is not None:
                     next_emitter = combat.post_emitter(next_emitter, rng)
+                    combat_write = combat.consume_boss_present_write()
+                    if combat_write is not None:
+                        boss_present = combat_write
                 if next_emitter is None:
                     slots.pop(slot, None)
                 else:
@@ -1045,6 +1164,7 @@ def _forecast_nominal_from_state(
             rng.generation_count,
             True,
             start_lead + len(player_positions),
+            boss_present,
         ),
     )
 
@@ -1070,6 +1190,7 @@ def extend_nominal_world_births(
         ),
         framewise=continuation.framewise,
         start_lead=continuation.elapsed_frames,
+        boss_present=continuation.boss_present,
     )
     births = prefix.births + tail.births
     # An empty body_hazards tuple is the compact representation for "no body

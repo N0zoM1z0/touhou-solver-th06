@@ -1216,3 +1216,57 @@ and every destination's independent route remain unchanged. Run ordinary
 RNG/default fail-close next; promotion requires crossing all seven aimed
 groups and stopping or continuing only at an independently covered stable
 destination, with no HIT, Bomb, timeout, or earlier authority loss.
+
+That integrated run took an earlier route dependency and therefore did not
+physically promote sub13. It crossed the early Stage 1 route and midboss but
+stopped alive at f4773 in
+`timeline:t4498:sub0-random-item-resource-formations`, with no HIT or Bomb.
+The complete 4,657-row CSV contains one fail-close authority stop. Exact PID
+60332 was stopped, input was released, and no game or offline worker remained.
+
+The first model discrepancy was source-defined. At f4498 a life-zero,
+non-interactable death-mode-1 boss still occupied enemy slot zero with
+`isBoss=true`, but the timeline nevertheless created its two sub0 children.
+Authoritative `EnemyManager::RunEclTimeline` gates opcodes 0--7 on
+`g_Gui.BossPresent()`, while `Enemy::Despawn` clears `g_Gui.bossPresent` even
+when death mode 1 retains the enemy slot. Native capture now reads the fresh
+GUI byte at `Gui + 0x20`; older artifacts retain `None` explicitly. Nominal
+timeline insertion uses that byte, while Hard suppresses only a current-frame
+spawn proved absent by fresh `true` state and conservatively retains farther
+future births. The compact physical contract is
+`stage1_f4498_gui_boss_gate.json`.
+
+With the physical resource interval shaped only by the successful source
+spawn evidence (`bossPresent=false`), all 226 adjacent steps now match player,
+enemy transitions, Reimu-A attack, RNG, graze, Rank, item, and Power state.
+All 22 enemy-transition steps are exact; the previous three mismatches were
+exactly the missing t4498/t4514/t4530 formation pairs. The nominal hot path now
+batches source-commutative ECL slices before and after a timeline write, but
+falls back to framewise execution on shared RNG or child creation. This keeps
+the same 226/226 parity while removing the measured replay cost spike.
+
+The f4773 empty Hard set was downstream. The earliest material policy error is
+f4703: all 18 actions remain Hard-4 safe; h8 policy volume is tied at score 17,
+so the live Small Power target selects `up`. Targeted constant-clearance h5
+instead selects `down_left` from the same fresh world and continues to rank
+Power only inside its clearance-best reserve. The compact physical contract
+is `stage1_f4703_resource_clearance.json`. It also selects `right`, not the
+old unsafe `down`, in the independent f5054 resource-body CE.
+
+H4 is cheaper but fails two of 64 late-root delivery worlds at f4803/f4818.
+H5 survives 64/64. A separate source-state warmup generated 48 complete worlds
+through 2,488 updates, covering 11 enemy-combat, 48 player-attack, and five RNG
+states; 47 retained fresh initial Hard authority and h5 survived 47/47 for 64
+frames. Target removal adds no survival and roughly doubles commands, so the
+Power target stays. Across 94 consecutive retained physical snapshots, the
+actual production Solver with the h5 route measures 2.878 ms median, 4.638 ms
+p90, 6.765 ms maximum, and zero calls above 12.5 ms; every decision is fresh
+`ok/constant-clearance`.
+
+The resource phase now uses targeted constant-clearance h5. Current validation
+is 307 Linux tests passed with 25 native-only skips and all 307 Windows/native
+tests passed. The next experiment is an ordinary-RNG, default fail-close
+Practice Stage 1 run. It must first cross f4703/f4773 and finish the resource
+formation without stale authority loss. If it reaches the boss route, sub13
+still requires its first physical promotion; no result from this resource fix
+is evidence that sub13 itself has cleared.
