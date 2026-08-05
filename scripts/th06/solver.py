@@ -2,9 +2,9 @@
 
 The previous universal anytime solver is preserved at annotated tag
 ``pre-phase-route-pivot-20260804``.  This module intentionally contains no
-stage strategy: route packs select a source phase, local primitive, horizon,
-and target; this runtime can only intersect their proposal with fresh Hard
-authority and publish one action.
+stage strategy: route packs receive fresh Hard authority, rank only inside it,
+and return an inspectable proposal.  This runtime re-intersects that proposal
+with the same Hard set and publishes one action.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from .hazards.lasers import unknown_motion_may_reach_player
 from .guidance import terminal_guidance_scores
 from .kernels.safety import NativeSafetyKernel
 from .model import (
-    ACTIONS,
     CONTROL_ACTIONS,
     Action,
     Decision,
@@ -25,8 +24,8 @@ from .model import (
     Snapshot,
     action_from_input,
 )
-from .ranking import ProposalRanker, preferred_target_actions
-from .routes import RouteRegistry, default_routes
+from .ranking import ProposalRanker
+from .routes import ProposalRequest, RouteRegistry, default_routes
 from .safety import COLLISION_MARGIN, DELIVERY_DELAYS, certify_actions
 from .viability import nominal_policy_scores
 
@@ -35,6 +34,104 @@ HARD_SAFETY_HORIZON = 4
 HARD_CURRENT_HOLD_HORIZON = HARD_SAFETY_HORIZON + 1
 DEFAULT_DECISION_BUDGET_MS = 1000.0 / 60.0 * 0.75
 PUBLICATION_GUARD_MS = 1.0
+
+
+class _ProposalServices:
+    """Deadline-aware source evaluators; no method can publish an action."""
+
+    def __init__(self, solver: "Solver", started: float) -> None:
+        self.solver = solver
+        self.started = started
+
+    def remaining_budget_ms(self) -> float:
+        elapsed_ms = (self.solver.clock() - self.started) * 1000.0
+        return (
+            self.solver.decision_budget_ms
+            - elapsed_ms
+            - PUBLICATION_GUARD_MS
+        )
+
+    def certify_selected(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+    ):
+        return self.solver._certify_selected(snapshot, horizon, actions)
+
+    def nominal_policy_counts(
+        self,
+        snapshot: Snapshot,
+        hard,
+        horizon: int,
+    ) -> dict[Action, int] | None:
+        if horizon <= HARD_SAFETY_HORIZON:
+            return {candidate.action: 1 for candidate in hard}
+        native = (
+            getattr(
+                type(self.solver.kernel),
+                "nominal_policy_counts_budgeted",
+                None,
+            )
+            if self.solver.kernel is not None
+            else None
+        )
+        if native is not None:
+            budget_ms = self.remaining_budget_ms()
+            if budget_ms <= 0.0:
+                return None
+            return native(
+                self.solver.kernel,
+                snapshot,
+                hard,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+        return nominal_policy_scores(
+            snapshot,
+            hard,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            continuation_actions=CONTROL_ACTIONS,
+        )
+
+    def terminal_guidance(
+        self,
+        snapshot: Snapshot,
+        hard,
+        horizon: int,
+    ):
+        native = (
+            getattr(
+                type(self.solver.kernel),
+                "terminal_guidance_budgeted",
+                None,
+            )
+            if self.solver.kernel is not None
+            else None
+        )
+        if native is not None:
+            budget_ms = self.remaining_budget_ms()
+            if budget_ms <= 0.0:
+                return None
+            return native(
+                self.solver.kernel,
+                snapshot,
+                hard,
+                HARD_SAFETY_HORIZON,
+                horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+        return terminal_guidance_scores(
+            snapshot,
+            hard,
+            HARD_SAFETY_HORIZON,
+            horizon,
+            continuation_actions=CONTROL_ACTIONS,
+        )
 
 
 class Solver:
@@ -191,150 +288,6 @@ class Solver:
             return "unsupported-laser-motion"
         return None
 
-    def _policy_preferred(
-        self,
-        snapshot: Snapshot,
-        hard,
-        horizon: int,
-        budget_ms: float,
-    ) -> frozenset[Action] | None:
-        if horizon <= HARD_SAFETY_HORIZON:
-            return frozenset(candidate.action for candidate in hard)
-        native = (
-            getattr(type(self.kernel), "nominal_policy_counts_budgeted", None)
-            if self.kernel is not None
-            else None
-        )
-        if native is not None:
-            if budget_ms <= 0.0:
-                return None
-            scores = native(
-                self.kernel,
-                snapshot,
-                hard,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                collision_margin=COLLISION_MARGIN,
-                budget_ms=budget_ms,
-            )
-            if scores is None:
-                return None
-        else:
-            scores = nominal_policy_scores(
-                snapshot,
-                hard,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                continuation_actions=CONTROL_ACTIONS,
-            )
-        best = max(scores.values(), default=0)
-        if best <= 0:
-            return frozenset()
-        return frozenset(action for action, score in scores.items() if score == best)
-
-    def _count_clearance_preferred(
-        self,
-        snapshot: Snapshot,
-        hard,
-        horizon: int,
-        budget_ms: float,
-    ) -> frozenset[Action] | None:
-        if horizon <= HARD_SAFETY_HORIZON:
-            return frozenset(candidate.action for candidate in hard)
-        native = (
-            getattr(type(self.kernel), "terminal_guidance_budgeted", None)
-            if self.kernel is not None
-            else None
-        )
-        if native is not None:
-            if budget_ms <= 0.0:
-                return None
-            guidance = native(
-                self.kernel,
-                snapshot,
-                hard,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                collision_margin=COLLISION_MARGIN,
-                budget_ms=budget_ms,
-            )
-            if guidance is None:
-                return None
-        else:
-            guidance = terminal_guidance_scores(
-                snapshot,
-                hard,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                continuation_actions=CONTROL_ACTIONS,
-            )
-        scores = {
-            action: (value.terminal_count, value.free_clearance)
-            for action, value in guidance.items()
-        }
-        best = max(scores.values(), default=None)
-        if best is None or best[0] <= 0:
-            return frozenset()
-        return frozenset(
-            action for action, score in scores.items() if score == best
-        )
-
-    def _constant_frontier_count_preferred(
-        self,
-        snapshot: Snapshot,
-        hard,
-        horizon: int,
-        budget_ms: float,
-    ) -> frozenset[Action] | None:
-        if horizon <= HARD_SAFETY_HORIZON:
-            return frozenset(candidate.action for candidate in hard)
-        started = self.clock()
-        reserve = self._certify_selected(
-            snapshot,
-            horizon,
-            tuple(candidate.action for candidate in hard),
-        )
-        if not reserve:
-            return frozenset()
-        remaining_ms = budget_ms - (self.clock() - started) * 1000.0
-        native = (
-            getattr(type(self.kernel), "terminal_guidance_budgeted", None)
-            if self.kernel is not None
-            else None
-        )
-        if native is not None:
-            if remaining_ms <= 0.0:
-                return None
-            guidance = native(
-                self.kernel,
-                snapshot,
-                reserve,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                collision_margin=COLLISION_MARGIN,
-                budget_ms=remaining_ms,
-            )
-            if guidance is None:
-                return None
-        else:
-            guidance = terminal_guidance_scores(
-                snapshot,
-                reserve,
-                HARD_SAFETY_HORIZON,
-                horizon,
-                continuation_actions=CONTROL_ACTIONS,
-            )
-        counts = {
-            action: value.terminal_count
-            for action, value in guidance.items()
-        }
-        best = max(counts.values(), default=0)
-        if best <= 0:
-            return frozenset()
-        return frozenset(
-            action for action, count in counts.items() if count == best
-        )
-
     def decide(
         self,
         snapshot: Snapshot,
@@ -405,8 +358,12 @@ class Solver:
                     else HARD_SAFETY_HORIZON
                 ),
             )
-        intent = pack.intent(snapshot)
-        if intent is None:
+        proposal = pack.propose(ProposalRequest(
+            snapshot,
+            hard,
+            _ProposalServices(self, started),
+        ))
+        if proposal is None:
             return Decision(
                 None,
                 hard,
@@ -422,10 +379,10 @@ class Solver:
             )
         self._enter_proposal_context(
             pack.route_id,
-            intent.phase_id,
-            intent.policy_state,
+            proposal.phase_id,
+            proposal.policy_state,
         )
-        if intent.algorithm == "uncovered":
+        if not proposal.available:
             return Decision(
                 None,
                 hard,
@@ -438,92 +395,19 @@ class Solver:
                     else HARD_SAFETY_HORIZON
                 ),
                 route_id=pack.route_id,
-                phase_id=intent.phase_id,
-                policy_state=intent.policy_state,
-                proposal_source=intent.provenance,
+                phase_id=proposal.phase_id,
+                policy_state=proposal.policy_state,
+                proposal_source=proposal.proposal_source,
             )
 
         hard_actions = frozenset(candidate.action for candidate in hard)
-        preferred = frozenset(
-            action for action in intent.preferred_actions
-            if action in hard_actions
-        )
-        completed_horizon = HARD_SAFETY_HORIZON
-        proposal_source = "compiled-actions" if preferred else intent.algorithm
-        if intent.algorithm == "policy-volume":
-            elapsed_ms = (self.clock() - started) * 1000.0
-            budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS
-            policy = self._policy_preferred(
-                snapshot, hard, intent.horizon, budget_ms
-            )
-            if policy is not None:
-                completed_horizon = intent.horizon
-                preferred = policy
-            else:
-                proposal_source = "policy-timeout-hold"
-        elif intent.algorithm == "count-clearance":
-            elapsed_ms = (self.clock() - started) * 1000.0
-            budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS
-            policy = self._count_clearance_preferred(
-                snapshot, hard, intent.horizon, budget_ms
-            )
-            if policy is not None:
-                completed_horizon = intent.horizon
-                preferred = policy
-            else:
-                proposal_source = "count-clearance-timeout-hold"
-        elif intent.algorithm == "constant-frontier":
-            constant = self._certify_selected(
-                snapshot,
-                intent.horizon,
-                tuple(hard_actions),
-            )
-            completed_horizon = intent.horizon
-            preferred = frozenset(
-                candidate.action for candidate in constant
-            )
-        elif intent.algorithm == "constant-clearance":
-            constant = self._certify_selected(
-                snapshot,
-                intent.horizon,
-                tuple(hard_actions),
-            )
-            completed_horizon = intent.horizon
-            best_clearance = max(
-                (candidate.clearance for candidate in constant),
-                default=None,
-            )
-            preferred = frozenset(
-                candidate.action for candidate in constant
-                if (
-                    best_clearance is not None
-                    and candidate.clearance == best_clearance
-                )
-            )
-        elif intent.algorithm == "constant-frontier-count":
-            elapsed_ms = (self.clock() - started) * 1000.0
-            budget_ms = self.decision_budget_ms - elapsed_ms - PUBLICATION_GUARD_MS
-            policy = self._constant_frontier_count_preferred(
-                snapshot, hard, intent.horizon, budget_ms
-            )
-            if policy is not None:
-                completed_horizon = intent.horizon
-                preferred = policy
-            else:
-                proposal_source = "constant-frontier-count-timeout-hold"
-
-        if preferred and intent.target is not None:
-            targeted = preferred_target_actions(hard, preferred, intent.target)
-            if targeted:
-                preferred = targeted
-        elif not preferred and intent.algorithm == "target-only" and intent.target is not None:
-            preferred = preferred_target_actions(hard, hard_actions, intent.target)
+        preferred = frozenset(proposal.first_hard_tier(hard_actions))
 
         chosen = self.ranker.choose(
             snapshot,
             hard,
             preferred,
-            commitment_frames=intent.commitment_frames,
+            commitment_frames=proposal.commitment_frames,
         )
         return Decision(
             chosen.action,
@@ -531,7 +415,7 @@ class Solver:
             chosen.clearance,
             HARD_SAFETY_HORIZON,
             "ok",
-            completed_horizon,
+            proposal.effort_horizon,
             len(preferred),
             0,
             (
@@ -539,7 +423,7 @@ class Solver:
                 else HARD_SAFETY_HORIZON
             ),
             route_id=pack.route_id,
-            phase_id=intent.phase_id,
-            policy_state=intent.policy_state,
-            proposal_source=proposal_source,
+            phase_id=proposal.phase_id,
+            policy_state=proposal.policy_state,
+            proposal_source=proposal.proposal_source,
         )

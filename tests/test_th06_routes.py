@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from th06.barrage_lab.assets import load_stage_timeline
+from th06.barrage_lab.assets import load_stage_ecl_program, load_stage_timeline
 from th06.model import (
     BUTTON_FOCUS,
     CONTROL_ACTIONS,
@@ -12,8 +12,14 @@ from th06.model import (
     SafeAction,
     Snapshot,
 )
-from th06.routes.base import RouteIntent, RouteKey
-from th06.routes.phase import boss_phase_id, ecl_subroutine_index
+from th06.routes.base import ProposalRequest, RouteIntent, RouteKey
+from th06.routes.phase import (
+    boss_phase_id,
+    ecl_source_instruction_id,
+    ecl_subroutine_index,
+)
+from th06.routes.policy import proposal_from_intent
+from th06.routes.stage1_sub14 import CONTRACT, compiled_sub14_proposal
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
     AIMED_STREAM,
@@ -105,6 +111,38 @@ class RoutePhaseTests(unittest.TestCase):
             <= source_times
         )
 
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
+    def test_stage1_sub14_contract_matches_complete_installed_program(self):
+        program = load_stage_ecl_program(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        hard_events = tuple(
+            (instruction.time, instruction.relative_offset, instruction.opcode)
+            for instruction in program.subroutine(14)
+            if instruction.executes_on(2)
+            and instruction.opcode in (*range(67, 76), *range(85, 93))
+        )
+        exits = tuple(
+            edge for edge in program.edges
+            if edge.source_subroutine == 14 and edge.kind == "call"
+        )
+
+        self.assertEqual(program.sha256, CONTRACT.ecl_sha256)
+        self.assertEqual(hard_events, ((80, 0x8C, 67), (110, 0x120, 69)))
+        self.assertEqual(
+            tuple((edge.source_relative_offset, edge.target_subroutine) for edge in exits),
+            ((0x18C, 13), (0x1AC, 12), (0x1CC, 15)),
+        )
+        self.assertEqual(
+            frozenset(
+                instruction.relative_offset
+                for instruction in program.subroutine(14)
+            ),
+            CONTRACT.instruction_offsets,
+        )
     @unittest.skipUnless(
         Path("reference/th06_dat/th06_ST.DAT").exists(),
         "installed source stage archive is ignored",
@@ -377,15 +415,13 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(
-            hard_fan_circle.algorithm,
-            "constant-frontier-count",
-        )
+        self.assertEqual(hard_fan_circle.algorithm, "compiled-policy")
         self.assertEqual(
             hard_fan_circle.policy_state,
             "first-nonspell-hard-fan-circle",
         )
-        self.assertEqual(hard_fan_circle.horizon, 12)
+        self.assertEqual(hard_fan_circle.horizon, 4)
+        self.assertEqual(hard_fan_circle.commitment_frames, 1)
         self.assertIsNone(hard_fan_circle.target)
 
         boss.ecl_time = 110
@@ -398,7 +434,7 @@ class RoutePhaseTests(unittest.TestCase):
             final_circle.policy_state,
             "first-nonspell-hard-fan-circle",
         )
-        self.assertEqual(final_circle.horizon, 12)
+        self.assertEqual(final_circle.horizon, 4)
 
         boss.ecl_time = 111
         hard_fan_residual = HardReimuAStage1().intent(snapshot(
@@ -406,15 +442,13 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(
-            hard_fan_residual.algorithm,
-            "constant-frontier-count",
-        )
+        self.assertEqual(hard_fan_residual.algorithm, "compiled-policy")
         self.assertEqual(
             hard_fan_residual.policy_state,
             "first-nonspell-hard-fan-circle-residual",
         )
-        self.assertEqual(hard_fan_residual.horizon, 10)
+        self.assertEqual(hard_fan_residual.horizon, 4)
+        self.assertEqual(hard_fan_residual.commitment_frames, 1)
         self.assertIsNone(hard_fan_residual.target)
 
         boss.ecl_time = 200
@@ -835,6 +869,54 @@ class RoutePhaseTests(unittest.TestCase):
             boss_phase_id(first, False),
             boss_phase_id(relocated, False),
         )
+        self.assertEqual(ecl_source_instruction_id(first), (1, 8))
+        self.assertEqual(ecl_source_instruction_id(relocated), (1, 8))
+
+    def test_compiled_sub14_policy_ranks_only_the_fresh_hard_set(self):
+        subroutines = tuple(0x1000 + index * 0x200 for index in range(24))
+        boss = SimpleNamespace(
+            next_instruction=SimpleNamespace(address=subroutines[14] + 0x34),
+            ecl_subroutines=subroutines,
+            ecl_time=1,
+        )
+        down_right = next(action for action in CONTROL_ACTIONS if action.name == "down_right")
+        left = next(action for action in CONTROL_ACTIONS if action.name == "left")
+        hard = (
+            SafeAction(left, 10.0, 246.0, 324.0),
+            SafeAction(down_right, 9.0, 250.0, 326.0),
+        )
+        state = snapshot(
+            stage=1,
+            x=248.8774,
+            y=323.7719,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+        intent = RouteIntent(
+            "boss:0:sub14:test",
+            "compiled-test",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+
+        proposal = compiled_sub14_proposal(
+            intent,
+            ProposalRequest(state, hard, SimpleNamespace()),
+            boss,
+        )
+
+        self.assertTrue(proposal.available)
+        self.assertEqual(proposal.action_tiers[0], (down_right,))
+        self.assertTrue(
+            {action for tier in proposal.action_tiers for action in tier}
+            <= {left, down_right}
+        )
+        self.assertEqual(proposal.effort_horizon, 4)
+        self.assertEqual(
+            proposal.proposal_source,
+            "compiled-sub14-feedback-tube-v1",
+        )
 
     def test_stage4_pack_exposes_boss_phase_as_uncovered(self):
         boss = SimpleNamespace(
@@ -893,6 +975,10 @@ class RoutePhaseTests(unittest.TestCase):
                     4,
                 )
 
+            @classmethod
+            def propose(cls, request):
+                return proposal_from_intent(cls.intent(request.snapshot), request)
+
         decision = Solver(
             decision_budget_ms=100.0,
             routes=RouteRegistry((CountClearancePack(),)),
@@ -921,6 +1007,10 @@ class RoutePhaseTests(unittest.TestCase):
                     None,
                     4,
                 )
+
+            @classmethod
+            def propose(cls, request):
+                return proposal_from_intent(cls.intent(request.snapshot), request)
 
         decision = Solver(
             decision_budget_ms=100.0,
@@ -953,6 +1043,10 @@ class RoutePhaseTests(unittest.TestCase):
                     None,
                     4,
                 )
+
+            @classmethod
+            def propose(cls, request):
+                return proposal_from_intent(cls.intent(request.snapshot), request)
 
         right = next(
             action for action in CONTROL_ACTIONS if action.name == "right"
@@ -1000,6 +1094,10 @@ class RoutePhaseTests(unittest.TestCase):
                     (192.0, 380.0),
                     4,
                 )
+
+            @classmethod
+            def propose(cls, request):
+                return proposal_from_intent(cls.intent(request.snapshot), request)
 
         ranker = TrackingRanker()
         solver = Solver(

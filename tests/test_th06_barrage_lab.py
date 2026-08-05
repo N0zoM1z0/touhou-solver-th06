@@ -990,6 +990,17 @@ class BarrageLabTests(unittest.TestCase):
             [call.kwargs.get("delivery_delays") for call in certify.call_args_list],
         )
 
+        phase_result = run_closed_loop(
+            replace(start, bullets=()),
+            lambda _snapshot: right,
+            frames=8,
+            delivery_seed=0,
+            stop_when=lambda state: state.frame >= 101,
+            stop_outcome="phase-exit",
+        )
+        self.assertEqual(phase_result.outcome, "phase-exit")
+        self.assertEqual(phase_result.survived_frames, 1)
+
     def test_stateful_world_rejects_unproved_despawn_animation(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 7, target_bullets=1)

@@ -1431,3 +1431,42 @@ proposal/position behavior can be extracted wholesale into source-phase route
 states while retaining the current Hard/source substrate. Do not restart
 phase-by-phase search before comparing those exact old decisions on current
 physical snapshots.
+
+## Stage 1 sub14 compiled-feedback candidate — 2026-08-05
+
+The direction reassessment above is complete for the retained Stage 1/sub14
+failure.  The old ``b5fecb9`` controller is used only as an expensive offline
+demonstrator under today's complete source/Hard model.  It is not restored as
+a global scene classifier.
+
+The executable route boundary is now ``RouteProposal``.  A route pack owns
+its algorithm and returns ordered action tiers; ``solver.py`` only captures
+one coherent snapshot, creates Hard-4, dispatches the exact route, intersects
+the proposal with that same Hard set, and publishes.  Existing Stage 1/4
+intent tables are migrated by a route-side adapter, so the common solver no
+longer switches on phase algorithm names.  Stage 4 route behavior was not
+changed.
+
+The complete installed-ECL loader parses ordinary instructions and explicit
+fallthrough/jump/call/spawn/callback edges.  Stage 1 has 24 subroutines, 644
+instructions, and 688 edges.  Its ECL SHA-256 is
+``9d9a40e9f7e3ab9346d3874438134659cacf9d34f4aff57b96b4be4ea85b99d7``.
+Stage 1/sub14's Hard events and phase exit are asserted against stable
+subroutine-relative instruction IDs.
+
+``scripts/solve_th06_stage1_sub14.py`` compiles four delivery-rollout
+demonstrations from ignored artifact
+``th06_failure_stage1_f6358_sub14_compiler.json`` (SHA-256
+``51535a9ffdf1b2da1736ce72dfd353f9821fb5b146543a13f01b06143021f018``)
+into 614 samples across t1--t199.  Its disjoint delivery
+holdout seeds 16--47 all reached the stable source exit: worst clearance
+4.647216100995808, at most 34 delivered commands.  Production ``Solver``
+replay survived seeds 16--31 through t199, and four extended trials crossed
+t200 into stable sub13/sub12.  The online route lookup measured 24.015 us
+median and 41.374 us p90 over 3,560 retained calls; it performs no h10/h12
+search.
+
+This is deliberately narrow evidence for the retained physical f6162 entry
+distribution plus input-delivery variation.  Arbitrary synthetic warmup
+states are not covered.  The candidate has not yet been physically promoted.
+Linux and Windows/native each pass all 312 tests; Windows/native has no skips.

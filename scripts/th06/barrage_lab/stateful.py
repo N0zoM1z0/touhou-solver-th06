@@ -3156,6 +3156,8 @@ def run_closed_loop(
     birth_schedule=(),
     battle_world: bool = False,
     state_sink: Callable[[Snapshot], None] | None = None,
+    stop_when: Callable[[Snapshot], bool] | None = None,
+    stop_outcome: str = "goal",
 ) -> ClosedLoopResult:
     """Run solver decisions through bounded pickup and source bullet updates."""
     if frames <= 0:
@@ -3191,6 +3193,9 @@ def run_closed_loop(
         )
         if collides_now(state):
             outcome = "hit"
+            break
+        if stop_when is not None and stop_when(state):
+            outcome = stop_outcome
             break
         lease_recheck = pending is not None
         if pending is None:

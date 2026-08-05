@@ -10,8 +10,9 @@ phase runs, and each state names the local primitive it owns.
 from __future__ import annotations
 
 from ..model import Snapshot
-from .base import RouteIntent, RouteKey
+from .base import ProposalRequest, RouteIntent, RouteKey, RouteProposal
 from .phase import boss_phase_id
+from .policy import proposal_from_intent
 from .state_machine import PolicyState, TimelineStateMachine
 
 
@@ -241,6 +242,14 @@ def timeline_phase(timeline_time: int) -> TimelineStateMachine:
 class HardReimuAStage4:
     key = RouteKey(difficulty=2, character=0, shot_type=0, stage=4)
     route_id = "hard-reimu-a-stage4"
+
+    def propose(self, request: ProposalRequest) -> RouteProposal | None:
+        intent = self.intent(request.snapshot)
+        return (
+            proposal_from_intent(intent, request)
+            if intent is not None
+            else None
+        )
 
     def intent(self, snapshot: Snapshot) -> RouteIntent | None:
         bosses = tuple(spawner for spawner in snapshot.spawners if spawner.is_boss)

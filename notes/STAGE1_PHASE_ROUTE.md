@@ -1596,3 +1596,41 @@ Stage 1 phases, compare the successful old controller's decisions against the
 current source-exact snapshots and decide how much of that route behavior to
 extract. The old results are valuable evidence but are not a continuous
 Stage 1--4 route clear and did not provide today's future-world authority.
+
+## sub14 compiled feedback tube
+
+The historical-controller comparison identified a narrower problem than the
+previous h10/h12 online search.  At the retained f6162 entry, the successful
+``b5fecb9`` controller's action remained in current Hard on 255/256 retained
+queries.  Its useful behavior is now an offline demonstrator, not restored as
+global online strategy.
+
+The installed Stage 1 ECL SHA-256 is
+``9d9a40e9f7e3ab9346d3874438134659cacf9d34f4aff57b96b4be4ea85b99d7``.
+Sub14 contains Hard emissions at source-relative offsets ``0x8c`` (t80,
+opcode 67) and ``0x120`` (t110, opcode 69), then calls sub13/sub12/sub15 at
+t200.  The route keys the policy by subroutine index, source-relative next
+instruction identity, and local ECL time; relocated process addresses never
+enter the asset.
+
+``solve_th06_stage1_sub14.py`` rolls the old controller offline under the
+current source and Hard model from ignored artifact
+``th06_failure_stage1_f6358_sub14_compiler.json`` (SHA-256
+``51535a9ffdf1b2da1736ce72dfd353f9821fb5b146543a13f01b06143021f018``)
+for delivery seeds 0--3, then compiles 614
+quarter-pixel state/action samples over 196 source clocks (t1--t199).  Online,
+the phase policy performs only a nearest demonstrated tube lookup conditioned
+on current position and delivered held action.  Its proposal is immediately
+intersected with the same fresh Hard-4 set.  Missing samples hold through the
+normal ranker; incoherent source identity returns an unavailable proposal.
+The independent t200 dispatch remains a separate route state.
+
+Delivery seeds 16--47 all reached the stable source exit offline, with worst
+measured clearance 4.647216100995808 and at most 34 delivered commands.  The
+production ``Solver`` also survived all seeds 16--31 through t199; seeds
+16--19 were extended through the t200 dispatch into stable sub13/sub12 t1.
+The route lookup itself measured 24.015 microseconds median and 41.374
+microseconds p90 over 3,560 retained calls.  This evidence covers the physical
+f6162 phase-entry distribution plus delivery variation.  It does not claim
+robustness for arbitrary synthetic warmup states, and it is not a physical
+promotion or a Stage 1 clear.

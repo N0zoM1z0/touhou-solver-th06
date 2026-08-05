@@ -67,8 +67,21 @@ Inspect source timeline sections for route authoring:
 
 ```bash
 PYTHONPATH=scripts python3 scripts/inspect_th06_route.py \
-  reference/th06_dat/th06_ST.DAT --stage 4
+  reference/th06_dat/th06_ST.DAT --stage 1 --subroutine 14
 ```
+
+Rebuild and hold out the Stage 1/sub14 compiled feedback tube from the
+retained physical entry snapshot:
+
+```bash
+PYTHONPATH=scripts python3 scripts/solve_th06_stage1_sub14.py \
+  artifacts/th06_failure_stage1_f6358_sub14_compiler.json \
+  --archive reference/th06_dat/th06_ST.DAT
+```
+
+Add ``--emit-python`` only when intentionally regenerating
+``scripts/th06/routes/stage1_sub14_data.py``.  Training delivery seeds are
+kept separate from the default holdout seeds; neither is a runtime branch key.
 
 Run stateful offline replay from a physical snapshot:
 

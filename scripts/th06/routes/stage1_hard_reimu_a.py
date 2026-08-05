@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from ..model import Snapshot
-from .base import RouteIntent, RouteKey
+from .base import ProposalRequest, RouteIntent, RouteKey, RouteProposal
 from .phase import boss_phase_id, ecl_subroutine_index
+from .policy import proposal_from_intent
+from .stage1_sub14 import compiled_sub14_proposal
 from .state_machine import PolicyState, TimelineStateMachine
 
 
@@ -374,33 +376,32 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="first-nonspell-hard-fan-circle",
-            algorithm="constant-frontier-count",
-            horizon=12,
+            algorithm="compiled-policy",
+            horizon=4,
             target=None,
-            commitment_frames=4,
+            commitment_frames=1,
             provenance=(
-                "physical f5629 sub14 root; source moves at time zero, "
-                "emits the Hard t80 aimed 5x16 fan and t110 aimed 24x2 "
-                "circle, then branches at t200; 64/64 exact-entry delivery "
-                "branches select terminal count inside the full constant "
-                "h12 reserve after the physical h10 tie failed at f5747"
+                "installed ECL sha256 9d9a40e9...; Hard sub14 emits only its "
+                "source-relative t80/sub14+0x8c aimed fan and "
+                "t110/sub14+0x120 aimed circle before the t200 call dispatch. "
+                "Four current-Hard legacy-seed delivery trajectories compile "
+                "a spatial feedback tube; held-out delivery branches are "
+                "evaluated entry-to-exit offline"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time < 200:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="first-nonspell-hard-fan-circle-residual",
-            algorithm="constant-frontier-count",
-            horizon=10,
+            algorithm="compiled-policy",
+            horizon=4,
             target=None,
-            commitment_frames=4,
+            commitment_frames=1,
             provenance=(
-                "physical f6358 sub14 residual failure; installed sub14 has "
-                "no hostile birth after its local-t110 aimed circle before "
-                "the t200 branch. Exact t112 delivery replay survives 16/16 "
-                "at h10 while h8 loses two; 58 source-valid warmup worlds "
-                "favor h10 over h12 (59/62 versus 57/62) and avoid carrying "
-                "the attack state's measured timeout cost into the tail"
+                "same installed sub14 contract; after t110 there are no more "
+                "hostile births before the t200 source dispatch. The compiled "
+                "feedback tube replaces online h10/h12 rediscovery and ranks "
+                "only the fresh common Hard set in constant time"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time == 200:
@@ -675,6 +676,24 @@ def midboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
 class HardReimuAStage1:
     key = RouteKey(difficulty=2, character=0, shot_type=0, stage=1)
     route_id = "hard-reimu-a-stage1"
+
+    def propose(self, request: ProposalRequest) -> RouteProposal | None:
+        intent = self.intent(request.snapshot)
+        if intent is None:
+            return None
+        if intent.algorithm == "compiled-policy":
+            bosses = tuple(
+                spawner for spawner in request.snapshot.spawners
+                if spawner.is_boss
+            )
+            if not bosses:
+                return None
+            boss = min(
+                bosses,
+                key=lambda spawner: (spawner.boss_id, spawner.slot),
+            )
+            return compiled_sub14_proposal(intent, request, boss)
+        return proposal_from_intent(intent, request)
 
     def intent(self, snapshot: Snapshot) -> RouteIntent | None:
         bosses = tuple(spawner for spawner in snapshot.spawners if spawner.is_boss)
