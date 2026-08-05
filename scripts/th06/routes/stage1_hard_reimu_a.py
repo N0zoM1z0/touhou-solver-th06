@@ -386,7 +386,7 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "source-relative t80/sub14+0x8c aimed fan and "
                 "t110/sub14+0x120 aimed circle before the t200 call dispatch. "
                 "The source-t1 entry is latched to either the measured legacy "
-                "feedback tube or the bounded h16 durable controller; common "
+                "feedback tube or the bounded h12 durable controller; common "
                 "Hard remains the only action authority"
             ),
         )
@@ -402,7 +402,8 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "same installed sub14 contract; after t110 there are no more "
                 "hostile births before the t200 source dispatch. The selected "
                 "entry-basin controller remains latched through the residual "
-                "field and ranks focused actions only inside fresh Hard"
+                "field and ranks focused actions only inside fresh Hard; an "
+                "incomplete soft query retains only the fresh-Hard held input"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time == 200:

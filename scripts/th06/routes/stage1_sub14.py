@@ -72,7 +72,7 @@ _SAMPLES_BY_TIME = dict(SAMPLES)
 # f5630 physical root that rejected that route is far outside it (228861).
 COMPILED_ENTRY_HOLDOUT_MAX_DISTANCE_SQ = 612
 COMPILED_ENTRY_MAX_DISTANCE_SQ = 1024
-DURABLE_HORIZON = 16
+DURABLE_HORIZON = 12
 REPAIR_SPLIT = 4
 REPAIR_HORIZON = 8
 REPAIR_COMMITMENT_FRAMES = 4
@@ -195,6 +195,26 @@ def _unavailable(
     )
 
 
+def _timeout_hold(
+    intent: RouteIntent,
+    request: ProposalRequest,
+    source: str,
+) -> RouteProposal:
+    """Discard incomplete soft work and retain only a fresh-Hard hold."""
+    current = action_from_input(request.snapshot.input_mask)
+    hard_actions = frozenset(candidate.action for candidate in request.hard)
+    action_tiers = ((current,),) if current in hard_actions else ()
+    return RouteProposal(
+        phase_id=intent.phase_id,
+        policy_state=intent.policy_state,
+        action_tiers=action_tiers,
+        commitment_frames=1,
+        effort_horizon=4,
+        proposal_source=source,
+        provenance=intent.provenance,
+    )
+
+
 def durable_sub14_proposal(
     intent: RouteIntent,
     request: ProposalRequest,
@@ -213,9 +233,10 @@ def durable_sub14_proposal(
         tuple(candidate.action for candidate in focused_hard),
     )
     if durable is None:
-        return _unavailable(
+        return _timeout_hold(
             intent,
-            "sub14-durable-timeout",
+            request,
+            "sub14-durable-timeout-hold",
         )
     durable_actions = frozenset(candidate.action for candidate in durable)
     repairable_actions: frozenset[Action] = frozenset()
@@ -227,10 +248,10 @@ def durable_sub14_proposal(
             REPAIR_HORIZON,
         )
         if scores is None:
-            return _unavailable(
+            return _timeout_hold(
                 intent,
-                "sub14-repair-timeout",
-                effort_horizon=DURABLE_HORIZON,
+                request,
+                "sub14-repair-timeout-hold",
             )
         best = max(scores.values(), default=0)
         if best <= 0:
@@ -298,7 +319,7 @@ def durable_sub14_proposal(
         commitment_frames=1,
         effort_horizon=DURABLE_HORIZON,
         proposal_source=(
-            "sub14-durable-h16"
+            "sub14-durable-h12"
             if durable_actions
             else "sub14-selective-repair-h8"
         ),

@@ -28,6 +28,7 @@ from th06.routes.stage1_sub14 import (
     CONTRACT as SUB14_CONTRACT,
     Sub14PolicyState,
     compiled_sub14_proposal,
+    durable_sub14_proposal,
     sub14_proposal,
 )
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
@@ -982,7 +983,7 @@ class RoutePhaseTests(unittest.TestCase):
         )
         services = SimpleNamespace(
             certify_selected_budgeted=lambda *_args: self.fail(
-                "compiled basin must not invoke h16"
+                "compiled basin must not invoke h12"
             ),
             replanning_scores=lambda *_args: self.fail(
                 "compiled basin must not invoke repair"
@@ -1089,8 +1090,8 @@ class RoutePhaseTests(unittest.TestCase):
             COMPILED_ENTRY_MAX_DISTANCE_SQ,
         )
         self.assertEqual(proposal.action_tiers[0], (left,))
-        self.assertEqual(proposal.proposal_source, "sub14-durable-h16")
-        self.assertEqual(services.calls, [("constant", 16, (stay, left))])
+        self.assertEqual(proposal.proposal_source, "sub14-durable-h12")
+        self.assertEqual(services.calls, [("constant", 12, (stay, left))])
 
     def test_sub14_durable_basin_commits_a_selective_repair(self):
         subroutines = tuple(0x1000 + index * 0x200 for index in range(24))
@@ -1160,6 +1161,52 @@ class RoutePhaseTests(unittest.TestCase):
             state,
         )
         self.assertEqual(second.action_tiers[0], (left,))
+
+    def test_sub14_soft_timeout_holds_only_inside_fresh_hard(self):
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        hard = (
+            SafeAction(left, 8.0, 72.0, 368.0),
+            SafeAction(right, 9.0, 76.0, 368.0),
+        )
+        services = SimpleNamespace(
+            certify_selected_budgeted=lambda *_args: None,
+            replanning_scores=lambda *_args: self.fail(
+                "h12 timeout must discard later soft work"
+            ),
+        )
+        intent = RouteIntent(
+            "boss:0:sub14:test",
+            "timeout-test",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+        state = snapshot(
+            stage=1,
+            x=74.0,
+            y=368.0,
+            input_mask=BUTTON_FOCUS | 0x40,
+        )
+
+        proposal = durable_sub14_proposal(
+            intent,
+            ProposalRequest(state, hard, services),
+            Sub14PolicyState(basin="durable"),
+        )
+
+        self.assertTrue(proposal.available)
+        self.assertEqual(proposal.action_tiers, ((left,),))
+        self.assertEqual(proposal.effort_horizon, 4)
+        self.assertEqual(
+            proposal.proposal_source,
+            "sub14-durable-timeout-hold",
+        )
 
     def test_compiled_sub12_residual_uses_hard_geometry_inside_its_tube(self):
         subroutines = tuple(0x1000 + index * 0x800 for index in range(24))
