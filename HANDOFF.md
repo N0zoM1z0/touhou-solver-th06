@@ -1599,3 +1599,30 @@ This candidate is not physically promoted.  Checkpoint it, then run one
 ordinary-RNG/default-fail-close Practice Stage 1 trial.  Success for this
 iteration is an alive stable sub23 boundary; any earlier stop belongs to the
 earliest still-viable sub18--sub21 source segment, not to the terminal frame.
+
+Checkpoint ``74eb830`` contains the implementation above.  Two subsequent
+ordinary-RNG/default-fail-close physical trials both stopped before sub18, so
+they neither promote nor falsify the second-nonspell route:
+
+- Exact PID 65112 stopped alive at f5554/sub12 local t105 with
+  ``hard-safe-set-empty``, no HIT, and no Bomb.  The earliest owning proposal
+  is f5510/local t61 at the new residual entry `(166.9044, 200.2572)`, where
+  the route fell outside both compiled sub12 basins and selected
+  ``residual-right-stream``.  Stable ignored JSON SHA-256 is
+  ``156c2c439367365ce0382ff779669881f84b3a9324dcce42a55689f428a4c266``;
+  CSV SHA-256 is
+  ``28e1ab41bf2c516b3d0381d26d60b4e0e518bb2bbbbd16aee3c5e72260ce719d``.
+- Exact PID 65376 stopped alive at f5533/sub12 local t83 with the same
+  authority reason, no HIT, and no Bomb.  Its earliest residual entry is
+  f5511/local t61 at `(161.4731, 192.3749)`, again outside the measured
+  compiled basins.  Stable ignored JSON SHA-256 is
+  ``18c9d39efca5e3f1671eb57600654b6f7c9ae8d840fcd10a3d95b3daec2189f3``;
+  CSV SHA-256 is
+  ``391f5cb05343696834397e53a7b5f82886f681a6c393abe6a6bb376b26806237``.
+
+Both agents released every key and stopped their exact trial PID.  Final
+cleanup found no TH06 game, agent, solver worker, or replay worker.  Per the
+user's stop request, do not continue physical trials or opportunistically add
+another sub12 basin.  If work resumes, reassess the repeated sub12 residual
+entry-distribution problem first; the checkpointed sub18--sub21 candidate
+still lacks physical evidence.
