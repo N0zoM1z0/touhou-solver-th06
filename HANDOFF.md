@@ -1371,3 +1371,63 @@ Current validation is 310 Linux tests passed with 25 native-only skips and all
 default fail-close Practice Stage 1. It must cross the sub22 entry movement and
 stop alive at the deliberately uncovered local-t120 attack boundary; any
 earlier stop must be diagnosed from the earliest still-viable decision.
+
+## Stop point for direction reassessment
+
+Do not continue physical iteration automatically from this handoff. The user
+requested a stop after the current sub14 candidate because the new phase route
+has taken too long without clearing Stage 1. Reassess whether to keep extending
+this route pack or recover more of the old physically successful controller
+before changing another phase.
+
+The first physical run from checkpoint `3223f23` did not reach sub22. It took
+a different ordinary-RNG first-nonspell path and stopped alive at f6358 in
+stable sub14 local t197 with `hard-safe-set-empty`. There was no HIT or Bomb.
+Exact PID 60112 was stopped, all input was released, and no game, agent, replay,
+or high-CPU worker remained. This run does not physically promote the sub22
+entry candidate.
+
+The terminal empty set is downstream. Installed sub14 emits only at local t80
+and t110, then has no new hostile birth before its t200 dispatch. The earliest
+clean route-policy boundary is the retained f6273/local-t112 state, immediately
+after the last circle. The old single h12 attack state produced 31 timeout
+holds over this sub14 visit and later entered the bottom strip. Physical parity
+is exact on every available adjacent pair: 235/235 combat, player attack, RNG,
+graze, Rank, item, and Power transitions; 16,726/16,726 mature-bullet steps;
+2,000/2,000 spawning steps; 80 births; and no unsupported state.
+
+The final unpromoted candidate splits sub14 by that source boundary:
+
+- t0--t110 keeps `first-nonspell-hard-fan-circle`, target-free
+  constant-frontier-count h12;
+- t111--t199 uses `first-nonspell-hard-fan-circle-residual`, target-free
+  constant-frontier-count h10;
+- t200 remains the independent one-frame branch transition.
+
+From exact f6273, h8 stops on 2/16 delivery worlds while h10 and h12 survive
+16/16. Hard-safe warmup derives 58 source-valid worlds through 1,102 updates,
+spanning 20 enemy-combat, 57 player-attack, and 24 RNG states. On 62 viable
+measured delivery worlds h10 survives 59 versus h12's 57. Running the actual
+Windows production `Solver` over 82 retained f6273--f6357 snapshots with the
+split gives 3.153/6.730/11.391 ms median/p90/maximum, zero calls over 12.5 ms,
+and no policy timeout. This is offline evidence only; the candidate has not
+been physically tested.
+
+The historical evidence the next agent must inspect before choosing direction
+is concrete, not anecdotal:
+
+- `408a68b` records a Hard/Reimu-A Practice Stage 1 result at f12567 with
+  12,337 sampled states, no dead row, authority stop, or Bomb;
+- `b5fecb9` records the later pickup-aware Practice Stage 1 result at f11383
+  with 11,276 sampled states and the same clean outcome;
+- `5b275ce`, `ee8b2f4`, and `17fd93a` record separate Practice Stage 2, 3,
+  and 4 clears respectively.
+
+Those were real physical Practice results, but not one continuous Stage 1--4
+route clear. Their universal controller also lacked the current complete
+future-ECL/body authority at its first Stage 1 checkpoint and accumulated many
+scene/boundary rules later. The useful next question is whether its successful
+proposal/position behavior can be extracted wholesale into source-phase route
+states while retaining the current Hard/source substrate. Do not restart
+phase-by-phase search before comparing those exact old decisions on current
+physical snapshots.

@@ -1567,3 +1567,32 @@ spell-pattern solution. The independent compact route contract is
 
 The integrated checkpoint passes 310 Linux tests with 25 Windows-native skips
 and all 310 Windows/native tests.
+
+## f6358 stop and handoff candidate
+
+The first run from `3223f23` took another ordinary-RNG nonspell path and never
+reached the newly opened sub22 entry. It stopped alive at f6358, sub14 local
+t197, with an empty Hard set and no HIT or Bomb. Exact PID 60112 and all input
+were cleaned up. This result leaves sub22 t0--t119 offline-only.
+
+All 235 available adjacent combat worlds are exact, including player attack,
+RNG, graze, Rank, item, Power, 16,726 mature-bullet steps, 2,000 spawning
+steps, and 80 births. Source sub14 emits only at t80 and t110. The retained
+f6273/local-t112 state is therefore a phase-local residual boundary rather than
+an f6358 exception.
+
+The unpromoted handoff candidate keeps h12 constant-frontier-count through
+t110 and uses h10 from t111 through t199. Exact f6273 replay gives h8 14/16
+and h10/h12 16/16 complete delivery worlds. Fifty-eight Hard-safe warmup worlds
+cover 20 enemy-combat, 57 player-attack, and 24 RNG states; h10 survives 59/62
+measured deliveries versus 57/62 at h12. On 82 retained Windows production
+queries the split measures 3.153/6.730/11.391 ms median/p90/maximum with no
+timeout. It has not been physically promoted.
+
+Stop here for direction reassessment. Historical checkpoints `408a68b` and
+`b5fecb9` are clean physical Practice Stage 1 results; `5b275ce`, `ee8b2f4`,
+and `17fd93a` record separate Practice Stage 2--4 clears. Before authoring more
+Stage 1 phases, compare the successful old controller's decisions against the
+current source-exact snapshots and decide how much of that route behavior to
+extract. The old results are valuable evidence but are not a continuous
+Stage 1--4 route clear and did not provide today's future-world authority.

@@ -370,7 +370,7 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "sub14, or sub15 in the next update"
             ),
         )
-    if subroutine == 14 and not spell_active and boss.ecl_time < 200:
+    if subroutine == 14 and not spell_active and boss.ecl_time <= 110:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="first-nonspell-hard-fan-circle",
@@ -384,6 +384,23 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "circle, then branches at t200; 64/64 exact-entry delivery "
                 "branches select terminal count inside the full constant "
                 "h12 reserve after the physical h10 tie failed at f5747"
+            ),
+        )
+    if subroutine == 14 and not spell_active and boss.ecl_time < 200:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-hard-fan-circle-residual",
+            algorithm="constant-frontier-count",
+            horizon=10,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f6358 sub14 residual failure; installed sub14 has "
+                "no hostile birth after its local-t110 aimed circle before "
+                "the t200 branch. Exact t112 delivery replay survives 16/16 "
+                "at h10 while h8 loses two; 58 source-valid warmup worlds "
+                "favor h10 over h12 (59/62 versus 57/62) and avoid carrying "
+                "the attack state's measured timeout cost into the tail"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time == 200:

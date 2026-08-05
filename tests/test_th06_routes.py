@@ -388,6 +388,35 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(hard_fan_circle.horizon, 12)
         self.assertIsNone(hard_fan_circle.target)
 
+        boss.ecl_time = 110
+        final_circle = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(
+            final_circle.policy_state,
+            "first-nonspell-hard-fan-circle",
+        )
+        self.assertEqual(final_circle.horizon, 12)
+
+        boss.ecl_time = 111
+        hard_fan_residual = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(
+            hard_fan_residual.algorithm,
+            "constant-frontier-count",
+        )
+        self.assertEqual(
+            hard_fan_residual.policy_state,
+            "first-nonspell-hard-fan-circle-residual",
+        )
+        self.assertEqual(hard_fan_residual.horizon, 10)
+        self.assertIsNone(hard_fan_residual.target)
+
         boss.ecl_time = 200
         hard_fan_boundary = HardReimuAStage1().intent(snapshot(
             stage=1,
