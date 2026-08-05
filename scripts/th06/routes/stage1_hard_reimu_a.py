@@ -467,6 +467,27 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "is local t122, so local t120 remains independently visible"
             ),
         )
+    if subroutine == 22 and spell_active:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-spell-aimed-cycle",
+            algorithm="policy-volume",
+            horizon=10,
+            target=None,
+            commitment_frames=4,
+            provenance=(
+                "physical f6273/sub22 local-t120 root and installed ECL "
+                "sha256 9d9a40e9...; Hard births are the source-relative "
+                "t122/+0x10a, t124/+0x25a, t126/+0x3ba, and t128/+0x50a "
+                "aimed groups. The t228/+0x64e jump repeats the attack after "
+                "random movement. Complete candidate-conditioned battle "
+                "replay through the life/timer callback boundary reaches a "
+                "stable sub16 exit on all 25 measured delivery seeds with "
+                "target-free policy-volume h10; h6, h8, and count-clearance "
+                "h6/h8 each lose at least one paired branch. Common Hard-4 "
+                "and the independent sub16 transition remain unchanged"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "

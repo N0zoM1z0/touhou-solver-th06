@@ -101,6 +101,22 @@ runtime.  Physical frame and delivery seed are provenance only.  Outside the
 measured radius the route retains the previously promoted right-stream
 policy; it does not extrapolate a nearest sample across the screen.
 
+Screen the complete Stage 1 first-spell cycle from its retained physical
+local-t120 root (the workload stops at the life/timer callback boundary, not
+after an arbitrary short frame window):
+
+```bash
+PYTHONPATH=scripts python3 scripts/solve_th06_stage1_sub22.py \
+  artifacts/th06_failure_stage1_f6273_sub22_uncovered.json \
+  --entry-frame 6273 --seed-start 16 --seeds 16 \
+  --candidates pv10
+```
+
+Run `--candidates production` after changing the route to exercise the real
+common Hard pass, deadline-aware route adapter, and publication ranker over
+the same candidate-conditioned battle world. Neither mode is physical-clear
+evidence.
+
 Run stateful offline replay from a physical snapshot:
 
 ```bash

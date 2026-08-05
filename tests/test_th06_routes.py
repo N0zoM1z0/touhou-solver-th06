@@ -159,6 +159,44 @@ class RoutePhaseTests(unittest.TestCase):
         Path("reference/th06_dat/th06_ST.DAT").exists(),
         "installed source stage archive is ignored",
     )
+    def test_stage1_sub22_spell_cycle_matches_installed_program(self):
+        program = load_stage_ecl_program(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        hard_events = tuple(
+            (instruction.time, instruction.relative_offset, instruction.opcode)
+            for instruction in program.subroutine(22)
+            if instruction.executes_on(2)
+            and instruction.opcode in (*range(67, 76), *range(85, 93))
+        )
+        rewind = tuple(
+            edge for edge in program.edges
+            if edge.source_subroutine == 22
+            and edge.source_relative_offset == 0x64E
+            and edge.kind == "jump"
+        )
+
+        self.assertEqual(
+            hard_events,
+            (
+                (122, 0x10A, 67),
+                (124, 0x25A, 67),
+                (126, 0x3BA, 67),
+                (128, 0x50A, 67),
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (edge.target_subroutine, edge.target_relative_offset)
+                for edge in rewind
+            ),
+            ((22, 0x8E),),
+        )
+
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
     def test_stage1_sub12_residual_contract_matches_installed_program(self):
         program = load_stage_ecl_program(
             "reference/th06_dat/th06_ST.DAT", 1
@@ -449,7 +487,13 @@ class RoutePhaseTests(unittest.TestCase):
             spawners=(boss,),
             player_attack=replace(player_attack(), spell_active=True),
         ))
-        self.assertEqual(first_attack.algorithm, "uncovered")
+        self.assertEqual(first_attack.algorithm, "policy-volume")
+        self.assertEqual(
+            first_attack.policy_state,
+            "first-spell-aimed-cycle",
+        )
+        self.assertEqual(first_attack.horizon, 10)
+        self.assertIsNone(first_attack.target)
 
         boss.next_instruction = SimpleNamespace(
             address=subroutines[14] + 0x10
