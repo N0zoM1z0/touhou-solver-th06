@@ -696,6 +696,8 @@ class NativeSafetyKernel:
         budget_ms: float,
     ) -> tuple[SafeAction, ...] | None:
         """Return one complete constant witness set, or None on timeout."""
+        if budget_ms <= 0.0:
+            return None
         selected = frozenset(actions)
         candidate_mask = sum(
             1 << index
@@ -704,13 +706,20 @@ class NativeSafetyKernel:
         )
         if not candidate_mask:
             return ()
+        started = time.perf_counter()
+        prepared = self._prepare_reusable(
+            snapshot, horizon, collision_margin
+        )
+        remaining_ms = budget_ms - (time.perf_counter() - started) * 1000.0
+        if remaining_ms <= 0.0:
+            return None
         result = self._certify_prepared(
             snapshot,
             horizon,
             collision_margin,
-            self._prepare_reusable(snapshot, horizon, collision_margin),
+            prepared,
             candidate_mask,
-            budget_ms=budget_ms,
+            budget_ms=remaining_ms,
         )
         return None if result is None else result[0]
 

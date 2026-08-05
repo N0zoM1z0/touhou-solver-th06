@@ -7,7 +7,7 @@ from .base import ProposalRequest, RouteIntent, RouteKey, RouteProposal
 from .phase import boss_phase_id, ecl_subroutine_index
 from .policy import proposal_from_intent
 from .stage1_sub12 import compiled_sub12_residual_proposal
-from .stage1_sub14 import compiled_sub14_proposal
+from .stage1_sub14 import Sub14PolicyState, sub14_proposal
 from .state_machine import PolicyState, TimelineStateMachine
 
 
@@ -385,9 +385,9 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "installed ECL sha256 9d9a40e9...; Hard sub14 emits only its "
                 "source-relative t80/sub14+0x8c aimed fan and "
                 "t110/sub14+0x120 aimed circle before the t200 call dispatch. "
-                "Four current-Hard legacy-seed delivery trajectories compile "
-                "a spatial feedback tube; held-out delivery branches are "
-                "evaluated entry-to-exit offline"
+                "The source-t1 entry is latched to either the measured legacy "
+                "feedback tube or the bounded h16 durable controller; common "
+                "Hard remains the only action authority"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time < 200:
@@ -400,9 +400,9 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             commitment_frames=1,
             provenance=(
                 "same installed sub14 contract; after t110 there are no more "
-                "hostile births before the t200 source dispatch. The compiled "
-                "feedback tube replaces online h10/h12 rediscovery and ranks "
-                "only the fresh common Hard set in constant time"
+                "hostile births before the t200 source dispatch. The selected "
+                "entry-basin controller remains latched through the residual "
+                "field and ranks focused actions only inside fresh Hard"
             ),
         )
     if subroutine == 14 and not spell_active and boss.ecl_time == 200:
@@ -678,6 +678,9 @@ class HardReimuAStage1:
     key = RouteKey(difficulty=2, character=0, shot_type=0, stage=1)
     route_id = "hard-reimu-a-stage1"
 
+    def __init__(self) -> None:
+        self.sub14_state = Sub14PolicyState()
+
     def propose(self, request: ProposalRequest) -> RouteProposal | None:
         intent = self.intent(request.snapshot)
         if intent is None:
@@ -695,7 +698,12 @@ class HardReimuAStage1:
             )
             if intent.policy_state == "first-nonspell-residual-stream":
                 return compiled_sub12_residual_proposal(intent, request, boss)
-            return compiled_sub14_proposal(intent, request, boss)
+            return sub14_proposal(
+                intent,
+                request,
+                boss,
+                self.sub14_state,
+            )
         return proposal_from_intent(intent, request)
 
     def intent(self, snapshot: Snapshot) -> RouteIntent | None:

@@ -24,8 +24,11 @@ from th06.routes.stage1_sub12 import (
     compiled_sub12_residual_proposal,
 )
 from th06.routes.stage1_sub14 import (
+    COMPILED_ENTRY_MAX_DISTANCE_SQ,
     CONTRACT as SUB14_CONTRACT,
+    Sub14PolicyState,
     compiled_sub14_proposal,
+    sub14_proposal,
 )
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
@@ -958,6 +961,205 @@ class RoutePhaseTests(unittest.TestCase):
             proposal.proposal_source,
             "compiled-sub14-feedback-tube-v1",
         )
+
+    def test_sub14_latches_the_measured_compiled_entry_basin(self):
+        subroutines = tuple(0x1000 + index * 0x200 for index in range(24))
+        boss = SimpleNamespace(
+            next_instruction=SimpleNamespace(address=subroutines[14] + 0x34),
+            ecl_subroutines=subroutines,
+            ecl_time=1,
+        )
+        down_right = next(
+            action for action in CONTROL_ACTIONS
+            if action.name == "down_right"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        hard = (
+            SafeAction(left, 10.0, 246.0, 324.0),
+            SafeAction(down_right, 9.0, 250.0, 326.0),
+        )
+        services = SimpleNamespace(
+            certify_selected_budgeted=lambda *_args: self.fail(
+                "compiled basin must not invoke h16"
+            ),
+            replanning_scores=lambda *_args: self.fail(
+                "compiled basin must not invoke repair"
+            ),
+        )
+        state = Sub14PolicyState()
+        intent = RouteIntent(
+            "boss:0:sub14:test",
+            "compiled-test",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+        entry = snapshot(
+            stage=1,
+            x=248.8774,
+            y=323.7719,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+
+        proposal = sub14_proposal(
+            intent,
+            ProposalRequest(entry, hard, services),
+            boss,
+            state,
+        )
+
+        self.assertEqual(state.basin, "compiled")
+        self.assertLessEqual(
+            state.entry_distance_sq,
+            COMPILED_ENTRY_MAX_DISTANCE_SQ,
+        )
+        self.assertEqual(
+            proposal.proposal_source,
+            "compiled-sub14-feedback-tube-v1",
+        )
+
+        boss.ecl_time = 2
+        moved_far_right = replace(entry, frame=101, x=368.0)
+        sub14_proposal(
+            intent,
+            ProposalRequest(moved_far_right, hard, services),
+            boss,
+            state,
+        )
+        self.assertEqual(state.basin, "compiled")
+
+    def test_sub14_outside_the_tube_uses_bounded_durable_actions(self):
+        subroutines = tuple(0x1000 + index * 0x200 for index in range(24))
+        boss = SimpleNamespace(
+            next_instruction=SimpleNamespace(address=subroutines[14] + 0x34),
+            ecl_subroutines=subroutines,
+            ecl_time=1,
+        )
+        stay = next(
+            action for action in CONTROL_ACTIONS if action.name == "stay"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        hard = (
+            SafeAction(stay, 12.0, 368.0, 321.0),
+            SafeAction(left, 8.0, 366.0, 321.0),
+        )
+
+        class Services:
+            calls = []
+
+            def certify_selected_budgeted(self, state, horizon, actions):
+                self.calls.append(("constant", horizon, actions))
+                return (SafeAction(left, 4.0, 344.0, 321.0),)
+
+            def replanning_scores(self, *_args):
+                raise AssertionError("durable action must not invoke repair")
+
+        services = Services()
+        state = Sub14PolicyState()
+        intent = RouteIntent(
+            "boss:0:sub14:test",
+            "durable-test",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+        entry = snapshot(
+            stage=1,
+            x=368.4092,
+            y=321.0195,
+            input_mask=BUTTON_FOCUS | 0x20 | 0x80,
+        )
+
+        proposal = sub14_proposal(
+            intent,
+            ProposalRequest(entry, hard, services),
+            boss,
+            state,
+        )
+
+        self.assertEqual(state.basin, "durable")
+        self.assertGreater(
+            state.entry_distance_sq,
+            COMPILED_ENTRY_MAX_DISTANCE_SQ,
+        )
+        self.assertEqual(proposal.action_tiers[0], (left,))
+        self.assertEqual(proposal.proposal_source, "sub14-durable-h16")
+        self.assertEqual(services.calls, [("constant", 16, (stay, left))])
+
+    def test_sub14_durable_basin_commits_a_selective_repair(self):
+        subroutines = tuple(0x1000 + index * 0x200 for index in range(24))
+        boss = SimpleNamespace(
+            next_instruction=SimpleNamespace(address=subroutines[14] + 0x34),
+            ecl_subroutines=subroutines,
+            ecl_time=1,
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        hard = (
+            SafeAction(left, 8.0, 366.0, 321.0),
+            SafeAction(right, 9.0, 370.0, 321.0),
+        )
+
+        class Services:
+            best = left
+
+            def certify_selected_budgeted(self, *_args):
+                return ()
+
+            def replanning_scores(self, _state, candidates, split, horizon):
+                self.assert_contract(candidates, split, horizon)
+                return {
+                    candidate.action: int(candidate.action == self.best) * 3
+                    for candidate in candidates
+                }
+
+            @staticmethod
+            def assert_contract(candidates, split, horizon):
+                if (split, horizon) != (4, 8) or not candidates:
+                    raise AssertionError("unexpected repair contract")
+
+        services = Services()
+        state = Sub14PolicyState()
+        intent = RouteIntent(
+            "boss:0:sub14:test",
+            "repair-test",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+        entry = snapshot(stage=1, x=368.4092, y=321.0195)
+
+        first = sub14_proposal(
+            intent,
+            ProposalRequest(entry, hard, services),
+            boss,
+            state,
+        )
+        self.assertEqual(first.action_tiers[0], (left,))
+        self.assertEqual(first.proposal_source, "sub14-selective-repair-h8")
+        self.assertEqual(state.repair_action, left)
+        self.assertEqual(state.repair_until_frame, entry.frame + 4)
+
+        services.best = right
+        boss.ecl_time = 2
+        second = sub14_proposal(
+            intent,
+            ProposalRequest(replace(entry, frame=101), hard, services),
+            boss,
+            state,
+        )
+        self.assertEqual(second.action_tiers[0], (left,))
 
     def test_compiled_sub12_residual_uses_hard_geometry_inside_its_tube(self):
         subroutines = tuple(0x1000 + index * 0x800 for index in range(24))

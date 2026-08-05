@@ -27,7 +27,7 @@ from .model import (
 from .ranking import ProposalRanker
 from .routes import ProposalRequest, RouteRegistry, default_routes
 from .safety import COLLISION_MARGIN, DELIVERY_DELAYS, certify_actions
-from .viability import nominal_policy_scores
+from .viability import nominal_policy_scores, replanning_scores
 
 
 HARD_SAFETY_HORIZON = 4
@@ -58,6 +58,64 @@ class _ProposalServices:
         actions: tuple[Action, ...],
     ):
         return self.solver._certify_selected(snapshot, horizon, actions)
+
+    def certify_selected_budgeted(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+    ):
+        native = (
+            getattr(type(self.solver.kernel), "certify_selected_budgeted", None)
+            if self.solver.kernel is not None
+            else None
+        )
+        if native is not None:
+            budget_ms = self.remaining_budget_ms()
+            if budget_ms <= 0.0:
+                return None
+            return native(
+                self.solver.kernel,
+                snapshot,
+                horizon,
+                actions,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+        return certify_actions(snapshot, horizon, actions=actions)
+
+    def replanning_scores(
+        self,
+        snapshot: Snapshot,
+        candidates,
+        split: int,
+        horizon: int,
+    ):
+        native = (
+            getattr(type(self.solver.kernel), "replanning_scores_budgeted", None)
+            if self.solver.kernel is not None
+            else None
+        )
+        if native is not None:
+            budget_ms = self.remaining_budget_ms()
+            if budget_ms <= 0.0:
+                return None
+            return native(
+                self.solver.kernel,
+                snapshot,
+                candidates,
+                split,
+                horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+        return replanning_scores(
+            snapshot,
+            candidates,
+            split,
+            horizon,
+            continuation_actions=CONTROL_ACTIONS,
+        )
 
     def nominal_policy_counts(
         self,

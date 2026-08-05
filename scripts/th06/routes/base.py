@@ -95,6 +95,23 @@ class ProposalServices(Protocol):
     ) -> tuple[SafeAction, ...]:
         """Evaluate a soft constant-action continuation."""
 
+    def certify_selected_budgeted(
+        self,
+        snapshot: Snapshot,
+        horizon: int,
+        actions: tuple[Action, ...],
+    ) -> tuple[SafeAction, ...] | None:
+        """Evaluate one complete continuation inside the publication budget."""
+
+    def replanning_scores(
+        self,
+        snapshot: Snapshot,
+        candidates: tuple[SafeAction, ...],
+        split: int,
+        horizon: int,
+    ) -> dict[Action, int] | None:
+        """Evaluate a complete two-command repair inside the deadline."""
+
     def nominal_policy_counts(
         self,
         snapshot: Snapshot,
