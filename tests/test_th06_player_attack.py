@@ -860,6 +860,79 @@ class PlayerAttackTests(unittest.TestCase):
             (2, 0, 0),
         )
 
+    def test_timer_callback_retires_bullets_before_spell_start_conversion(self):
+        old_wait_raw = struct.pack(
+            "<ihhBBBB", 999, 0, 12, 0, 4, 0, 0
+        )
+        old_wait = EclInstruction(
+            0x1000, 999, 0, 12, 4, old_wait_raw.hex()
+        )
+        spell_start_raw = struct.pack(
+            "<ihhBBBB", 0, 93, 12, 0, 4, 0, 0
+        )
+        spell_start = EclInstruction(
+            0x2000, 0, 93, 12, 4, spell_start_raw.hex()
+        )
+        new_wait_raw = struct.pack(
+            "<ihhBBBB", 999, 0, 12, 0, 4, 0, 0
+        )
+        new_wait = EclInstruction(
+            0x200C, 999, 0, 12, 4, new_wait_raw.hex()
+        )
+        source = source_enemy_template(
+            (old_wait, spell_start, new_wait),
+            (old_wait.address, spell_start.address),
+            0,
+            50.0,
+            50.0,
+            10,
+        )
+        self.assertIsNotNone(source)
+        source = replace(
+            source,
+            slot=0,
+            boss_timer=10,
+            boss_timer_float=10.0,
+            timer_callback_threshold=10,
+            timer_callback_sub=1,
+            timeout_spell=False,
+            is_boss=True,
+            boss_id=0,
+        )
+        bullet = Bullet(
+            x=100.0,
+            y=100.0,
+            vx=2.0,
+            vy=4.0,
+            half_width=3.0,
+            half_height=3.0,
+            state=1,
+            timer=7,
+            timer_float=7.0,
+            slot=3,
+        )
+        attack = replace(_attack_with_shot(1), shots=())
+        root = replace(
+            _snapshot(attack),
+            bullets=(bullet,),
+            spawners=(source,),
+            item_next_index=0,
+        )
+        stay = next(action for action in CONTROL_ACTIONS if action.name == "stay")
+
+        following = step_nominal_battle_world(root, stay)
+
+        self.assertEqual(following.bullets, ())
+        self.assertEqual(len(following.despawning_bullets), 1)
+        despawning = following.despawning_bullets[0]
+        self.assertEqual(
+            (despawning.slot, despawning.state, despawning.x, despawning.y),
+            (3, 5, 101.0, 102.0),
+        )
+        self.assertEqual(following.item_states, ())
+        self.assertEqual(following.item_next_index, 0)
+        self.assertTrue(following.player_attack.spell_active)
+
     def test_spell_end_despawns_bullets_and_awards_laser_points_in_one_pass(self):
         spell_end_raw = struct.pack(
             "<ihhBBBB", 0, 94, 12, 0, 4, 0, 0

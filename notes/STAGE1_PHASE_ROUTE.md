@@ -1524,3 +1524,46 @@ integrated physical trajectory can decide whether that publication event is
 consequential. Linux and Windows/native suites both pass all 309 tests (Linux
 skips 25 native-only cases). The next experiment is an ordinary-RNG default
 fail-close Practice Stage 1 run through both source states.
+
+## first nonspell physical promotion and sub22 entry
+
+The next ordinary-RNG default fail-close run physically promoted the split.
+It crossed both old f6526/f6597 boundaries, completed the first nonspell, and
+continued through repeated independent sub12, sub13, sub14, and sub15 states.
+There was no HIT, Bomb, timeout, or Hard-authority loss before the deliberate
+uncovered boundary. All 135 sub12 aimed-fan decisions and all 212 sub12
+residual decisions were fresh. Their measured median/p90/maximum costs were
+1.990/2.805/5.907 ms and 2.359/2.785/8.129 ms respectively.
+
+At f7450 the run stopped alive with all eighteen Hard actions on stable
+`boss:0:sub22:life_cb22:timer_cb16:spell`, local t1. This promotes the complete
+first nonspell route, not the first spell. The exact process was stopped and
+the machine was left without held input or a game/agent/offline worker.
+
+The physical callback transition also corrected a general source semantic.
+At f7449 sub12 has reached boss timer 2100 with life-callback threshold 900 and
+56 regular bullets. Authoritative manager ordering is life callback, timer
+callback, then ECL. The non-timeout timer callback redirects to sub22, resets
+the boss clock, calls `RemoveAllBullets(false)`, and only then lets sub22's
+opcode 93 start the spell. Physical f7450 consequently has life 900, boss
+timer/ecl time 1, 56 state-5 bullets, no regular bullets, and no point items.
+The old offline ordering incorrectly converted all 56 to point items.
+
+The battle world now retires regular bullets and lasers at the timer callback
+and prevents a following spell-start or spell-end conversion from processing
+those already-retired slots. The repaired retained history matches 254/254
+adjacent combat, attack, RNG, graze, Rank, item, and Power transitions, as well
+as all 20,440 mature-bullet and 1,336 spawning-bullet steps, 84 births, and 213
+removals. This is a source-order fix used by every phase, not an f7450 branch.
+
+Installed sub22 gives a narrow next experiment. At local t0 it starts the
+spell, disables damage, installs timer callback sub16 with threshold 1500, and
+moves to `(192,96)` for 120 ticks. Damage returns at t120; the first Hard aimed
+fan is t122. Only t0--t119 is now authored as bottom-center `target-only` h4,
+named `first-spell-entry`. The t120 attack boundary stays uncovered so the next
+ordinary physical run can validate entry movement and stop before claiming any
+spell-pattern solution. The independent compact route contract is
+`stage1_f7450_first_spell_entry.json`.
+
+The integrated checkpoint passes 310 Linux tests with 25 Windows-native skips
+and all 310 Windows/native tests.

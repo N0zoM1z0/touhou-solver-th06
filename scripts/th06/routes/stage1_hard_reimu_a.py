@@ -432,6 +432,21 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "worlds reach stable sub12/sub13/sub14 with h8"
             ),
         )
+    if subroutine == 22 and spell_active and boss.ecl_time < 120:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-spell-entry",
+            algorithm="target-only",
+            horizon=4,
+            target=BOTTOM_CENTER,
+            commitment_frames=4,
+            provenance=(
+                "physical f7450 timer-callback root; source sub22 starts the "
+                "spell, disables damage, installs callback sub16/1500, and "
+                "moves to (192,96) for 120 ticks. The first Hard aimed fan "
+                "is local t122, so local t120 remains independently visible"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "stage1-f7450-first-spell-entry",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 7450,
+    "failure_frame": 7450
+  },
+  "runner": "stage1_mainboss_reentry_policy",
+  "contract": "Stable spell sub22 receives only its source-protected t0-t119 entry policy. The local-t120 damage-enable and t122 aimed pattern remain independently fail-visible; neither physical frame nor the preceding nonspell caller selects this state.",
+  "summary": "The physically promoted first nonspell reached its source timer callback and stopped alive at f7450 on stable sub22 local t1 with all 18 Hard actions. Authoritative callback ordering retires the preceding 56 bullets without point items before opcode 93 starts the spell. Sub22 disables damage and performs only a 120-tick move before the first Hard fan at local t122, so bottom positioning at Hard-4 is the smallest next falsifier.",
+  "input": {
+    "subroutine": 22,
+    "ecl_time": 1,
+    "spell_active": true,
+    "life_callback_sub": 22,
+    "timer_callback_sub": 16
+  },
+  "expect": {
+    "phase_id": "boss:0:sub22:life_cb22:timer_cb16:spell",
+    "policy_state": "first-spell-entry",
+    "algorithm": "target-only",
+    "horizon": 4,
+    "target": [192.0, 380.0]
+  }
+}

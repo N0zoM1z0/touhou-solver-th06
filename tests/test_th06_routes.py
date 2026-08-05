@@ -243,7 +243,7 @@ class RoutePhaseTests(unittest.TestCase):
         )
 
     def test_stage1_main_boss_opens_only_dialogue_gated_sub10_entry(self):
-        subroutines = tuple(0x1000 + index * 0x100 for index in range(16))
+        subroutines = tuple(0x1000 + index * 0x100 for index in range(24))
         boss = SimpleNamespace(
             is_boss=True,
             boss_id=0,
@@ -342,6 +342,31 @@ class RoutePhaseTests(unittest.TestCase):
         )
         self.assertEqual(branch_boundary.horizon, 4)
         self.assertEqual(branch_boundary.commitment_frames, 1)
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[22] + 0x10
+        )
+        boss.ecl_time = 1
+        boss.timer_callback_sub = 16
+        first_spell = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(first_spell.policy_state, "first-spell-entry")
+        self.assertEqual(first_spell.algorithm, "target-only")
+        self.assertEqual(first_spell.horizon, 4)
+        self.assertEqual(first_spell.target, (192.0, 380.0))
+
+        boss.ecl_time = 120
+        first_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=True),
+        ))
+        self.assertEqual(first_attack.algorithm, "uncovered")
 
         boss.next_instruction = SimpleNamespace(
             address=subroutines[14] + 0x10

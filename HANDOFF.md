@@ -1,6 +1,6 @@
 # TH06 Current Handoff
 
-Snapshot: 2026-08-04. The active foundation is named by annotated tag
+Snapshot: 2026-08-05. The active foundation is named by annotated tag
 `phase-route-foundation-20260804`; the complete retired line is named by
 `pre-phase-route-pivot-20260804`.
 
@@ -1327,3 +1327,47 @@ f6597 and reach the t180 dispatch or an independently modeled callback without
 HIT, Bomb, timeout-driven authority loss, or earlier fail-close. Any new stop
 must be traced from its earliest still-viable consequential decision. Release
 input, stop the exact PID, and verify no game or high-CPU worker remains.
+
+That ordinary-RNG default fail-close run physically promoted both sub12
+source-clock states. It crossed the repaired resource phase, every first-
+nonspell routine, and repeated sub12/sub13/sub14/sub15 re-entries. In
+particular it crossed the former f6526 residual boundary and the former f6597
+stop without a HIT, Bomb, timeout, or authority loss. The authored sub12 rows
+were all fresh: 135 aimed-fan decisions measured 1.990/2.805/5.907 ms
+median/p90/maximum, and 212 residual-stream decisions measured
+2.359/2.785/8.129 ms. The complete run had four stale retries elsewhere; each
+retained fresh Hard authority.
+
+The run stopped alive exactly at f7450, as designed, with all 18 Hard actions
+at the next stable uncovered identity:
+`boss:0:sub22:life_cb22:timer_cb16:spell`, local t1. It had Power 30 and 56
+state-5 despawning bullets, but no regular bullet or point-item birth. Exact
+PID 62580 was stopped, every input was released, and no game, agent, replay,
+or high-CPU worker remained.
+
+The f7449--f7450 boundary exposed a source-order omission in the offline battle
+world. Authoritative `EnemyManager::OnUpdate` calls `HandleLifeCallback`, then
+`HandleTimerCallback`, then `RunEcl`. At the 2100-tick non-timeout callback,
+the timer handler sets life to the callback threshold, redirects to sub22,
+resets the boss timer, and calls `RemoveAllBullets(false)` before sub22 opcode
+93 starts the spell. Those 56 bullets are already state 5, so the later spell
+start cannot turn them into point items. The model now performs that pre-ECL
+retirement and excludes already despawning bullets from spell start/end
+conversion. The retained 254 adjacent transitions are exact across combat,
+player attack, RNG, graze, Rank, item, and Power state; all 20,440 mature and
+1,336 spawning bullet steps, 84 births, and 213 removals match. There is no
+unsupported transition.
+
+Installed sub22 starts the spell at local t0, disables damage, installs timer
+callback sub16 at 1500, and moves the boss to `(192,96)` over 120 ticks. It
+re-enables damage at t120 and first emits a Hard aimed fan at t122. The route
+therefore authors only t0--t119 as `first-spell-entry`, bottom-center
+`target-only` h4. Local t120 remains explicitly `phase-unavailable`. This is
+the smallest next physical falsifier; it does not claim that any attack of the
+spell has been solved.
+
+Current validation is 310 Linux tests passed with 25 native-only skips and all
+310 Windows/native tests passed. After checkpointing, rerun ordinary-RNG,
+default fail-close Practice Stage 1. It must cross the sub22 entry movement and
+stop alive at the deliberately uncovered local-t120 attack boundary; any
+earlier stop must be diagnosed from the earliest still-viable decision.

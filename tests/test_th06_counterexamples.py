@@ -109,8 +109,8 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 )
                 boss = SimpleNamespace(
                     boss_id=0,
-                    life_callback_sub=22,
-                    timer_callback_sub=22,
+                    life_callback_sub=values.get("life_callback_sub", 22),
+                    timer_callback_sub=values.get("timer_callback_sub", 22),
                     ecl_subroutines=subroutines,
                     next_instruction=SimpleNamespace(
                         address=subroutines[values["subroutine"]] + 0x10
@@ -118,7 +118,14 @@ class CounterexampleCorpusTests(unittest.TestCase):
                     ecl_time=values["ecl_time"],
                 )
                 intent = mainboss_intent(
-                    SimpleNamespace(player_attack=None), boss
+                    SimpleNamespace(
+                        player_attack=(
+                            SimpleNamespace(spell_active=True)
+                            if values.get("spell_active", False)
+                            else None
+                        )
+                    ),
+                    boss,
                 )
                 self.assertEqual(intent.phase_id, expected["phase_id"])
                 self.assertEqual(intent.policy_state, expected["policy_state"])

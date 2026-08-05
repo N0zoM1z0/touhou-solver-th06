@@ -751,12 +751,16 @@ class _NominalCombatStep:
             )
         self.spell_started = True
         self.attack = replace(self.attack, spell_active=True)
-        for bullet in self.source_bullets:
+        remaining_bullets = tuple(
+            bullet for bullet in self.source_bullets
+            if bullet.slot not in self.despawned_bullet_slots
+        )
+        for bullet in remaining_bullets:
             # The captured fired/spawning set excludes state-5 despawning
             # bullets, exactly the class RemoveAllBullets(true) skips.
             self.spawn_item((bullet.x, bullet.y), 6, 1, rng)
         self.cancelled_bullet_slots = frozenset(
-            bullet.slot for bullet in self.source_bullets
+            bullet.slot for bullet in remaining_bullets
         )
 
         for slot in sorted(self.lasers):
@@ -784,6 +788,22 @@ class _NominalCombatStep:
                 )
             self.lasers[slot] = replace(laser, hitbox_end_delay=0)
 
+    def remove_all_bullets_without_items(self) -> None:
+        """Apply a non-timeout timer callback's pre-ECL hazard retirement."""
+        self.despawned_bullet_slots = frozenset(
+            bullet.slot for bullet in self.source_bullets
+        )
+        for slot in sorted(self.lasers):
+            laser = self.lasers[slot]
+            if laser.state < 2:
+                laser = replace(
+                    laser,
+                    state=2,
+                    timer=0,
+                    timer_float=0.0,
+                )
+            self.lasers[slot] = replace(laser, hitbox_end_delay=0)
+
     def spell_end(self, rng: RngState) -> None:
         """Apply active ECL opcode 94's DespawnBullets conversion."""
         if not self.attack.spell_active:
@@ -794,13 +814,18 @@ class _NominalCombatStep:
             )
         self.spell_ended = True
         self.attack = replace(self.attack, spell_active=False)
-        for bullet in self.source_bullets:
+        remaining_bullets = tuple(
+            bullet for bullet in self.source_bullets
+            if bullet.slot not in self.despawned_bullet_slots
+        )
+        for bullet in remaining_bullets:
             # DespawnBullets differs from RemoveAllBullets(true): every
             # occupied slot receives a point item and remains allocated in
             # the DESPAWNING state for BulletManager's later same-frame pass.
             self.spawn_item((bullet.x, bullet.y), 6, 1, rng)
         self.despawned_bullet_slots = frozenset(
-            bullet.slot for bullet in self.source_bullets
+            self.despawned_bullet_slots
+            | frozenset(bullet.slot for bullet in remaining_bullets)
         )
 
         for slot in sorted(self.lasers):
@@ -962,6 +987,7 @@ class _NominalCombatStep:
             emitter.timer_callback_threshold >= 0
             and emitter.boss_timer >= emitter.timer_callback_threshold
         ):
+            timeout_spell = emitter.timeout_spell
             callback_sub = emitter.timer_callback_sub
             life = emitter.life
             life_threshold = emitter.life_callback_threshold
@@ -982,6 +1008,12 @@ class _NominalCombatStep:
             slots[emitter.slot] = emitter
             self._kill_nonbosses(slots)
             emitter = slots[emitter.slot]
+            if not timeout_spell:
+                # HandleTimerCallback performs RemoveAllBullets(false) after
+                # redirecting ECL but before the manager's subsequent RunEcl.
+                # A spell-start opcode in the callback therefore sees only
+                # state-5 bullets and cannot convert them into point items.
+                self.remove_all_bullets_without_items()
         return emitter
 
     @staticmethod
