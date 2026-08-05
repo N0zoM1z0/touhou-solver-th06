@@ -78,6 +78,7 @@ from th06.native import (
     BULLET_DIRECTION_MAX_TIMES_OFFSET,
     BULLET_EX_FLAGS_OFFSET,
     BULLET_IS_GRAZED_OFFSET,
+    BULLET_OUT_OF_BOUNDS_FRAMES_OFFSET,
     BULLET_SIZE_OFFSET,
     BULLET_STATE_OFFSET,
     BULLET_STRIDE,
@@ -777,12 +778,23 @@ class BaselineTests(unittest.TestCase):
             "<ff", tail, BULLET_POSITION_OFFSET - BULLET_SIZE_OFFSET, 123.0, 234.0
         )
         struct.pack_into("<H", tail, BULLET_STATE_OFFSET - BULLET_SIZE_OFFSET, 1)
+        struct.pack_into(
+            "<H",
+            tail,
+            BULLET_OUT_OF_BOUNDS_FRAMES_OFFSET - BULLET_SIZE_OFFSET,
+            7,
+        )
         tail[BULLET_IS_GRAZED_OFFSET - BULLET_SIZE_OFFSET] = 1
 
-        bullet = _decode_bullet_tail(tail, 271)
+        bullet = _decode_bullet_tail(tail, 271, (14.0, 16.0))
 
         self.assertEqual((bullet.x, bullet.y), (123.0, 234.0))
         self.assertEqual((bullet.half_width, bullet.half_height), (2.0, 3.0))
+        self.assertEqual(
+            (bullet.sprite_half_width, bullet.sprite_half_height),
+            (7.0, 8.0),
+        )
+        self.assertEqual(bullet.out_of_bounds_frames, 7)
         self.assertTrue(bullet.is_grazed)
 
     def test_bullet_acceleration_duration_uses_source_layout(self):

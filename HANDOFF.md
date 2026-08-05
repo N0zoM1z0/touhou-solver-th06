@@ -1540,3 +1540,62 @@ passes 314 Linux tests with 25 native-only skips and all 314 Windows/native
 tests with no skips. The next step after checkpointing this candidate is an
 ordinary-RNG/default-fail-close physical run; none of the offline results
 constitute promotion.
+
+## Stage 1 second-nonspell source-cycle candidate — 2026-08-05
+
+The ordinary-RNG/default-fail-close run of checkpoint ``ae22e6d`` crossed the
+first spell and stopped alive at f8233 in stable sub18 local t1, with no HIT,
+Bomb, or authority loss before the deliberate ``phase-unavailable`` stop.
+Exact PID 59524 was stopped, input was released, and cleanup found no game,
+agent, replay, or high-CPU worker.  Stable ignored artifact
+``th06_failure_stage1_f8233_sub18_uncovered.json`` has SHA-256
+``9777e7524e25178bf906bb6eef115e482c851d78cdb52c0decdc6dba595fb226``;
+its CSV SHA-256 is
+``10d8ad9fe0d0b084d459e077f98684613f1276c40ec97714ff3239a1734c95ae``.
+
+Installed ECL SHA-256
+``9d9a40e9f7e3ab9346d3874438134659cacf9d34f4aff57b96b4be4ea85b99d7``
+defines the whole attack family.  Sub18 emits its aimed fan at t12, six lasers
+at t20--t60, mutates their angles at t124--t164, and dispatches at t224.
+Sub19 emits circles at t60/t90/t120 and dispatches at t240; sub20 emits fans
+at t60/t80/t100 and dispatches at t220; sub21 emits its loop births at t2/t4
+and dispatches at t124.  Every call edge and every instruction offset is now
+asserted against the installed program.  The saved CALL return address is
+mapped back to a stable source subroutine: only the initial sub16-to-sub18
+t0--t11 entry uses the bottom-center waypoint; recurrent sub18 entries do not.
+
+The retained offline policy is deliberately small.  Sub18 aimed-fan through
+laser-hold uses a sticky pickup-robust h12 command tube, and laser-turn uses a
+sticky constant-reserve/count h10 tube.  The other hostile source segments
+use target-free policy-volume h8, residual fields use target-free h6, and exact
+dispatch clocks use h4.  Each ordinary segment keeps a four-frame soft
+commitment; an initial production integration accidentally reduced this to
+one and was rejected by replay.  Blind nearest-trajectory feedback, the old
+historical durable controller, unconditional bottom-center residual routing,
+and a wall-triggered residual target all lost complete holdout worlds and are
+not part of the route.
+
+The stateful source model needed two shared semantic fixes before this search
+was meaningful: fired bullets now retire by the authoritative post-motion
+visual-sprite bounds and direction counter, and simulator-born finite effects
+retire at their installed ANM Exit times.  Physical capture carries exact
+bullet visual dimensions and the out-of-bounds counter; old ignored artifacts
+use a conservative template-size union.  Closed-loop replay also treats the
+captured dead player state as a HIT even when the colliding object has already
+entered despawn.
+
+Exact adjacent parity from f8233 covers 250/250 player transitions, 5,870
+mature-bullet steps, 166 spawning-bullet steps, and 239 complete combat worlds;
+47 physical bullet removals are source-proved and 11 unsupported pairs are
+kept explicit.  The final Windows production ``Solver`` replay reaches stable
+sub23 in 39/48 delivery worlds; the remaining nine fail closed with no offline
+HIT.  Across 56,254 decisions it measures 2.000/3.298/5.267 ms
+median/p90/p99, with a 13.290 ms Python-call maximum.  Linux passes 328 tests
+with 25 native-only skips; Windows/native passes all 328 tests.  The DLL
+SHA-256 is
+``95ae23a17f6206c487e0bcd035ec1edb9ada74e9b5697b806222dc56e378b43a``.
+
+This candidate is not physically promoted.  Checkpoint it, then run one
+ordinary-RNG/default-fail-close Practice Stage 1 trial.  Success for this
+iteration is an alive stable sub23 boundary; any earlier stop belongs to the
+earliest still-viable sub18--sub21 source segment, not to the terminal frame.

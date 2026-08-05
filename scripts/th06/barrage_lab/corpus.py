@@ -103,6 +103,7 @@ def decode_snapshot(raw: dict) -> Snapshot:
         "timeline_boss_subs",
         "timeline_boss_slots",
         "pending_effect_rng_ids",
+        "simulated_effect_expiry_updates",
     ):
         values[field] = tuple(values.get(field, ()))
     attack = values.get("player_attack")

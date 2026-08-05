@@ -8,6 +8,10 @@ from .phase import boss_phase_id, ecl_subroutine_index
 from .policy import proposal_from_intent
 from .stage1_sub12 import compiled_sub12_residual_proposal
 from .stage1_sub14 import Sub14PolicyState, sub14_proposal
+from .stage1_second_nonspell import (
+    second_nonspell_intent,
+    second_nonspell_proposal,
+)
 from .state_machine import PolicyState, TimelineStateMachine
 
 
@@ -507,6 +511,8 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "unsupported by exact offline battle replay"
             ),
         )
+    if subroutine in (18, 19, 20, 21) and not spell_active:
+        return second_nonspell_intent(snapshot, boss)
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "
@@ -739,6 +745,8 @@ class HardReimuAStage1:
             )
             if intent.policy_state == "first-nonspell-residual-stream":
                 return compiled_sub12_residual_proposal(intent, request, boss)
+            if intent.policy_state.startswith("second-nonspell-"):
+                return second_nonspell_proposal(intent, request)
             return sub14_proposal(
                 intent,
                 request,

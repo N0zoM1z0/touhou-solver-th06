@@ -27,7 +27,11 @@ from .model import (
 from .ranking import ProposalRanker
 from .routes import ProposalRequest, RouteRegistry, default_routes
 from .safety import COLLISION_MARGIN, DELIVERY_DELAYS, certify_actions
-from .viability import nominal_policy_scores, replanning_scores
+from .viability import (
+    delivery_segment_viability_scores,
+    nominal_policy_scores,
+    replanning_scores,
+)
 
 
 HARD_SAFETY_HORIZON = 4
@@ -154,6 +158,46 @@ class _ProposalServices:
             horizon,
             continuation_actions=CONTROL_ACTIONS,
         )
+
+    def delivery_segment_viability(
+        self,
+        snapshot: Snapshot,
+        hard,
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+    ):
+        native = (
+            getattr(
+                type(self.solver.kernel),
+                "delivery_segment_viability_progressive",
+                None,
+            )
+            if self.solver.kernel is not None
+            else None
+        )
+        if native is not None:
+            budget_ms = self.remaining_budget_ms()
+            if budget_ms <= 0.0:
+                return None
+            return native(
+                self.solver.kernel,
+                snapshot,
+                hard,
+                segment_length,
+                minimum_horizon,
+                maximum_horizon,
+                collision_margin=COLLISION_MARGIN,
+                budget_ms=budget_ms,
+            )
+        scores = delivery_segment_viability_scores(
+            snapshot,
+            hard,
+            segment_length,
+            maximum_horizon,
+            continuation_actions=CONTROL_ACTIONS,
+        )
+        return maximum_horizon, scores, True
 
     def terminal_guidance(
         self,

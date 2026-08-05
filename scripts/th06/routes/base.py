@@ -120,6 +120,20 @@ class ProposalServices(Protocol):
     ) -> dict[Action, int] | None:
         """Return bounded local-continuation counts, or ``None`` on timeout."""
 
+    def delivery_segment_viability(
+        self,
+        snapshot: Snapshot,
+        hard: tuple[SafeAction, ...],
+        segment_length: int,
+        minimum_horizon: int,
+        maximum_horizon: int,
+    ) -> tuple[int, dict[Action, int], bool] | None:
+        """Return complete pickup-robust membership, or timeout.
+
+        The result is soft route evidence only.  Candidate membership starts
+        from the immutable fresh Hard set supplied in ``ProposalRequest``.
+        """
+
     def terminal_guidance(
         self,
         snapshot: Snapshot,

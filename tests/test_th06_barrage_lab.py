@@ -62,10 +62,12 @@ from th06.model import (
     Bullet,
     EclInstruction,
     Laser,
+    PLAYER_DEAD,
     PlayerAttackState,
     SafeAction,
     Snapshot,
     StageTimelineInstruction,
+    action_from_input,
 )
 
 
@@ -900,6 +902,59 @@ class BarrageLabTests(unittest.TestCase):
         self.assertAlmostEqual(aimed.y, 102.0, places=5)
         self.assertEqual((aimed.ex_flags, aimed.direction_num_times), (0, 1))
 
+    def test_fired_bullet_retires_only_after_visual_sprite_leaves_bounds(self):
+        touching = Bullet(
+            x=-3.0,
+            y=100.0,
+            vx=-1.0,
+            vy=0.0,
+            half_width=2.0,
+            half_height=2.0,
+            state=1,
+            sprite_half_width=4.0,
+            sprite_half_height=4.0,
+        )
+
+        boundary = step_fired_bullet(touching)
+        self.assertIsNotNone(boundary)
+        self.assertEqual(boundary.x, -4.0)
+        self.assertIsNone(step_fired_bullet(boundary))
+
+    def test_direction_bullet_out_of_bounds_counter_resets_and_caps(self):
+        persistent = Bullet(
+            x=-5.0,
+            y=100.0,
+            vx=0.0,
+            vy=0.0,
+            half_width=2.0,
+            half_height=2.0,
+            state=1,
+            ex_flags=0x40,
+            speed=0.0,
+            turn_speed=0.0,
+            direction_interval=100,
+            direction_max_times=3,
+            sprite_half_width=4.0,
+            sprite_half_height=4.0,
+        )
+
+        outside = step_fired_bullet(persistent)
+        self.assertIsNotNone(outside)
+        self.assertEqual(outside.out_of_bounds_frames, 1)
+
+        reentered = step_fired_bullet(replace(
+            outside,
+            x=1.0,
+            vx=0.0,
+        ))
+        self.assertIsNotNone(reentered)
+        self.assertEqual(reentered.out_of_bounds_frames, 0)
+
+        self.assertIsNone(step_fired_bullet(replace(
+            persistent,
+            out_of_bounds_frames=0xFF,
+        )))
+
     def test_stateful_world_and_physical_player_parity_are_closed_loop(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
         case = generate_barrage_case((opcode,), 7, target_bullets=8)
@@ -1000,6 +1055,26 @@ class BarrageLabTests(unittest.TestCase):
         )
         self.assertEqual(phase_result.outcome, "phase-exit")
         self.assertEqual(phase_result.survived_frames, 1)
+
+        dead_root = replace(start, bullets=())
+        held = action_from_input(dead_root.input_mask)
+        with mock.patch(
+            "th06.barrage_lab.stateful.step_nominal_battle_world",
+            side_effect=lambda state, _action: replace(
+                state,
+                frame=state.frame + 1,
+                player_state=PLAYER_DEAD,
+            ),
+        ):
+            lethal = run_closed_loop(
+                dead_root,
+                lambda _snapshot: held,
+                frames=3,
+                delivery_seed=0,
+                battle_world=True,
+            )
+        self.assertEqual(lethal.outcome, "hit")
+        self.assertEqual(lethal.survived_frames, 1)
 
     def test_stateful_world_rejects_unproved_despawn_animation(self):
         opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]

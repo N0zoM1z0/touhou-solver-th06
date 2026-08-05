@@ -7,6 +7,7 @@ from th06.barrage_lab.stateful import (
     _NominalCombatStep,
     _step_items_after_effects,
     _step_lasers_after_bullets,
+    UnsupportedStatefulModel,
     physical_step_parity,
     step_nominal_battle_world,
     step_reimu_a_player_attack,
@@ -514,6 +515,47 @@ class PlayerAttackTests(unittest.TestCase):
         # Shipped effect ANM randomizes its sprite once, then callback 5 calls
         # two f32 values: one plus four source u16 generations.
         self.assertEqual(rng.generation_count, 14)
+
+    def test_finite_hit_effect_retires_at_the_shipped_anm_exit(self):
+        attack = _attack_with_shot(1)
+        combat = _NominalCombatStep(_snapshot(attack), attack)
+        rng = RngState(0x1234, 0)
+
+        combat.observe_effect_spawns((5,))
+        combat.finish_frame(rng)
+
+        self.assertEqual(combat.effect_upper, 1)
+        self.assertEqual(combat.effect_expiry_updates, [30])
+        for _ in range(29):
+            combat.finish_frame(rng)
+        self.assertEqual(combat.effect_upper, 1)
+        self.assertEqual(combat.effect_expiry_updates, [1])
+
+        combat.finish_frame(rng)
+
+        self.assertEqual(combat.effect_upper, 0)
+        self.assertEqual(combat.effect_expiry_updates, [])
+
+    def test_effect_slot_expiring_at_priority10_cannot_fund_priority9_birth(self):
+        attack = _attack_with_shot(1)
+        root = replace(
+            _snapshot(attack),
+            effect_active_upper_bound=512,
+            simulated_effect_expiry_updates=(1,),
+        )
+        combat = _NominalCombatStep(root, attack)
+        rng = RngState(0x1234, 0)
+
+        with self.assertRaisesRegex(
+            UnsupportedStatefulModel, "cannot prove particle allocation"
+        ):
+            combat.observe_effect_spawns((5,))
+
+        combat.finish_frame(rng)
+        combat.spawn_post_effects((8,), rng)
+
+        self.assertEqual(combat.effect_upper, 512)
+        self.assertEqual(combat.effect_expiry_updates, [31])
 
     def test_spell_damage_reduction_happens_after_source_cap(self):
         attack = _attack_with_shot(100, spell=True)

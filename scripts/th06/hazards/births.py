@@ -27,6 +27,25 @@ RANDOM_SPEED = 7
 RANDOM = 8
 DETERMINISTIC_AIM_MODES = frozenset(range(FAN_AIMED, OFFSET_CIRCLE + 1))
 
+# Visual half-sizes of the ten BulletManager templates.  They come from the
+# template scripts in the authoritative source's ``g_BulletTypeInfos`` and
+# the installed 1.02h etama3/etama4 ANM sprite records.  The relevant archive
+# payload hashes are etama3 ``1bbbbea06778111585c33223a9376e76299db746fbed627908d09807b114cd4c``
+# and etama4 ``edf59b5ddab4b19026938a3831185b1e16fb6ff905cfa62340ffeca471687b04``.
+# Every colour offset within a template has the same geometry.
+SOURCE_BULLET_SPRITE_HALF_SIZES = (
+    (4.0, 4.0),
+    (8.0, 8.0),
+    (7.0, 8.0),
+    (8.0, 8.0),
+    (7.0, 8.0),
+    (7.0, 8.0),
+    (16.0, 16.0),
+    (15.0, 15.0),
+    (16.0, 16.0),
+    (32.0, 32.0),
+)
+
 
 class UnsupportedBirthModel(ValueError):
     pass
@@ -76,6 +95,13 @@ def _spawned_bullet(
     angle: float,
     speed: float,
 ) -> Bullet:
+    if not 0 <= pattern.sprite < len(SOURCE_BULLET_SPRITE_HALF_SIZES):
+        raise UnsupportedBirthModel(
+            f"bullet template {pattern.sprite} has no loaded visual sprite"
+        )
+    sprite_half_width, sprite_half_height = (
+        SOURCE_BULLET_SPRITE_HALF_SIZES[pattern.sprite]
+    )
     acceleration_x = 0.0
     acceleration_y = 0.0
     acceleration_duration = 0
@@ -129,6 +155,9 @@ def _spawned_bullet(
         direction_max_times=direction_max_times,
         curve_speed_acceleration=curve_speed,
         curve_angular_velocity=curve_angular,
+        sprite_half_width=sprite_half_width,
+        sprite_half_height=sprite_half_height,
+        sprite=pattern.sprite,
     )
 
 

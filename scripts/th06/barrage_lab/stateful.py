@@ -88,12 +88,53 @@ TERMINAL_METRICS = (
     "causal-world-count",
     "causal-split-count",
 )
+
+
+# EffectManager.cpp maps IDs 0..19 to etama4 ANM scripts (except the
+# stage-specific spell background at ID 16).  In the installed 1.02h
+# etama4.anm (SHA-256 edf59b5ddab4b19026938a3831185b1e16fb6ff905cfa62340ffeca471687b04),
+# these scripts unconditionally reach AnmOpcode_Exit at the listed source
+# times.  IDs 13..15 loop until an enemy callback interrupts them and ID 16 is
+# stage-specific, so they deliberately have no retirement proof here.
+_FINITE_EFFECT_EXIT_TIMES = {
+    0: 20,
+    1: 20,
+    2: 40,
+    3: 40,
+    4: 30,
+    5: 30,
+    6: 30,
+    7: 30,
+    8: 30,
+    9: 30,
+    10: 30,
+    11: 30,
+    12: 40,
+    17: 60,
+    18: 240,
+    19: 120,
+}
 # BulletManager::OnUpdate advances these three spawn states before calling the
 # installed bullet ANM script.  The standard archive completes the scripts on
 # timer 9/15/31 respectively; every physical transition in the retained
 # corpus observes those same boundaries.
 _SPAWN_DIVISOR = {2: 2.0, 3: 2.5, 4: 3.0}
 _SPAWN_FINAL_TIMER = {2: 9, 3: 15, 4: 31}
+
+# Artifacts captured before visual-sprite sensing retain only BulletManager's
+# copied collision box.  For those ignored historical workloads, use the
+# largest installed visual sprite among templates with that exact box.  This
+# can delay retirement but can never free a source slot early.  New physical
+# roots and simulator births carry exact visual geometry on each Bullet.
+_LEGACY_VISUAL_HALF_SIZE_BY_COLLISION = {
+    (2.0, 2.0): (7.0, 8.0),   # pellet/rice/shard: conservative union
+    (3.0, 3.0): (8.0, 8.0),   # ring ball / ball
+    (2.5, 2.5): (7.0, 8.0),   # kunai
+    (8.0, 8.0): (16.0, 16.0), # big ball
+    (5.5, 5.5): (15.0, 15.0), # fireball
+    (4.5, 4.5): (16.0, 16.0), # dagger
+    (16.0, 16.0): (32.0, 32.0), # bubble
+}
 
 # Authoritative ``g_CharacterPowerBulletDataReimuARank1`` through Rank4, and
 # Rank9.
@@ -193,7 +234,7 @@ def action_mask(action: Action) -> int:
 def step_fired_bullet(
     bullet: Bullet,
     player_position: tuple[float, float] | None = None,
-) -> Bullet:
+) -> Bullet | None:
     """Run one source ``BULLET_STATE_FIRED`` update at multiplier one."""
     if bullet.state != 1:
         raise UnsupportedStatefulModel(
@@ -291,10 +332,56 @@ def step_fired_bullet(
         vx = _f32(math.cos(angle) * current_speed)
         vy = _f32(math.sin(angle) * current_speed)
 
+    x = _f32(x + vx)
+    y = _f32(y + vy)
+
+    # BulletManager tests the post-motion visual sprite, not its collision
+    # box.  A center inside the playfield is unconditionally in bounds; once
+    # outside, missing visual geometry is an unsupported source state rather
+    # than permission to retire the slot early.
+    if 0.0 <= x <= 384.0 and 0.0 <= y <= 448.0:
+        in_bounds = True
+    else:
+        sprite_half_width = bullet.sprite_half_width
+        sprite_half_height = bullet.sprite_half_height
+        if sprite_half_width <= 0.0 or sprite_half_height <= 0.0:
+            legacy_size = _LEGACY_VISUAL_HALF_SIZE_BY_COLLISION.get(
+                (bullet.half_width, bullet.half_height)
+            )
+            if legacy_size is not None:
+                sprite_half_width, sprite_half_height = legacy_size
+        if (
+            not math.isfinite(sprite_half_width)
+            or not math.isfinite(sprite_half_height)
+            or sprite_half_width <= 0.0
+            or sprite_half_height <= 0.0
+        ):
+            raise UnsupportedStatefulModel(
+                f"bullet slot {bullet.slot} needs visual sprite geometry "
+                "for out-of-bounds retirement"
+            )
+        in_bounds = not (
+            x + sprite_half_width < 0.0
+            or x - sprite_half_width > 384.0
+            or y + sprite_half_height < 0.0
+            or y - sprite_half_height > 448.0
+        )
+
+    out_of_bounds_frames = bullet.out_of_bounds_frames
+    if in_bounds:
+        out_of_bounds_frames = 0
+    else:
+        persistent_direction = flags & (0x40 | 0x100 | 0x80 | 0x400 | 0x800)
+        if not persistent_direction and out_of_bounds_frames == 0:
+            return None
+        out_of_bounds_frames += 1
+        if out_of_bounds_frames >= 0x100:
+            return None
+
     return _copy_bullet(
         bullet,
-        x=_f32(x + vx),
-        y=_f32(y + vy),
+        x=x,
+        y=y,
         vx=vx,
         vy=vy,
         ex_flags=flags,
@@ -303,13 +390,14 @@ def step_fired_bullet(
         timer=timer + 1,
         timer_float=_f32(timer_float + 1.0),
         direction_num_times=direction_num_times,
+        out_of_bounds_frames=out_of_bounds_frames,
     )
 
 
 def step_bullet(
     bullet: Bullet,
     player_position: tuple[float, float] | None = None,
-) -> Bullet:
+) -> Bullet | None:
     """Advance one source bullet state, including spawn-animation fallthrough."""
     if bullet.state == 1:
         return step_fired_bullet(bullet, player_position)
@@ -340,6 +428,19 @@ def step_bullet(
         ),
         player_position,
     )
+
+
+def _step_live_bullets(
+    bullets,
+    player_position: tuple[float, float],
+) -> tuple[Bullet, ...]:
+    """Advance a pool slice and omit source-retired slots."""
+    active = []
+    for bullet in bullets:
+        advanced = step_bullet(bullet, player_position)
+        if advanced is not None:
+            active.append(advanced)
+    return tuple(active)
 
 
 def step_reimu_a_player_shot(
@@ -679,6 +780,16 @@ class _NominalCombatStep:
         self.player_half_width = snapshot.half_width
         self.player_half_height = snapshot.half_height
         self.effect_upper = snapshot.effect_active_upper_bound
+        self.effect_expiry_updates = list(
+            snapshot.simulated_effect_expiry_updates
+        )
+        if (
+            any(value <= 0 for value in self.effect_expiry_updates)
+            or len(self.effect_expiry_updates) > self.effect_upper
+        ):
+            raise UnsupportedStatefulModel(
+                "simulated effect-expiry state is incoherent"
+            )
         self.item_upper = snapshot.item_active_upper_bound
         self.items = {item.slot: item for item in snapshot.item_states}
         if (
@@ -857,7 +968,7 @@ class _NominalCombatStep:
                 )
             self.lasers[slot] = replace(laser, hitbox_end_delay=0)
 
-    def observe_effect_spawns(self, effect_ids) -> None:
+    def _reserve_effect_slots(self, effect_ids) -> tuple[int, ...]:
         effect_ids = tuple(effect_ids)
         if any(not 0 <= effect_id < 20 for effect_id in effect_ids):
             raise UnsupportedStatefulModel("invalid source effect id")
@@ -866,6 +977,10 @@ class _NominalCombatStep:
                 "effect-pool upper bound cannot prove particle allocation"
             )
         self.effect_upper += len(effect_ids)
+        return effect_ids
+
+    def observe_effect_spawns(self, effect_ids) -> None:
+        effect_ids = self._reserve_effect_slots(effect_ids)
         self.allocated_effects.extend(effect_ids)
 
     def observe_item_spawns(self, births, count: int, rng: RngState) -> None:
@@ -932,7 +1047,16 @@ class _NominalCombatStep:
         """Spawn effects after EffectManager's pass (BulletManager priority 11)."""
         effect_ids = tuple(effect_ids)
         consume_effect_spawn_rng(rng, effect_ids)
-        self.observe_effect_spawns(effect_ids)
+        self._reserve_effect_slots(effect_ids)
+        # A post-manager birth first runs at timer zero on the next update,
+        # so its occupied slot survives one more pass than a pre-manager birth
+        # that already executed at timer zero this update.
+        self.effect_expiry_updates.extend(
+            exit_time + 1
+            for effect_id in effect_ids
+            if (exit_time := _FINITE_EFFECT_EXIT_TIMES.get(effect_id))
+            is not None
+        )
         self.post_effect_ids.extend(effect_ids)
 
     @staticmethod
@@ -1161,6 +1285,27 @@ class _NominalCombatStep:
         _consume_effect_callback_rng(
             rng, (*self.pending_effects, *self.allocated_effects)
         )
+        surviving_expiries = []
+        retired = 0
+        for remaining in self.effect_expiry_updates:
+            if remaining == 1:
+                retired += 1
+            else:
+                surviving_expiries.append(remaining - 1)
+        if retired > self.effect_upper:
+            raise UnsupportedStatefulModel(
+                "simulated effect retirement exceeds the pool bound"
+            )
+        self.effect_upper -= retired
+        # Pre-manager births ran their timer-zero EffectManager pass above;
+        # their Exit time is therefore the number of *future* occupied passes.
+        surviving_expiries.extend(
+            exit_time
+            for effect_id in self.allocated_effects
+            if (exit_time := _FINITE_EFFECT_EXIT_TIMES.get(effect_id))
+            is not None
+        )
+        self.effect_expiry_updates = surviving_expiries
         self.pending_effects.clear()
         self.allocated_effects.clear()
 
@@ -1210,7 +1355,7 @@ def step_closed_world(
         x=x,
         y=y,
         input_mask=action_mask(held),
-        bullets=tuple(step_bullet(bullet, (x, y)) for bullet in bullets),
+        bullets=_step_live_bullets(bullets, (x, y)),
         rng_seed=rng.seed,
         rng_generation=rng.generation_count,
     )
@@ -1504,6 +1649,8 @@ def _step_hostile_bullets_after_effects(
             ))
             continue
         advanced = step_bullet(bullet, player)
+        if advanced is None:
+            continue
         if advanced.state != 1:
             active.append(advanced)
             continue
@@ -1890,7 +2037,7 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
             raise UnsupportedStatefulModel(
                 "live laser replay needs captured combat state"
             )
-        bullets = tuple(step_bullet(bullet, (x, y)) for bullet in bullets)
+        bullets = _step_live_bullets(bullets, (x, y))
         despawning_bullets = ()
         player_state = snapshot.player_state
         rank = snapshot.rank
@@ -1978,6 +2125,9 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         ),
         pending_effect_rng_ids=(
             tuple(combat.post_effect_ids) if combat is not None else ()
+        ),
+        simulated_effect_expiry_updates=(
+            tuple(combat.effect_expiry_updates) if combat is not None else ()
         ),
         item_states=(
             tuple(combat.items[slot] for slot in sorted(combat.items))
@@ -3191,7 +3341,11 @@ def run_closed_loop(
         minimum_clearance = min(
             minimum_clearance, current_bullet_clearance(state)
         )
-        if collides_now(state):
+        # BulletManager::OnUpdate records a lethal bullet or laser contact by
+        # changing Player::playerState.  The colliding object may already be
+        # despawning at the next frame boundary, so geometry alone cannot be
+        # the closed-loop HIT witness.
+        if state.player_state == PLAYER_DEAD or collides_now(state):
             outcome = "hit"
             break
         if stop_when is not None and stop_when(state):
@@ -3861,6 +4015,15 @@ def physical_step_parity(history: tuple[Snapshot, ...]) -> PhysicalParity:
                 expected = step_bullet(before, (right.x, right.y))
             except UnsupportedStatefulModel:
                 unsupported_bullet_steps += 1
+                continue
+            if expected is None:
+                # The source model retired this slot, but it remains occupied
+                # in the adjacent physical root.  Count a modeled step and a
+                # non-exact result without fabricating a position error.
+                if before.state == 1:
+                    fired_bullet_steps += 1
+                else:
+                    spawning_bullet_steps += 1
                 continue
             error = math.hypot(expected.x - after.x, expected.y - after.y)
             maximum_bullet_error = max(maximum_bullet_error, error)

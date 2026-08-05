@@ -31,6 +31,14 @@ from th06.routes.stage1_sub14 import (
     durable_sub14_proposal,
     sub14_proposal,
 )
+from th06.routes.stage1_second_nonspell import (
+    ECL_SHA256 as SECOND_NONSPELL_ECL_SHA256,
+    INSTRUCTION_OFFSETS as SECOND_NONSPELL_INSTRUCTION_OFFSETS,
+    caller_subroutine,
+    second_nonspell_intent,
+    second_nonspell_proposal,
+    source_segment as second_nonspell_source_segment,
+)
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
     AIMED_STREAM,
@@ -229,6 +237,78 @@ class RoutePhaseTests(unittest.TestCase):
                 (0xBC, "timer-callback", 23),
                 (0x10C, "call", 18),
             ),
+        )
+
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
+    def test_stage1_second_nonspell_contract_matches_installed_program(self):
+        program = load_stage_ecl_program(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        hard_events = {
+            subroutine: tuple(
+                (instruction.time, instruction.relative_offset, instruction.opcode)
+                for instruction in program.subroutine(subroutine)
+                if instruction.executes_on(2)
+                and instruction.opcode in (*range(67, 76), *range(85, 93))
+            )
+            for subroutine in (18, 19, 20, 21)
+        }
+        calls = {
+            subroutine: tuple(
+                (edge.source_relative_offset, edge.target_subroutine)
+                for edge in program.edges
+                if edge.source_subroutine == subroutine and edge.kind == "call"
+            )
+            for subroutine in (18, 19, 20, 21)
+        }
+
+        self.assertEqual(program.sha256, SECOND_NONSPELL_ECL_SHA256)
+        self.assertEqual(
+            hard_events,
+            {
+                18: (
+                    (12, 0x8C, 67),
+                    (20, 0xF4, 86),
+                    (28, 0x144, 86),
+                    (36, 0x194, 86),
+                    (44, 0x1E4, 86),
+                    (52, 0x234, 86),
+                    (60, 0x284, 86),
+                ),
+                19: ((60, 0x9C, 69), (90, 0x15C, 69), (120, 0x21C, 69)),
+                20: ((60, 0x8C, 67), (80, 0x15C, 67), (100, 0x21C, 67)),
+                21: ((2, 0x104, 67), (4, 0x234, 67)),
+            },
+        )
+        self.assertEqual(
+            calls,
+            {
+                18: ((0x348, 19), (0x368, 20), (0x388, 21)),
+                19: ((0x298, 18), (0x2B8, 20), (0x2D8, 21)),
+                20: ((0x298, 19), (0x2B8, 18), (0x2D8, 21)),
+                21: ((0x2F8, 19), (0x318, 20), (0x338, 18)),
+            },
+        )
+        for subroutine in (18, 19, 20, 21):
+            self.assertEqual(
+                frozenset(
+                    instruction.relative_offset
+                    for instruction in program.subroutine(subroutine)
+                ),
+                SECOND_NONSPELL_INSTRUCTION_OFFSETS[subroutine],
+            )
+
+        self.assertEqual(
+            second_nonspell_source_segment(18, 124).name, "laser-turn"
+        )
+        self.assertEqual(
+            second_nonspell_source_segment(19, 121).name, "residual"
+        )
+        self.assertEqual(
+            second_nonspell_source_segment(21, 124).name, "dispatch"
         )
 
     @unittest.skipUnless(
@@ -1030,6 +1110,138 @@ class RoutePhaseTests(unittest.TestCase):
         )
         self.assertEqual(ecl_source_instruction_id(first), (1, 8))
         self.assertEqual(ecl_source_instruction_id(relocated), (1, 8))
+
+    def test_second_nonspell_initial_call_uses_stable_caller_identity(self):
+        subroutines = tuple(0x1000 + index * 0x400 for index in range(24))
+
+        def boss(caller):
+            return SimpleNamespace(
+                next_instruction=SimpleNamespace(
+                    address=subroutines[18] + 0x34
+                ),
+                ecl_subroutines=subroutines,
+                ecl_stack=(SimpleNamespace(
+                    instruction_address=subroutines[caller] + 0x120,
+                ),),
+                ecl_time=1,
+                boss_id=0,
+                life_callback_sub=23,
+                timer_callback_sub=23,
+            )
+
+        state = snapshot(stage=1)
+        initial = second_nonspell_intent(state, boss(16))
+        recurrent = second_nonspell_intent(state, boss(19))
+
+        self.assertEqual(caller_subroutine(boss(16)), 16)
+        self.assertEqual(initial.algorithm, "target-only")
+        self.assertEqual(initial.target, (192.0, 380.0))
+        self.assertEqual(initial.horizon, 4)
+        self.assertEqual(recurrent.algorithm, "compiled-policy")
+        self.assertEqual(recurrent.horizon, 12)
+
+    def test_second_nonspell_sticky_tube_holds_a_durable_current_action(self):
+        stay = next(
+            action for action in CONTROL_ACTIONS if action.name == "stay"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        hard = (
+            SafeAction(stay, 5.0, 192.0, 380.0),
+            SafeAction(left, 6.0, 184.0, 380.0),
+        )
+
+        class Services:
+            def certify_selected_budgeted(self, _state, horizon, actions):
+                self.assert_contract(horizon, actions)
+                return (hard[0],)
+
+            @staticmethod
+            def assert_contract(horizon, actions):
+                if horizon != 12 or actions != (stay, left):
+                    raise AssertionError("unexpected durable query")
+
+            def delivery_segment_viability(self, *_args):
+                raise AssertionError("durable current must suppress replanning")
+
+            def terminal_guidance(self, *_args):
+                raise AssertionError("durable current must suppress ranking")
+
+        intent = RouteIntent(
+            "boss:0:sub18:test",
+            "second-nonspell-test-delivery-tube",
+            "compiled-policy",
+            12,
+            None,
+            1,
+        )
+        proposal = second_nonspell_proposal(
+            intent,
+            ProposalRequest(snapshot(stage=1), hard, Services()),
+        )
+
+        self.assertEqual(proposal.action_tiers, ((stay,),))
+        self.assertEqual(
+            proposal.proposal_source, "second-nonspell-sticky-current"
+        )
+
+    def test_second_nonspell_delivery_replan_ranks_only_robust_hard_actions(self):
+        stay = next(
+            action for action in CONTROL_ACTIONS if action.name == "stay"
+        )
+        left = next(
+            action for action in CONTROL_ACTIONS if action.name == "left"
+        )
+        right = next(
+            action for action in CONTROL_ACTIONS if action.name == "right"
+        )
+        hard = (
+            SafeAction(stay, 4.0, 192.0, 380.0),
+            SafeAction(left, 5.0, 184.0, 380.0),
+            SafeAction(right, 6.0, 200.0, 380.0),
+        )
+
+        class Services:
+            def certify_selected_budgeted(self, *_args):
+                return (hard[1],)
+
+            def delivery_segment_viability(
+                self, _state, candidates, segment, minimum, maximum
+            ):
+                if candidates != hard or (segment, minimum, maximum) != (4, 8, 12):
+                    raise AssertionError("unexpected delivery contract")
+                return 12, {stay: 0, left: 1, right: 1}, True
+
+            def terminal_guidance(self, _state, candidates, horizon):
+                if horizon != 12 or tuple(
+                    candidate.action for candidate in candidates
+                ) != (left, right):
+                    raise AssertionError("guidance escaped robust membership")
+                return {
+                    left: SimpleNamespace(terminal_count=2),
+                    right: SimpleNamespace(terminal_count=5),
+                }
+
+        intent = RouteIntent(
+            "boss:0:sub18:test",
+            "second-nonspell-test-delivery-tube",
+            "compiled-policy",
+            12,
+            None,
+            1,
+        )
+        proposal = second_nonspell_proposal(
+            intent,
+            ProposalRequest(snapshot(stage=1), hard, Services()),
+        )
+
+        self.assertEqual(proposal.action_tiers, ((right,),))
+        self.assertNotIn(stay, proposal.action_tiers[0])
+        self.assertEqual(
+            proposal.proposal_source,
+            "second-nonspell-sticky-delivery-h12",
+        )
 
     def test_compiled_sub14_policy_ranks_only_the_fresh_hard_set(self):
         subroutines = tuple(0x1000 + index * 0x200 for index in range(24))

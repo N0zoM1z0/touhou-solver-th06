@@ -137,6 +137,7 @@ BULLET_DIRECTION_NUM_TIMES_OFFSET = 0x5B0
 BULLET_DIRECTION_MAX_TIMES_OFFSET = 0x5B4
 BULLET_EX_FLAGS_OFFSET = 0x5B8
 BULLET_STATE_OFFSET = 0x5BE
+BULLET_OUT_OF_BOUNDS_FRAMES_OFFSET = 0x5C0
 BULLET_IS_GRAZED_OFFSET = 0x5C3
 LASER_COUNT = 64
 LASER_STRIDE = 0x270
@@ -521,7 +522,11 @@ def _decode_player_attack(
     )
 
 
-def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
+def _decode_bullet_tail(
+    tail: bytes,
+    slot: int,
+    sprite_size: tuple[float, float] | None = None,
+) -> Bullet | None:
     relative = lambda absolute: absolute - BULLET_SIZE_OFFSET
     state = struct.unpack_from("<H", tail, relative(BULLET_STATE_OFFSET))[0]
     if state == 0:
@@ -551,7 +556,15 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         "<iii", tail, relative(BULLET_DIRECTION_INTERVAL_OFFSET)
     )
     ex_flags = struct.unpack_from("<H", tail, relative(BULLET_EX_FLAGS_OFFSET))[0]
+    out_of_bounds_frames = struct.unpack_from(
+        "<H", tail, relative(BULLET_OUT_OF_BOUNDS_FRAMES_OFFSET)
+    )[0]
     is_grazed = bool(tail[relative(BULLET_IS_GRAZED_OFFSET)])
+    if sprite_size is None:
+        # Focused decoder tests predate visual-sprite capture.  Runtime
+        # capture always supplies the authoritative AnmLoadedSprite size.
+        sprite_size = (size_x, size_y)
+    sprite_width, sprite_height = sprite_size
     numbers = (
         size_x,
         size_y,
@@ -568,10 +581,18 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         curve_angular_velocity,
         direction_rotation,
         timer_subframe,
+        sprite_width,
+        sprite_height,
     )
     if state not in (1, 2, 3, 4, 5) or not all(
         math.isfinite(value) for value in numbers
-    ) or not (0.0 < size_x <= 256.0 and 0.0 < size_y <= 256.0):
+    ) or not (
+        0.0 < size_x <= 256.0
+        and 0.0 < size_y <= 256.0
+        and 0.0 < sprite_width <= 4096.0
+        and 0.0 < sprite_height <= 4096.0
+        and out_of_bounds_frames < 0x100
+    ):
         raise NativeDecodeError(
             f"invalid bullet geometry at slot {slot}",
             {
@@ -642,6 +663,9 @@ def _decode_bullet_tail(tail: bytes, slot: int) -> Bullet | None:
         curve_angular_velocity=curve_angular_velocity,
         slot=slot,
         is_grazed=is_grazed,
+        sprite_half_width=sprite_width / 2.0,
+        sprite_half_height=sprite_height / 2.0,
+        out_of_bounds_frames=out_of_bounds_frames,
     )
 
 
@@ -1685,9 +1709,25 @@ def _read_snapshot_once(
         for slot in range(ENEMY_COUNT)
         if enemy_pool[slot * ENEMY_STRIDE + ENEMY_FLAGS_OFFSET] & 0x80
     }
+    bullet_sprite_pointer_by_slot: dict[int, int] = {}
+    for slot in range(BULLET_COUNT):
+        base = slot * BULLET_STRIDE
+        state = struct.unpack_from("<H", pool, base + BULLET_STATE_OFFSET)[0]
+        if state == 0:
+            continue
+        pointer = struct.unpack_from(
+            "<I", pool, base + ANM_VM_SPRITE_OFFSET
+        )[0]
+        if not 0x10000 <= pointer < 0x80000000:
+            raise _SnapshotReadTorn(
+                f"bullet slot {slot} has an unpublished sprite pointer"
+            )
+        bullet_sprite_pointer_by_slot[slot] = pointer
     sprite_dimensions = _read_sprite_dimensions(
         process,
-        player_sprite_pointers | enemy_sprite_pointers,
+        player_sprite_pointers
+        | enemy_sprite_pointers
+        | set(bullet_sprite_pointer_by_slot.values()),
     )
     spell_active = bool(struct.unpack_from(
         "<i",
@@ -1768,7 +1808,12 @@ def _read_snapshot_once(
     for index in range(BULLET_COUNT):
         base = index * BULLET_STRIDE
         tail = bytes(pool[base + BULLET_SIZE_OFFSET : base + BULLET_STRIDE])
-        bullet = _decode_bullet_tail(tail, index)
+        sprite_size = (
+            sprite_dimensions[bullet_sprite_pointer_by_slot[index]]
+            if index in bullet_sprite_pointer_by_slot
+            else None
+        )
+        bullet = _decode_bullet_tail(tail, index, sprite_size)
         if bullet is None:
             continue
         if bullet.state == 5:

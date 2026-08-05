@@ -117,6 +117,22 @@ common Hard pass, deadline-aware route adapter, and publication ranker over
 the same candidate-conditioned battle world. Neither mode is physical-clear
 evidence.
 
+Screen the complete Stage 1 second-nonspell RNG call family from the retained
+physical sub18 root.  Success means reaching stable sub23, not merely
+surviving a fixed window:
+
+```bash
+PYTHONPATH=scripts python3 scripts/solve_th06_stage1_second_nonspell.py \
+  artifacts/th06_failure_stage1_f8233_sub18_uncovered.json \
+  --entry-frame 8233 --seed-start 0 --seeds 48 \
+  --candidates production
+```
+
+The route keys policies by source subroutine, exact source-event segment, and
+the saved CALL caller where the initial sub16-to-sub18 entry differs from
+later recurrent sub18 entries.  Delivery seed and physical frame are workload
+provenance only.
+
 Run stateful offline replay from a physical snapshot:
 
 ```bash

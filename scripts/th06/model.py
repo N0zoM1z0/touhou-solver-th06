@@ -78,6 +78,17 @@ class Bullet:
     # byte is physical future state: omitting it lets candidate continuations
     # manufacture repeated graze RNG and rank changes.
     is_grazed: bool = False
+    # BulletManager retires a fired bullet only after testing the full visual
+    # sprite against the 384x448 playfield.  This is distinct from the much
+    # smaller graze/kill box above.
+    sprite_half_width: float = 0.0
+    sprite_half_height: float = 0.0
+    # Source ``Bullet::unk_5c0`` counts consecutive out-of-bounds updates for
+    # direction-changing bullets.  It is reset on re-entry and caps at 0x100.
+    out_of_bounds_frames: int = 0
+    # Simulator births retain the source bullet-template index so their
+    # immutable visual geometry can be recovered from the shipped ANM data.
+    sprite: int = -1
 
 
 @dataclass(frozen=True)
@@ -430,6 +441,12 @@ class Snapshot:
     # remain in the pool after Enemy::Despawn has cleared this byte. ``None``
     # keeps older retained artifacts explicit rather than inventing its value.
     boss_present: bool | None = None
+    # Offline battle replay owns these countdowns.  Each entry is one
+    # simulator-born, source-proven finite effect and records how many future
+    # EffectManager passes still include its occupied slot.  Physical capture
+    # leaves this empty; its existing pool remains in the conservative upper
+    # bound because the compact snapshot does not retain every ANM VM.
+    simulated_effect_expiry_updates: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
