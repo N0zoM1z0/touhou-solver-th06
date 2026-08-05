@@ -1270,3 +1270,60 @@ Practice Stage 1 run. It must first cross f4703/f4773 and finish the resource
 formation without stale authority loss. If it reaches the boss route, sub13
 still requires its first physical promotion; no result from this resource fix
 is evidence that sub13 itself has cleared.
+
+The subsequent Practice Stage 1 run crossed the repaired resource phase and
+physically completed all seven sub13 aimed-circle groups. It later re-entered
+sub12 and stopped alive at f6730 with an empty Hard set, without HIT or Bomb.
+The exact retained window has 255/255 adjacent parity across player, enemy,
+Reimu-A attack, RNG, graze, Rank, item, and Power transitions, including 130
+hostile births and no unsupported transition.
+
+Full battle replay initially refused this boss interval because the timeline
+pointer is parked at opcode 12 while boss slot zero remains occupied.
+Authoritative `EnemyManager::RunEclTimeline` decrements the timer on that wait,
+then the frame-end timer tick restores the same published previous/current
+pair. Nominal replay now retains both the raw instruction pointer and timer,
+hides records behind the wait from the current forecast, and fails closed for
+unresolved/message waits. Focused source tests cover only this occupied-slot
+case. With that correction, the f6730 combat world has exact adjacent parity.
+
+The first offline response—one constant-frontier-count h10 policy for all of
+sub12—was not promoted. A following ordinary-RNG default full-route run crossed
+the complete early Stage 1 route, resource phase, and boss states, then
+physically falsified that whole-subroutine hypothesis. It stopped alive at
+f6597/sub12 local t132 with no HIT or Bomb; f6466 is the stable sub12 re-entry
+and f6526/local t61 is the earliest source-defined residual-tail boundary. All
+250 available adjacent physical pairs match combat, attack, RNG, graze, Rank,
+item, and Power state, with 150 hostile births and no unsupported transition.
+
+Installed sub12 emits its seven Hard aimed fans only at local t12, t20, t28,
+t36, t44, t52, and t60. It emits no later attack before the t180 RNG dispatch.
+The route therefore uses two isolated source-clock states rather than a
+physical-frame or CE branch:
+
+- local t0--t60 `first-nonspell-aimed-fans`: target-free constant-frontier h7;
+- local t61--t179 `first-nonspell-residual-stream`: constant-frontier h8 with
+  phase-local right-lane waypoint `(376,320)`.
+
+The active-emission state survives 64/64 complete exact-entry deliveries and
+60/60 viable source-valid warmup worlds; h6 loses one varied world and h8 adds
+no survival. The residual state survives 64/64 complete exact-tail deliveries
+and 63/63 viable varied tail worlds. On that identical varied corpus, the
+rejected whole-phase h10 frontier-count policy survives only 33/63. Center
+crossing, a lower right-lane anchor, delivery-filtered ranking, and deeper
+h9/h10 residual horizons were all falsified before the route change.
+
+The actual Windows production Solver over the retained f6466--f6597 window
+uses only the constant-frontier primitive at h7/h8. Median/p90 solve time is
+about 1.5/2.2 ms. The old f6483 root still produces one over-budget soft query;
+it becomes a fresh-Hard hold and is deliberately left for the integrated
+physical falsifier rather than hidden by offline averages. Current validation
+is 309 Linux tests passed with 25 native-only skips and all 309 Windows/native
+tests passed.
+
+Checkpoint the source wait correction and split sub12 candidate, then run an
+ordinary-RNG default fail-close Practice Stage 1. It must cross both f6526 and
+f6597 and reach the t180 dispatch or an independently modeled callback without
+HIT, Bomb, timeout-driven authority loss, or earlier fail-close. Any new stop
+must be traced from its earliest still-viable consequential decision. Release
+input, stop the exact PID, and verify no game or high-CPU worker remains.

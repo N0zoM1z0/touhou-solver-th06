@@ -1692,14 +1692,31 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         raise UnsupportedStatefulModel(
             "nominal battle replay does not yet step despawning bullets"
         )
-    if any(
-        instruction.time <= snapshot.timeline_time
-        and instruction.opcode in (9, 12)
-        for instruction in snapshot.timeline_instructions
-    ):
-        raise UnsupportedStatefulModel(
-            "nominal battle replay needs resolved timeline wait state"
+    due_timeline_waits = tuple(
+        instruction for instruction in snapshot.timeline_instructions
+        if (
+            instruction.time <= snapshot.timeline_time
+            and instruction.opcode in (9, 12)
         )
+    )
+    boss_wait_stalled = False
+    if due_timeline_waits:
+        first = snapshot.timeline_instructions[0]
+        if (
+            first == due_timeline_waits[0]
+            and first.time == snapshot.timeline_time
+            and first.opcode == 12
+            and len(snapshot.timeline_boss_slots) == 8
+            and 0 <= first.arg0 < len(snapshot.timeline_boss_slots)
+        ):
+            target_slot = snapshot.timeline_boss_slots[first.arg0]
+            boss_wait_stalled = target_slot >= 0 and any(
+                emitter.slot == target_slot for emitter in snapshot.spawners
+            )
+        if not boss_wait_stalled:
+            raise UnsupportedStatefulModel(
+                "nominal battle replay needs resolved timeline wait state"
+            )
 
     # EnemyManager::RunEclTimeline performs this before spawning or updating
     # enemy ECL. The timer's previous/current pair at the captured boundary
@@ -1743,6 +1760,12 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         x=x,
         y=y,
         input_mask=action_mask(held),
+        # RunEclTimeline returns immediately from an occupied opcode-12 boss
+        # wait. Records behind that raw pointer have not executed and cannot
+        # contribute births or interrupts to this update.
+        timeline_instructions=(
+            () if boss_wait_stalled else snapshot.timeline_instructions
+        ),
     )
     forecast = forecast_world_births(
         query,
@@ -1848,18 +1871,39 @@ def step_nominal_battle_world(snapshot: Snapshot, held: Action) -> Snapshot:
         body for body in map(_body_from_emitter, emitters)
         if body is not None
     )
-    # The compact timeline corpus excludes waits, so every record at the
-    # current timer has executed before EnemyManager ticks the timer once.
-    remaining_timeline = tuple(
-        instruction for instruction in snapshot.timeline_instructions
-        if instruction.time > snapshot.timeline_time
+    # An occupied opcode-12 wait decrements the timer before the source's
+    # frame-end Tick, leaving both the instruction pointer and timer pair at
+    # the same published state. The no-wait rung consumes every record at the
+    # current timer as before.
+    remaining_timeline = (
+        snapshot.timeline_instructions
+        if boss_wait_stalled
+        else tuple(
+            instruction for instruction in snapshot.timeline_instructions
+            if instruction.time > snapshot.timeline_time
+        )
+    )
+    next_timeline_time = (
+        snapshot.timeline_time
+        if boss_wait_stalled
+        else snapshot.timeline_time + 1
+    )
+    next_timeline_time_float = (
+        snapshot.timeline_time_float
+        if boss_wait_stalled
+        else snapshot.timeline_time_float + 1.0
+    )
+    next_timeline_previous = (
+        snapshot.timeline_time_previous
+        if boss_wait_stalled
+        else snapshot.timeline_time
     )
     return replace(
         snapshot,
         frame=snapshot.frame + 1,
-        timeline_time=snapshot.timeline_time + 1,
-        timeline_time_float=snapshot.timeline_time_float + 1.0,
-        timeline_time_previous=snapshot.timeline_time,
+        timeline_time=next_timeline_time,
+        timeline_time_float=next_timeline_time_float,
+        timeline_time_previous=next_timeline_previous,
         timeline_instructions=remaining_timeline,
         timeline_complete=(
             snapshot.timeline_complete or not remaining_timeline

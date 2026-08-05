@@ -11,6 +11,7 @@ from .state_machine import PolicyState, TimelineStateMachine
 BOTTOM_CENTER = (192.0, 380.0)
 MOVEMENT_LEFT = 8.0
 MOVEMENT_RIGHT = 376.0
+FIRST_NONSPELL_RIGHT_STREAM = (MOVEMENT_RIGHT, 320.0)
 
 
 def source_destination_alignment(snapshot: Snapshot, boss) -> tuple[float, float]:
@@ -319,19 +320,40 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "sweeps select terminal-count then clearance at h8"
             ),
         )
-    if subroutine == 12 and not spell_active and boss.ecl_time < 180:
+    if subroutine == 12 and not spell_active and boss.ecl_time <= 60:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="first-nonspell-aimed-fans",
-            algorithm="count-clearance",
-            horizon=8,
+            algorithm="constant-frontier",
+            horizon=7,
             target=None,
             commitment_frames=4,
             provenance=(
-                "physical f5629 run crossed all seven sub12 local t12-t60 "
-                "Hard aimed fans (130 births); exact candidate-conditioned "
-                "sweeps and adjacent parity cover player attack, boss "
-                "damage, ECL movement, RNG, and delivery through t179"
+                "physical f6597 sub12 re-entry and exact adjacent parity; "
+                "source-complete candidate-conditioned battle replay covers "
+                "all seven local t12-t60 Hard aimed fans, player attack, "
+                "boss damage/callbacks, shared RNG, and the occupied timeline "
+                "boss wait. Target-free constant-frontier h7 survives "
+                "64/64 complete active-emission deliveries and 60/60 viable "
+                "source-valid warmup worlds; h6 loses one varied world and "
+                "h8 adds no survival"
+            ),
+        )
+    if subroutine == 12 and not spell_active and boss.ecl_time < 180:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="first-nonspell-residual-stream",
+            algorithm="constant-frontier",
+            horizon=8,
+            target=FIRST_NONSPELL_RIGHT_STREAM,
+            commitment_frames=4,
+            provenance=(
+                "physical f6597 failure in the source-defined residual tail "
+                "after the last t60 aimed fan; no later attack executes before "
+                "the t180 branch. Right-lane vertical streaming survives "
+                "64/64 exact complete-tail deliveries and 63/63 viable "
+                "source-valid varied tail worlds; the prior whole-phase h10 "
+                "frontier-count policy survives only 33/63 on that corpus"
             ),
         )
     if subroutine == 12 and not spell_active and boss.ecl_time == 180:

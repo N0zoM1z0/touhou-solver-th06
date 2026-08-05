@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "stage1-f6597-sub12-residual-stream",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 6526,
+    "failure_frame": 6597
+  },
+  "runner": "stage1_mainboss_reentry_policy",
+  "contract": "After sub12 executes its final local-t60 aimed fan, route strategy may use the stable source clock to enter an isolated residual-bullet streaming state. Hard eligibility remains common and the policy is not selected by physical frame, coordinates, bullet count, caller, or counterexample identity.",
+  "summary": "The whole-subroutine constant-frontier-count h10 policy entered the source-defined no-more-births tail at physical f6526/local t61 with player (368.198,418.971), then reversed down-right and failed closed alive at f6597/local t132. All 250 available physical adjacent combat, attack, RNG, graze, Rank, item, and Power transitions match exactly. Constant-frontier h8 with the phase-local right streaming waypoint (376,320) survives 64/64 complete-tail delivery seeds and 63/63 viable source-valid varied tail worlds; center crossing and delivery-preferred alternatives were rejected.",
+  "input": {
+    "subroutine": 12,
+    "ecl_time": 61
+  },
+  "expect": {
+    "phase_id": "boss:0:sub12:life_cb22:timer_cb22:nonspell",
+    "policy_state": "first-nonspell-residual-stream",
+    "algorithm": "constant-frontier",
+    "horizon": 8,
+    "target": [376.0, 320.0]
+  }
+}

@@ -1467,3 +1467,60 @@ Linux validation is 307 tests passed with 25 native-only skips; Windows/native
 validation is 307 passed. The next physical falsifier must first cross f4703
 and f4773. Reaching the boss afterward only resumes the still-unpromoted sub13
 candidate; it does not retroactively validate sub13.
+
+## sub12 re-entry and residual-tail split
+
+The resource rerun crossed f4703/f4773 and the later boss route. It completed
+sub13's seven source aimed-circle groups, then took a sub13-to-sub12 RNG
+dispatch and stopped alive at f6730. The retained world initially exposed an
+offline source-boundary omission rather than a route fact: the stage timeline
+is still parked on opcode 12 while the raw boss slot is occupied.
+
+Authoritative `RunEclTimeline` returns from that opcode after decrementing its
+timer. The manager's frame-end `ZunTimer::Tick` adds the tick back, so the
+published timeline instruction pointer and previous/current timer pair remain
+unchanged. Nominal battle replay now models only the proved occupied-boss-slot
+case: it retains the pointer and clock and excludes instructions behind the
+wait from this update's forecast. Unknown, resolved, or message waits remain
+unsupported. The f6730 window then matches 255/255 adjacent combat, attack,
+RNG, graze, Rank, item, and Power transitions, including 130 births.
+
+An initial complete-sub12 screen suggested constant-frontier-count h10. That
+was correctly treated as a candidate, not a promotion. The following default
+physical run crossed the complete early route and reached sub12 again at
+f6466, but the candidate drove down-right during the residual bullets and
+stopped alive at f6597/local t132. The terminal empty Hard set is downstream:
+the source-local transition at f6526/t61 is the earlier actionable boundary.
+All 250 available adjacent transitions in the retained window are exact,
+including candidate-conditioned aim, damage, boss life, RNG, 150 births,
+graze, Rank, item, and Power.
+
+Installed sub12's attack schedule gives a principled state split. It fires at
+local t12, 20, 28, 36, 44, 52, and 60, then has no bullet opcode until its t180
+three-way dispatch. The route now treats these as:
+
+- `first-nonspell-aimed-fans`, t0--t60: target-free constant-frontier h7;
+- `first-nonspell-residual-stream`, t61--t179: constant-frontier h8, with a
+  right-lane vertical-streaming waypoint at `(376,320)`.
+
+This is a source-clock policy-state boundary shared by every caller of sub12.
+It is not selected from physical frame, player coordinates, bullet count,
+caller identity, or a counterexample. Common Hard-4 remains the only action
+eligibility layer.
+
+The active state survives 64/64 exact complete-emission delivery worlds and
+60/60 viable worlds derived through source-valid Hard-safe warmup. H6 loses
+one varied world; h8 has no survival advantage. For the residual state, center
+crossing and the lower `(376,240)` anchor fail on the varied corpus, while the
+`(376,320)` lane survives 64/64 exact complete-tail deliveries and 63/63
+viable varied worlds. The previous whole-state h10 frontier-count policy
+survives only 33/63 on that same varied tail corpus. Delivery-filtered ranking
+survives 34/64 exact delivery cases and is also rejected.
+
+The Windows production Solver benchmark over 128 retained f6466--f6597 roots
+has roughly 1.5 ms median and 2.2 ms p90 solve time. One old f6483 active root
+still exceeds the soft budget and becomes a fresh-Hard hold; only a new
+integrated physical trajectory can decide whether that publication event is
+consequential. Linux and Windows/native suites both pass all 309 tests (Linux
+skips 25 native-only cases). The next experiment is an ordinary-RNG default
+fail-close Practice Stage 1 run through both source states.

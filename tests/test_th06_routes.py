@@ -307,13 +307,27 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(aimed_fans.algorithm, "count-clearance")
+        self.assertEqual(aimed_fans.algorithm, "constant-frontier")
         self.assertEqual(
             aimed_fans.policy_state,
             "first-nonspell-aimed-fans",
         )
-        self.assertEqual(aimed_fans.horizon, 8)
+        self.assertEqual(aimed_fans.horizon, 7)
         self.assertIsNone(aimed_fans.target)
+
+        boss.ecl_time = 61
+        residual = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+        ))
+        self.assertEqual(residual.algorithm, "constant-frontier")
+        self.assertEqual(
+            residual.policy_state,
+            "first-nonspell-residual-stream",
+        )
+        self.assertEqual(residual.horizon, 8)
+        self.assertEqual(residual.target, (376.0, 320.0))
 
         boss.ecl_time = 180
         branch_boundary = HardReimuAStage1().intent(snapshot(

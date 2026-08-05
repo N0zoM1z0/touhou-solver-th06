@@ -1,6 +1,7 @@
 import os
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
 
 from counterexample_corpus import (
     ACTION_BY_NAME,
@@ -34,7 +35,7 @@ from th06.native import _message_minimum_waits
 from th06.ranking import ProposalRanker, preferred_target_actions
 from th06.kernels.safety import NativeSafetyKernel
 from th06.routes.stage4_hard_reimu_a import timeline_phase
-from th06.routes.stage1_hard_reimu_a import RANDOM_BODY_STREAM
+from th06.routes.stage1_hard_reimu_a import RANDOM_BODY_STREAM, mainboss_intent
 from th06.safety import certify_actions
 from th06.solver import Solver
 from th06.viability import (
@@ -92,6 +93,45 @@ class CounterexampleCorpusTests(unittest.TestCase):
                 self.assertEqual(state.algorithm, expected["algorithm"])
                 self.assertEqual(state.horizon, expected["horizon"])
                 self.assertEqual(state.target, expected["target"])
+
+    def test_stage1_mainboss_reentry_counterexamples(self):
+        cases = tuple(
+            case for case in load_cases()
+            if case.get("runner") == "stage1_mainboss_reentry_policy"
+        )
+        self.assertTrue(cases, "Stage 1 main-boss reentry corpus is empty")
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                values = case["input"]
+                expected = case["expect"]
+                subroutines = tuple(
+                    0x1000 + index * 0x100 for index in range(24)
+                )
+                boss = SimpleNamespace(
+                    boss_id=0,
+                    life_callback_sub=22,
+                    timer_callback_sub=22,
+                    ecl_subroutines=subroutines,
+                    next_instruction=SimpleNamespace(
+                        address=subroutines[values["subroutine"]] + 0x10
+                    ),
+                    ecl_time=values["ecl_time"],
+                )
+                intent = mainboss_intent(
+                    SimpleNamespace(player_attack=None), boss
+                )
+                self.assertEqual(intent.phase_id, expected["phase_id"])
+                self.assertEqual(intent.policy_state, expected["policy_state"])
+                self.assertEqual(intent.algorithm, expected["algorithm"])
+                self.assertEqual(intent.horizon, expected["horizon"])
+                self.assertEqual(
+                    intent.target,
+                    (
+                        tuple(expected["target"])
+                        if expected["target"] is not None
+                        else None
+                    ),
+                )
 
     def test_stage1_resource_clearance_counterexamples(self):
         cases = tuple(

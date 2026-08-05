@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "stage1-f6730-sub12-reentry-frontier",
+  "origin": {
+    "mode": "practice",
+    "difficulty": "hard",
+    "stage": 1,
+    "decision_frame": 6589,
+    "failure_frame": 6730
+  },
+  "runner": "stage1_mainboss_reentry_policy",
+  "contract": "Every stable sub12 identity uses the same source-clock state machine across its sub11, sub13, sub14, and sub15 callers; caller, frame, coordinates, bullet count, and counterexample identity cannot select a policy. The t12-t60 attack program and t61-t179 residual tail remain independently testable source states.",
+  "summary": "The route had previously crossed sub12 only from its early first-nonspell entry. After physically promoting sub13, a later sub13-to-sub12 re-entry arrived at f6589 with player (305.321,408.929), boss life 1952, 38 residual bullets, and all 18 Hard-4 actions. Old h8 count-clearance selected down and reached the downstream f6730 empty Hard set. A second physical run disproved using one deeper policy across the complete subroutine. Exact adjacent replay covers both artifacts; once split at the last source attack, target-free constant-frontier h7 survives 64/64 complete active-emission deliveries and all 60 viable warmup worlds. h6 loses one varied world and h8 adds no survival.",
+  "input": {
+    "subroutine": 12,
+    "ecl_time": 1
+  },
+  "expect": {
+    "phase_id": "boss:0:sub12:life_cb22:timer_cb22:nonspell",
+    "policy_state": "first-nonspell-aimed-fans",
+    "algorithm": "constant-frontier",
+    "horizon": 7,
+    "target": null
+  }
+}

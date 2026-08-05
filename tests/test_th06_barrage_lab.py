@@ -65,6 +65,7 @@ from th06.model import (
     PlayerAttackState,
     SafeAction,
     Snapshot,
+    StageTimelineInstruction,
 )
 
 
@@ -301,6 +302,74 @@ class BarrageLabTests(unittest.TestCase):
         self.assertEqual((following.rng_seed, following.rng_generation), (0x4567, 99))
         self.assertEqual(len(following.bullets), 1)
         self.assertEqual(following.bullets[0].slot, 0)
+
+    def test_nominal_battle_step_retains_occupied_timeline_boss_wait(self):
+        wait = EclInstruction(
+            0x1000, 999, 0, 12, 4,
+            struct.pack("<ihhBBBB", 999, 0, 12, 0, 4, 0, 0).hex(),
+        )
+        emitter = source_enemy_template(
+            (wait,), (wait.address,), 0, 100.0, 100.0, 100,
+        )
+        self.assertIsNotNone(emitter)
+        emitter = replace(emitter, slot=0)
+        timeline_wait = StageTimelineInstruction(
+            0x2000,
+            5282,
+            0,
+            12,
+            8,
+            struct.pack("<hBBi", 5282, 0, 12, 0).hex(),
+        )
+        terminal = StageTimelineInstruction(
+            0x2008,
+            -1,
+            0,
+            0,
+            8,
+            struct.pack("<hBBi", -1, 0, 0, 0).hex(),
+        )
+        opcode = parse_ecl_bullet_opcodes(ecl_bytes(), "test.ecl")[0]
+        start = replace(
+            generate_barrage_case((opcode,), 7, target_bullets=1).snapshot,
+            bullets=(),
+            spawners=(emitter,),
+            timeline_time=5282,
+            timeline_time_float=5282.0,
+            timeline_time_previous=5281,
+            timeline_instructions=(timeline_wait, terminal),
+            timeline_complete=True,
+            timeline_boss_slots=(0, -1, -1, -1, -1, -1, -1, -1),
+        )
+        forecast = WorldBirthForecast(
+            births=((),),
+            hazards=((),),
+            covered_frames=1,
+            body_hazards=((),),
+            continuation=WorldForecastContinuation(
+                (emitter,), start.rng_seed, start.rng_generation, True, 1, True,
+            ),
+        )
+        stay = next(
+            action for action in CONTROL_ACTIONS if action.name == "stay"
+        )
+
+        with mock.patch(
+            "th06.barrage_lab.stateful.forecast_world_births",
+            return_value=forecast,
+        ) as forecast_world:
+            following = step_nominal_battle_world(start, stay)
+
+        self.assertEqual(
+            (
+                following.timeline_time_previous,
+                following.timeline_time,
+                following.timeline_time_float,
+            ),
+            (5281, 5282, 5282.0),
+        )
+        self.assertEqual(following.timeline_instructions, start.timeline_instructions)
+        self.assertEqual(forecast_world.call_args.args[0].timeline_instructions, ())
 
     def test_candidate_path_changes_aim_damage_death_and_callback_birth(self):
         def instruction(address, time, opcode, args=b""):
