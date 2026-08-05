@@ -1634,3 +1634,46 @@ microseconds p90 over 3,560 retained calls.  This evidence covers the physical
 f6162 phase-entry distribution plus delivery variation.  It does not claim
 robustness for arbitrary synthetic warmup states, and it is not a physical
 promotion or a Stage 1 clear.
+
+## f6110 sub12 residual counterexample
+
+Checkpoint ``8360ca6`` was physically run with ordinary RNG, default
+fail-close, and no continue-on-failure.  The run remained at player state zero
+with no Bomb and no HIT, but stopped on an empty common Hard set at f6110,
+sub12 local t101.  Exact PID 56212 was stopped and all keys were released.
+The run had not yet entered the new sub14 policy.
+
+This is not a proposal-boundary regression.  Across f6000--f6109, all 99
+sub12 constant-frontier proposal sets from ``c08eeb0`` and the route-side
+adapter are identical, and every published physical action belongs to that
+old preferred set.  The earliest phase-local error begins at the source t61
+residual transition: the f6070 state at (192.461, 185.245) enters a central
+basin that was absent from the earlier f6597 right-lane workload.  The old h8
+right-stream policy progressively selected left/down-left and its delivered
+``down_left_fast`` path exhausted Hard at t101.
+
+Installed sub12 executes its final Hard aimed fan at t60,
+``sub12+0x50c``.  From t61 through t179 its unique next instruction is the
+t180 RNG draw at ``sub12+0x574``; t180 then calls sub13/sub14/sub15 at
+``+0x588``/``+0x5a8``/``+0x5c8``.  The stable ignored workload is
+``th06_failure_stage1_f6110_sub12_compiler.json`` with SHA-256
+``92ca55415ffec21fb54992a7f8c77b9b8b12b58a82afeb12d87988e356518ef6``.
+
+The historical-clear demonstrator survives the exact f6070 residual for
+training delivery seeds 0--3.  Its compiled asset has 439 samples over every
+source clock t61--t179.  Disjoint seeds 16--47 reach the stable source exit
+32/32 with minimum clearance 10.419754028320312 and at most ten delivered
+commands.  Across 3,515 holdout proposal states the largest semantic distance
+to the training tube is 2,504 quarter-pixel-squared (12.51 px); the compiled
+membership ceiling is the next power of two, 4,096 (16 px).  Outside that
+measured basin, the already physically promoted h8 right-stream policy remains
+the explicit phase-local fallback.
+
+The production ``Solver`` also reaches the source exit 32/32.  All 3,515
+residual proposals use the compiled tube and the 32 t180 dispatch proposals
+remain independent.  Route lookup over 10,700 calls measures 23.428 us median,
+32.802 us p90, and 372.507 us maximum.  This candidate still requires a new
+checkpoint and ordinary-RNG physical promotion.
+
+The complete checkpoint gate passes 314 Linux tests with 25 native-only skips
+and all 314 Windows/native tests with no skips.

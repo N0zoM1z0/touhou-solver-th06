@@ -19,7 +19,14 @@ from th06.routes.phase import (
     ecl_subroutine_index,
 )
 from th06.routes.policy import proposal_from_intent
-from th06.routes.stage1_sub14 import CONTRACT, compiled_sub14_proposal
+from th06.routes.stage1_sub12 import (
+    CONTRACT as SUB12_RESIDUAL_CONTRACT,
+    compiled_sub12_residual_proposal,
+)
+from th06.routes.stage1_sub14 import (
+    CONTRACT as SUB14_CONTRACT,
+    compiled_sub14_proposal,
+)
 from th06.routes.registry import RouteRegistry, default_routes, snapshot_route_key
 from th06.routes.stage1_hard_reimu_a import (
     AIMED_STREAM,
@@ -130,7 +137,7 @@ class RoutePhaseTests(unittest.TestCase):
             if edge.source_subroutine == 14 and edge.kind == "call"
         )
 
-        self.assertEqual(program.sha256, CONTRACT.ecl_sha256)
+        self.assertEqual(program.sha256, SUB14_CONTRACT.ecl_sha256)
         self.assertEqual(hard_events, ((80, 0x8C, 67), (110, 0x120, 69)))
         self.assertEqual(
             tuple((edge.source_relative_offset, edge.target_subroutine) for edge in exits),
@@ -141,7 +148,40 @@ class RoutePhaseTests(unittest.TestCase):
                 instruction.relative_offset
                 for instruction in program.subroutine(14)
             ),
-            CONTRACT.instruction_offsets,
+            SUB14_CONTRACT.instruction_offsets,
+        )
+
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
+    def test_stage1_sub12_residual_contract_matches_installed_program(self):
+        program = load_stage_ecl_program(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        final_hard = tuple(
+            (instruction.time, instruction.relative_offset, instruction.opcode)
+            for instruction in program.subroutine(12)
+            if instruction.executes_on(2)
+            and instruction.opcode == 67
+            and instruction.time == 60
+        )
+        exits = tuple(
+            edge for edge in program.edges
+            if edge.source_subroutine == 12 and edge.kind == "call"
+        )
+
+        self.assertEqual(program.sha256, SUB12_RESIDUAL_CONTRACT.ecl_sha256)
+        self.assertEqual(final_hard, ((60, 0x50C, 67),))
+        self.assertEqual(
+            tuple((edge.source_relative_offset, edge.target_subroutine) for edge in exits),
+            ((0x588, 13), (0x5A8, 14), (0x5C8, 15)),
+        )
+        residual_wait = program.instruction(12, 0x574)
+        self.assertIsNotNone(residual_wait)
+        self.assertEqual(
+            (residual_wait.time, residual_wait.opcode),
+            (180, 6),
         )
     @unittest.skipUnless(
         Path("reference/th06_dat/th06_ST.DAT").exists(),
@@ -359,13 +399,14 @@ class RoutePhaseTests(unittest.TestCase):
             timeline_time=5282,
             spawners=(boss,),
         ))
-        self.assertEqual(residual.algorithm, "constant-frontier")
+        self.assertEqual(residual.algorithm, "compiled-policy")
         self.assertEqual(
             residual.policy_state,
             "first-nonspell-residual-stream",
         )
-        self.assertEqual(residual.horizon, 8)
-        self.assertEqual(residual.target, (376.0, 320.0))
+        self.assertEqual(residual.horizon, 4)
+        self.assertEqual(residual.commitment_frames, 1)
+        self.assertIsNone(residual.target)
 
         boss.ecl_time = 180
         branch_boundary = HardReimuAStage1().intent(snapshot(
@@ -917,6 +958,74 @@ class RoutePhaseTests(unittest.TestCase):
             proposal.proposal_source,
             "compiled-sub14-feedback-tube-v1",
         )
+
+    def test_compiled_sub12_residual_uses_only_its_measured_tube(self):
+        subroutines = tuple(0x1000 + index * 0x800 for index in range(24))
+        boss = SimpleNamespace(
+            next_instruction=SimpleNamespace(address=subroutines[12] + 0x574),
+            ecl_subroutines=subroutines,
+            ecl_time=61,
+        )
+        up = next(action for action in CONTROL_ACTIONS if action.name == "up")
+        down_left = next(
+            action for action in CONTROL_ACTIONS if action.name == "down_left"
+        )
+        hard = (
+            SafeAction(up, 10.0, 192.5, 183.25),
+            SafeAction(down_left, 9.0, 191.0, 186.75),
+        )
+        services = SimpleNamespace(
+            certify_selected=lambda _snapshot, _horizon, _actions: hard,
+        )
+        intent = RouteIntent(
+            "boss:0:sub12:test",
+            "first-nonspell-residual-stream",
+            "compiled-policy",
+            4,
+            None,
+            1,
+        )
+
+        central = compiled_sub12_residual_proposal(
+            intent,
+            ProposalRequest(
+                snapshot(
+                    stage=1,
+                    x=192.4608,
+                    y=185.2450,
+                    input_mask=BUTTON_FOCUS | 0x10,
+                ),
+                hard,
+                services,
+            ),
+            boss,
+        )
+        self.assertEqual(central.action_tiers[0], (down_left,))
+        self.assertEqual(
+            central.proposal_source,
+            "compiled-sub12-residual-feedback-tube-v1",
+        )
+
+        right_basin = compiled_sub12_residual_proposal(
+            intent,
+            ProposalRequest(
+                snapshot(
+                    stage=1,
+                    x=368.0,
+                    y=419.0,
+                    input_mask=BUTTON_FOCUS | 0x10,
+                ),
+                hard,
+                services,
+            ),
+            boss,
+        )
+        self.assertEqual(
+            right_basin.policy_state,
+            "first-nonspell-residual-right-stream",
+        )
+        self.assertEqual(right_basin.effort_horizon, 8)
+        self.assertEqual(right_basin.proposal_source, "constant-frontier")
 
     def test_stage4_pack_exposes_boss_phase_as_uncovered(self):
         boss = SimpleNamespace(

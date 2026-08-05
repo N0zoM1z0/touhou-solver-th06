@@ -1469,4 +1469,37 @@ search.
 This is deliberately narrow evidence for the retained physical f6162 entry
 distribution plus input-delivery variation.  Arbitrary synthetic warmup
 states are not covered.  The candidate has not yet been physically promoted.
-Linux and Windows/native each pass all 312 tests; Windows/native has no skips.
+After the sub12 residual addition, Linux passes all 314 tests with 25
+native-only skips and Windows/native passes all 314 with no skips.
+
+## f6110 sub12 residual candidate — 2026-08-05
+
+The ordinary-RNG physical run of checkpoint ``8360ca6`` stopped alive at
+f6110 with ``hard-safe-set-empty`` in sub12 local t101.  There was no HIT or
+Bomb, all keys were released, and exact PID 56212 was stopped.  This happened
+before sub14, so it did not physically promote or falsify the sub14 compiled
+policy.
+
+Proposal parity rules out a refactor regression: ``c08eeb0`` and the new
+route-side adapter produce identical preferred sets on all 99 retained sub12
+queries f6000--f6109.  The owning error is the source-t61 residual policy at a
+new central entry.  Stable ignored workload
+``th06_failure_stage1_f6110_sub12_compiler.json`` has SHA-256
+``92ca55415ffec21fb54992a7f8c77b9b8b12b58a82afeb12d87988e356518ef6``;
+its matching physical trace SHA-256 is
+``a2237504d994fcb1802d011a5a3c73773dc030df465a1c95cbc8791ca0a035c9``.
+
+Sub12's final Hard fan is t60/``+0x50c``.  Its t61--t179 residual waits at
+``+0x574`` for the t180 dispatch.  The new phase asset contains 439 feedback
+samples over all 119 residual clocks.  Training seeds 0--3 and disjoint
+holdout seeds 16--47 reach source exit 4/4 and 32/32 respectively; holdout
+worst clearance is 10.419754028320312 and maximum commands is ten.  Production
+``Solver`` replay is also 32/32 through the t180 dispatch.
+
+The tube's observed maximum holdout distance is 2,504 quarter-pixel-squared;
+membership is capped at 4,096 (16 px).  Outside it, the previously promoted
+f6597 h8 right-stream policy remains intact.  Thus this is a spatial policy
+basin with explicit evidence, not an f6110/frame/RNG branch.  Its route lookup
+measures 23.428 us median and 32.802 us p90 over 10,700 calls.  The candidate
+has not yet been physically promoted; checkpoint it after tests, then run one
+ordinary-RNG default fail-close Practice Stage 1 trial.

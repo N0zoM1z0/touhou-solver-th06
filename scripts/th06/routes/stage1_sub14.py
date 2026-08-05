@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..model import ACTIONS, CONTROL_ACTIONS, Action, action_from_input
 from .base import ProposalRequest, RouteIntent, RouteProposal
-from .phase import ecl_source_instruction_id
+from .feedback_tube import compiled_feedback_proposal
 from .stage1_sub14_data import (
     ECL_SHA256,
     HELD_MISMATCH_PENALTY,
@@ -60,19 +59,6 @@ CONTRACT = Sub14Contract(
 _SAMPLES_BY_TIME = dict(SAMPLES)
 
 
-def _unavailable(intent: RouteIntent, source: str) -> RouteProposal:
-    return RouteProposal(
-        phase_id=intent.phase_id,
-        policy_state=intent.policy_state,
-        action_tiers=(),
-        commitment_frames=1,
-        effort_horizon=4,
-        proposal_source=source,
-        provenance=intent.provenance,
-        available=False,
-    )
-
-
 def compiled_sub14_proposal(
     intent: RouteIntent,
     request: ProposalRequest,
@@ -86,57 +72,20 @@ def compiled_sub14_proposal(
     in the distance because transition-prefix state changes the correct next
     command.  Common Hard remains the final and only eligibility authority.
     """
-    if POLICY_SCHEMA != 1:
-        return _unavailable(intent, "compiled-sub14-schema-mismatch")
-    source_id = ecl_source_instruction_id(boss)
-    if (
-        source_id is None
-        or source_id[0] != CONTRACT.subroutine
-        or source_id[1] not in CONTRACT.instruction_offsets
-        or not CONTRACT.entry_time < boss.ecl_time < CONTRACT.exit_time
-    ):
-        return _unavailable(intent, "compiled-sub14-source-mismatch")
-
-    snapshot = request.snapshot
-    current = action_from_input(snapshot.input_mask)
-    x_quarter = round(snapshot.x * POSITION_SCALE)
-    y_quarter = round(snapshot.y * POSITION_SCALE)
-    hard_actions = frozenset(candidate.action for candidate in request.hard)
-    nearest_by_action: dict[Action, int] = {}
-    for sample_x, sample_y, held_index, proposal_index in _SAMPLES_BY_TIME.get(
-        boss.ecl_time, ()
-    ):
-        action = ACTIONS[proposal_index]
-        if action not in hard_actions:
-            continue
-        distance = (
-            (sample_x - x_quarter) ** 2
-            + (sample_y - y_quarter) ** 2
-            + (
-                0
-                if CONTROL_ACTIONS[held_index] == current
-                else HELD_MISMATCH_PENALTY
-            )
-        )
-        nearest_by_action[action] = min(
-            distance,
-            nearest_by_action.get(action, distance),
-        )
-
-    ranked = tuple(sorted(
-        nearest_by_action,
-        key=lambda action: (nearest_by_action[action], action.name),
-    ))
-    return RouteProposal(
-        phase_id=intent.phase_id,
-        policy_state=intent.policy_state,
-        action_tiers=tuple((action,) for action in ranked),
-        commitment_frames=1,
-        effort_horizon=4,
-        proposal_source=(
-            "compiled-sub14-feedback-tube-v1"
-            if ranked
-            else "compiled-sub14-tube-hold"
-        ),
-        provenance=intent.provenance,
+    return compiled_feedback_proposal(
+        intent,
+        request,
+        boss,
+        schema=POLICY_SCHEMA,
+        subroutine=CONTRACT.subroutine,
+        start_time=CONTRACT.entry_time + 1,
+        stop_time=CONTRACT.exit_time,
+        instruction_offsets=CONTRACT.instruction_offsets,
+        samples_by_time=_SAMPLES_BY_TIME,
+        position_scale=POSITION_SCALE,
+        held_mismatch_penalty=HELD_MISMATCH_PENALTY,
+        success_source="compiled-sub14-feedback-tube-v1",
+        hold_source="compiled-sub14-tube-hold",
+        schema_mismatch_source="compiled-sub14-schema-mismatch",
+        source_mismatch_source="compiled-sub14-source-mismatch",
     )

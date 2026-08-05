@@ -6,6 +6,7 @@ from ..model import Snapshot
 from .base import ProposalRequest, RouteIntent, RouteKey, RouteProposal
 from .phase import boss_phase_id, ecl_subroutine_index
 from .policy import proposal_from_intent
+from .stage1_sub12 import compiled_sub12_residual_proposal
 from .stage1_sub14 import compiled_sub14_proposal
 from .state_machine import PolicyState, TimelineStateMachine
 
@@ -13,7 +14,6 @@ from .state_machine import PolicyState, TimelineStateMachine
 BOTTOM_CENTER = (192.0, 380.0)
 MOVEMENT_LEFT = 8.0
 MOVEMENT_RIGHT = 376.0
-FIRST_NONSPELL_RIGHT_STREAM = (MOVEMENT_RIGHT, 320.0)
 
 
 def source_destination_alignment(snapshot: Snapshot, boss) -> tuple[float, float]:
@@ -345,17 +345,16 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
         return RouteIntent(
             phase_id=phase_id,
             policy_state="first-nonspell-residual-stream",
-            algorithm="constant-frontier",
-            horizon=8,
-            target=FIRST_NONSPELL_RIGHT_STREAM,
-            commitment_frames=4,
+            algorithm="compiled-policy",
+            horizon=4,
+            target=None,
+            commitment_frames=1,
             provenance=(
-                "physical f6597 failure in the source-defined residual tail "
-                "after the last t60 aimed fan; no later attack executes before "
-                "the t180 branch. Right-lane vertical streaming survives "
-                "64/64 exact complete-tail deliveries and 63/63 viable "
-                "source-valid varied tail worlds; the prior whole-phase h10 "
-                "frontier-count policy survives only 33/63 on that corpus"
+                "installed sub12 has no hostile birth after its final Hard "
+                "t60/sub12+0x50c aimed fan before the t180 branch. The f6070 "
+                "central-entry historical-clear tube is used only within its "
+                "measured semantic radius; outside it, retain the physically "
+                "promoted f6597 h8 right-stream basin"
             ),
         )
     if subroutine == 12 and not spell_active and boss.ecl_time == 180:
@@ -692,6 +691,8 @@ class HardReimuAStage1:
                 bosses,
                 key=lambda spawner: (spawner.boss_id, spawner.slot),
             )
+            if intent.policy_state == "first-nonspell-residual-stream":
+                return compiled_sub12_residual_proposal(intent, request, boss)
             return compiled_sub14_proposal(intent, request, boss)
         return proposal_from_intent(intent, request)
 
