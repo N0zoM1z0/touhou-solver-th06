@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Compile and hold out the Stage 1/sub12 residual feedback tube."""
+"""Compile and hold out Stage 1/sub12 residual hazard-conditioned tubes.
+
+Each retained physical t61 workload contributes a demonstrated policy basin.
+The generated runtime state uses stable source time, player feedback, and the
+fresh Hard-4 action mask; physical frame and delivery seed remain provenance.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +17,7 @@ from pathlib import Path
 from th06.barrage_lab.feedback import (
     CompiledFeedbackPolicy,
     FeedbackSample,
+    HARD_MASK_MISMATCH_PENALTY,
     HELD_MISMATCH_PENALTY,
     HistoricalClearDemonstrator,
     POSITION_SCALE,
@@ -21,7 +27,6 @@ from th06.barrage_lab.feedback import (
 from th06.barrage_lab.assets import load_stage_ecl_program
 from th06.barrage_lab.corpus import load_failure_history
 from th06.barrage_lab.stateful import run_closed_loop
-from th06.model import CONTROL_ACTIONS, action_from_input
 from th06.routes.phase import ecl_subroutine_index
 
 
@@ -61,34 +66,21 @@ def run_residual(snapshot, policy, delivery_seed: int):
 
 class TrackingCompiledPolicy:
     def __init__(self, samples: tuple[FeedbackSample, ...]) -> None:
-        self.samples = samples_by_time(samples)
-        self.reference = CompiledFeedbackPolicy(samples, _sub12_time)
-        self.distances: list[int] = []
+        self.reference = CompiledFeedbackPolicy(
+            samples,
+            _sub12_time,
+            hazard_conditioned=True,
+        )
+        self.distances = self.reference.feedback_distances
 
     def __call__(self, snapshot):
-        boss = _sub12_boss(snapshot)
-        current = action_from_input(snapshot.input_mask)
-        x_scaled = round(snapshot.x * POSITION_SCALE)
-        y_scaled = round(snapshot.y * POSITION_SCALE)
-        distances = tuple(
-            (sample.x_quarter - x_scaled) ** 2
-            + (sample.y_quarter - y_scaled) ** 2
-            + (
-                0
-                if CONTROL_ACTIONS[sample.held_action] == current
-                else HELD_MISMATCH_PENALTY
-            )
-            for sample in self.samples.get(boss.ecl_time, ())
-        )
-        if distances:
-            self.distances.append(min(distances))
         return self.reference(snapshot)
 
 
 def _python_data(
     samples: tuple[FeedbackSample, ...],
     *,
-    artifact_sha256: str,
+    workloads: tuple[tuple[str, int], ...],
     ecl_sha256: str,
     training_seeds: tuple[int, ...],
     holdout_max_distance_sq: int,
@@ -96,21 +88,23 @@ def _python_data(
 ) -> str:
     grouped = samples_by_time(samples)
     lines = [
-        '"""Generated Stage 1/sub12 residual feedback-tube policy data."""',
+        '"""Generated Stage 1/sub12 hazard-conditioned feedback policy."""',
         "",
         "# Regenerate with ``scripts/solve_th06_stage1_sub12_residual.py",
         "# --emit-python``. Physical frame and delivery-seed identities are",
-        "# provenance only and never runtime branch keys.",
+        "# provenance only and never runtime branch keys.  The online hazard",
+        "# signature is the already-computed fresh Hard-4 action mask.",
         "",
-        "POLICY_SCHEMA = 1",
-        f'ARTIFACT_SHA256 = "{artifact_sha256}"',
+        "POLICY_SCHEMA = 2",
+        f"WORKLOADS = {workloads!r}",
         f'ECL_SHA256 = "{ecl_sha256}"',
         f"TRAINING_DELIVERY_SEEDS = {training_seeds!r}",
         f"POSITION_SCALE = {POSITION_SCALE}",
         f"HELD_MISMATCH_PENALTY = {HELD_MISMATCH_PENALTY}",
+        f"HARD_MASK_MISMATCH_PENALTY = {HARD_MASK_MISMATCH_PENALTY}",
         f"HOLDOUT_MAX_DISTANCE_SQ = {holdout_max_distance_sq}",
         f"MAX_FEEDBACK_DISTANCE_SQ = {maximum_feedback_distance_sq}",
-        "# local_time -> (x_scaled, y_scaled, held_action, proposal)",
+        "# local_time -> (x_scaled, y_scaled, held_action, proposal, Hard-4 mask)",
         "SAMPLES = (",
     ]
     for local_time, values in grouped.items():
@@ -120,6 +114,7 @@ def _python_data(
                 sample.y_quarter,
                 sample.held_action,
                 sample.proposed_action,
+                sample.hard_mask,
             )
             for sample in values
         )
@@ -130,9 +125,17 @@ def _python_data(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("artifact", type=Path)
+    parser.add_argument("artifact", type=Path, nargs="+")
     parser.add_argument("--archive", type=Path, required=True)
-    parser.add_argument("--entry-frame", type=int, default=6070)
+    parser.add_argument(
+        "--entry-frame",
+        type=int,
+        action="append",
+        help=(
+            "retained t61 root corresponding to each artifact; defaults to "
+            "6070 for the original single-workload invocation"
+        ),
+    )
     parser.add_argument("--training-seeds", default="0,1,2,3")
     parser.add_argument("--holdout-seeds", default="16:48")
     parser.add_argument("--emit-python", action="store_true")
@@ -142,27 +145,49 @@ def main() -> int:
     holdout_seeds = parse_seed_range(args.holdout_seeds)
     if not training_seeds or not holdout_seeds:
         raise ValueError("training and holdout delivery sets cannot be empty")
-    history = load_failure_history(args.artifact)
-    try:
-        root = next(
-            snapshot for snapshot in history if snapshot.frame == args.entry_frame
-        )
-    except StopIteration as exc:
-        raise ValueError(f"entry frame {args.entry_frame} is not retained") from exc
-    boss = _sub12_boss(root)
-    if boss.ecl_time != START_LOCAL_TIME:
-        raise ValueError("sub12 workload does not begin at residual t61")
+    entry_frames = tuple(args.entry_frame or (6070,))
+    if len(entry_frames) != len(args.artifact):
+        raise ValueError("provide one --entry-frame for each workload artifact")
+    roots = []
+    workloads = []
+    for artifact, entry_frame in zip(args.artifact, entry_frames, strict=True):
+        history = load_failure_history(artifact)
+        try:
+            root = next(
+                snapshot for snapshot in history if snapshot.frame == entry_frame
+            )
+        except StopIteration as exc:
+            raise ValueError(
+                f"entry frame {entry_frame} is not retained by {artifact}"
+            ) from exc
+        boss = _sub12_boss(root)
+        if boss.ecl_time != START_LOCAL_TIME:
+            raise ValueError("sub12 workload does not begin at residual t61")
+        roots.append(root)
+        workloads.append((
+            hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            entry_frame,
+        ))
 
     samples: list[FeedbackSample] = []
     training = tuple(
-        run_residual(
-            root,
-            HistoricalClearDemonstrator(samples, _sub12_time),
+        (
+            root.frame,
             seed,
+            run_residual(
+                root,
+                HistoricalClearDemonstrator(
+                    samples,
+                    _sub12_time,
+                    capture_hard_mask=True,
+                ),
+                seed,
+            ),
         )
+        for root in roots
         for seed in training_seeds
     )
-    if any(result.outcome != "phase-exit" for result in training):
+    if any(result.outcome != "phase-exit" for _, _, result in training):
         raise RuntimeError("historical controller failed the training residual")
     compiled_samples = tuple(
         sample for sample in samples
@@ -171,11 +196,12 @@ def main() -> int:
 
     holdout = []
     distances: list[int] = []
-    for seed in holdout_seeds:
-        policy = TrackingCompiledPolicy(compiled_samples)
-        holdout.append(run_residual(root, policy, seed))
-        distances.extend(policy.distances)
-    if any(result.outcome != "phase-exit" for result in holdout):
+    for root in roots:
+        for seed in holdout_seeds:
+            policy = TrackingCompiledPolicy(compiled_samples)
+            holdout.append((root.frame, seed, run_residual(root, policy, seed)))
+            distances.extend(policy.distances)
+    if any(result.outcome != "phase-exit" for _, _, result in holdout):
         raise RuntimeError("compiled policy failed a disjoint delivery holdout")
     if not distances:
         raise RuntimeError("holdout produced no feedback-distance evidence")
@@ -186,7 +212,7 @@ def main() -> int:
         program = load_stage_ecl_program(args.archive, 1)
         print(_python_data(
             compiled_samples,
-            artifact_sha256=hashlib.sha256(args.artifact.read_bytes()).hexdigest(),
+            workloads=tuple(workloads),
             ecl_sha256=program.sha256,
             training_seeds=training_seeds,
             holdout_max_distance_sq=holdout_max_distance_sq,
@@ -195,18 +221,22 @@ def main() -> int:
         return 0
 
     print(json.dumps({
-        "entry": {
+        "entries": tuple({
             "frame": root.frame,
             "subroutine": SUBROUTINE,
-            "local_time": boss.ecl_time,
-        },
+            "local_time": _sub12_time(root),
+        } for root in roots),
         "training": {
             "delivery_seeds": training_seeds,
-            "outcomes": dict(Counter(result.outcome for result in training)),
+            "outcomes": dict(Counter(
+                result.outcome for _, _, result in training
+            )),
             "worst_clearance": min(
-                result.minimum_clearance for result in training
+                result.minimum_clearance for _, _, result in training
             ),
-            "maximum_commands": max(result.commands for result in training),
+            "maximum_commands": max(
+                result.commands for _, _, result in training
+            ),
         },
         "compiled": {
             "samples": len(compiled_samples),
@@ -216,14 +246,26 @@ def main() -> int:
         },
         "holdout": {
             "delivery_seeds": holdout_seeds,
-            "outcomes": dict(Counter(result.outcome for result in holdout)),
+            "outcomes": dict(Counter(
+                result.outcome for _, _, result in holdout
+            )),
+            "outcomes_by_entry": {
+                str(root.frame): dict(Counter(
+                    result.outcome
+                    for frame, _, result in holdout
+                    if frame == root.frame
+                ))
+                for root in roots
+            },
             "minimum_survived_frames": min(
-                result.survived_frames for result in holdout
+                result.survived_frames for _, _, result in holdout
             ),
             "worst_clearance": min(
-                result.minimum_clearance for result in holdout
+                result.minimum_clearance for _, _, result in holdout
             ),
-            "maximum_commands": max(result.commands for result in holdout),
+            "maximum_commands": max(
+                result.commands for _, _, result in holdout
+            ),
         },
     }, indent=2))
     return 0

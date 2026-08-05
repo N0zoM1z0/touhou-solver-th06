@@ -959,23 +959,31 @@ class RoutePhaseTests(unittest.TestCase):
             "compiled-sub14-feedback-tube-v1",
         )
 
-    def test_compiled_sub12_residual_uses_only_its_measured_tube(self):
+    def test_compiled_sub12_residual_uses_hard_geometry_inside_its_tube(self):
         subroutines = tuple(0x1000 + index * 0x800 for index in range(24))
         boss = SimpleNamespace(
             next_instruction=SimpleNamespace(address=subroutines[12] + 0x574),
             ecl_subroutines=subroutines,
             ecl_time=61,
         )
-        up = next(action for action in CONTROL_ACTIONS if action.name == "up")
         down_left = next(
             action for action in CONTROL_ACTIONS if action.name == "down_left"
         )
-        hard = (
-            SafeAction(up, 10.0, 192.5, 183.25),
-            SafeAction(down_left, 9.0, 191.0, 186.75),
+        up_right = next(
+            action for action in CONTROL_ACTIONS if action.name == "up_right"
         )
+
+        def hard_from_mask(mask):
+            return tuple(
+                SafeAction(action, 10.0, 192.0, 184.0)
+                for index, action in enumerate(CONTROL_ACTIONS)
+                if mask & (1 << index)
+            )
+
+        old_hard = hard_from_mask(90111)
+        new_hard = hard_from_mask(190463)
         services = SimpleNamespace(
-            certify_selected=lambda _snapshot, _horizon, _actions: hard,
+            certify_selected=lambda _snapshot, _horizon, _actions: old_hard,
         )
         intent = RouteIntent(
             "boss:0:sub12:test",
@@ -995,7 +1003,7 @@ class RoutePhaseTests(unittest.TestCase):
                     y=185.2450,
                     input_mask=BUTTON_FOCUS | 0x10,
                 ),
-                hard,
+                old_hard,
                 services,
             ),
             boss,
@@ -1003,7 +1011,27 @@ class RoutePhaseTests(unittest.TestCase):
         self.assertEqual(central.action_tiers[0], (down_left,))
         self.assertEqual(
             central.proposal_source,
-            "compiled-sub12-residual-feedback-tube-v1",
+            "compiled-sub12-residual-feedback-tube-v2",
+        )
+
+        mirrored_hazard = compiled_sub12_residual_proposal(
+            intent,
+            ProposalRequest(
+                snapshot(
+                    stage=1,
+                    x=202.7206,
+                    y=185.6079,
+                    input_mask=BUTTON_FOCUS | 0x10 | 0x40,
+                ),
+                new_hard,
+                services,
+            ),
+            boss,
+        )
+        self.assertEqual(mirrored_hazard.action_tiers[0], (up_right,))
+        self.assertNotEqual(
+            central.action_tiers[0],
+            mirrored_hazard.action_tiers[0],
         )
 
         right_basin = compiled_sub12_residual_proposal(
@@ -1015,7 +1043,7 @@ class RoutePhaseTests(unittest.TestCase):
                     y=419.0,
                     input_mask=BUTTON_FOCUS | 0x10,
                 ),
-                hard,
+                old_hard,
                 services,
             ),
             boss,

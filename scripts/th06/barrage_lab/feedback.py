@@ -21,6 +21,10 @@ from ..viability import replanning_scores
 
 POSITION_SCALE = 4
 HELD_MISMATCH_PENALTY = 16 * POSITION_SCALE * POSITION_SCALE
+# One changed Hard-4 action is treated like an eight-pixel spatial change.
+# This is deliberately a coarse local hazard signature: it uses authority the
+# online loop has already computed and adds no forecast work to route lookup.
+HARD_MASK_MISMATCH_PENALTY = (8 * POSITION_SCALE) ** 2
 SourceClock = Callable[[Snapshot], int]
 
 
@@ -40,6 +44,17 @@ class FeedbackSample:
     y_quarter: int
     held_action: int
     proposed_action: int
+    hard_mask: int = 0
+
+
+def control_hard_mask(candidates) -> int:
+    """Encode the fresh full-speed/focused Hard set in stable action order."""
+    allowed = frozenset(candidate.action for candidate in candidates)
+    return sum(
+        1 << index
+        for index, action in enumerate(CONTROL_ACTIONS)
+        if action in allowed
+    )
 
 
 def samples_by_time(
@@ -68,9 +83,12 @@ class HistoricalClearDemonstrator:
         self,
         samples: list[FeedbackSample],
         source_clock: SourceClock,
+        *,
+        capture_hard_mask: bool = False,
     ) -> None:
         self.samples = samples
         self.source_clock = source_clock
+        self.capture_hard_mask = capture_hard_mask
         self.repair_action: Action | None = None
         self.repair_until_frame: int | None = None
 
@@ -141,6 +159,15 @@ class HistoricalClearDemonstrator:
             round(snapshot.y * POSITION_SCALE),
             CONTROL_ACTIONS.index(current),
             ACTIONS.index(chosen.action),
+            (
+                control_hard_mask(certify_actions(
+                    snapshot,
+                    4,
+                    actions=CONTROL_ACTIONS,
+                ))
+                if self.capture_hard_mask
+                else 0
+            ),
         ))
         return chosen.action
 
@@ -152,10 +179,14 @@ class CompiledFeedbackPolicy:
         self,
         samples: tuple[FeedbackSample, ...],
         source_clock: SourceClock,
+        *,
+        hazard_conditioned: bool = False,
     ) -> None:
         self.samples = samples_by_time(samples)
         self.source_clock = source_clock
+        self.hazard_conditioned = hazard_conditioned
         self.ranker = ProposalRanker()
+        self.feedback_distances: list[int] = []
 
     def __call__(self, snapshot: Snapshot) -> Action | None:
         hard = certify_actions(snapshot, 4, actions=CONTROL_ACTIONS)
@@ -165,11 +196,11 @@ class CompiledFeedbackPolicy:
         x_quarter = round(snapshot.x * POSITION_SCALE)
         y_quarter = round(snapshot.y * POSITION_SCALE)
         allowed = frozenset(candidate.action for candidate in hard)
+        hard_mask = control_hard_mask(hard)
         nearest_by_action: dict[Action, int] = {}
+        sample_distances: list[int] = []
         for sample in self.samples.get(self.source_clock(snapshot), ()):
             proposed = ACTIONS[sample.proposed_action]
-            if proposed not in allowed:
-                continue
             distance = (
                 (sample.x_quarter - x_quarter) ** 2
                 + (sample.y_quarter - y_quarter) ** 2
@@ -178,11 +209,22 @@ class CompiledFeedbackPolicy:
                     if CONTROL_ACTIONS[sample.held_action] == current
                     else HELD_MISMATCH_PENALTY
                 )
+                + (
+                    (sample.hard_mask ^ hard_mask).bit_count()
+                    * HARD_MASK_MISMATCH_PENALTY
+                    if self.hazard_conditioned
+                    else 0
+                )
             )
+            sample_distances.append(distance)
+            if proposed not in allowed:
+                continue
             nearest_by_action[proposed] = min(
                 distance,
                 nearest_by_action.get(proposed, distance),
             )
+        if sample_distances:
+            self.feedback_distances.append(min(sample_distances))
         selected = (
             min(nearest_by_action, key=lambda action: (
                 nearest_by_action[action], action.name

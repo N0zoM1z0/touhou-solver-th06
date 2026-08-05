@@ -99,6 +99,14 @@ A useful route policy is not a fixed replay. It maps source phase plus current
 continuous state, RNG/resource state, enemy state, and delivery state to a
 proposal. Offline search should deliberately vary those inputs.
 
+Position alone is not always a sufficient feedback state. Two visits to the
+same source clock can have nearly identical player coordinates but different
+residual hazard geometry because earlier aim, RNG, or delivery differed. A
+compiled tube may therefore include a small hazard signature derived from the
+fresh common Hard result (for example its action mask or quantized clearance),
+provided that signature only selects/ranks demonstrated proposals. It remains
+soft route state and cannot replace or weaken the publication-time Hard check.
+
 ## Offline work
 
 Offline is where we exploit everything knowable ahead of time:

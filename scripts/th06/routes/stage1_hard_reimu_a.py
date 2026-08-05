@@ -351,10 +351,12 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
             commitment_frames=1,
             provenance=(
                 "installed sub12 has no hostile birth after its final Hard "
-                "t60/sub12+0x50c aimed fan before the t180 branch. The f6070 "
-                "central-entry historical-clear tube is used only within its "
-                "measured semantic radius; outside it, retain the physically "
-                "promoted f6597 h8 right-stream basin"
+                "t60/sub12+0x50c aimed fan before the t180 branch. Two "
+                "physical t61 entry basins are compiled from the historical "
+                "clear under current Hard and selected by position, held "
+                "action, and the already-computed fresh Hard-4 action mask. "
+                "Outside their measured semantic radius, retain the "
+                "physically promoted f6597 h8 right-stream basin"
             ),
         )
     if subroutine == 12 and not spell_active and boss.ecl_time == 180:

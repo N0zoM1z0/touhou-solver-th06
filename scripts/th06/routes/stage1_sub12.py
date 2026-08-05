@@ -9,6 +9,7 @@ from .feedback_tube import compiled_feedback_proposal, feedback_distance_sq
 from .policy import proposal_from_intent
 from .stage1_sub12_residual_data import (
     ECL_SHA256,
+    HARD_MASK_MISMATCH_PENALTY,
     HELD_MISMATCH_PENALTY,
     MAX_FEEDBACK_DISTANCE_SQ,
     POLICY_SCHEMA,
@@ -76,7 +77,8 @@ def compiled_sub12_residual_proposal(
         samples_by_time=_SAMPLES_BY_TIME,
         position_scale=POSITION_SCALE,
         held_mismatch_penalty=HELD_MISMATCH_PENALTY,
-        success_source="compiled-sub12-residual-feedback-tube-v1",
+        hard_mask_mismatch_penalty=HARD_MASK_MISMATCH_PENALTY,
+        success_source="compiled-sub12-residual-feedback-tube-v2",
         hold_source="compiled-sub12-residual-tube-hold",
         schema_mismatch_source="compiled-sub12-residual-schema-mismatch",
         source_mismatch_source="compiled-sub12-residual-source-mismatch",
@@ -88,8 +90,10 @@ def compiled_sub12_residual_proposal(
         request,
         boss,
         _SAMPLES_BY_TIME,
+        schema=POLICY_SCHEMA,
         position_scale=POSITION_SCALE,
         held_mismatch_penalty=HELD_MISMATCH_PENALTY,
+        hard_mask_mismatch_penalty=HARD_MASK_MISMATCH_PENALTY,
     )
     if distance is not None and distance <= MAX_FEEDBACK_DISTANCE_SQ:
         return compiled

@@ -1677,3 +1677,42 @@ checkpoint and ordinary-RNG physical promotion.
 
 The complete checkpoint gate passes 314 Linux tests with 25 native-only skips
 and all 314 Windows/native tests with no skips.
+
+## f5512 residual feedback-state counterexample
+
+The ordinary-RNG/default-fail-close physical run of checkpoint ``31bfa21``
+stopped alive at f5512 with an empty common Hard set and no HIT or Bomb. Exact
+PID 63496 was stopped, all input was released, and no game, agent, replay, or
+high-CPU worker remained. The stable ignored artifact
+``th06_failure_stage1_f5512_sub12_active_compiler.json`` has SHA-256
+``f6cca8db59837cb445b00f36d9d3831135060b82a8ed7bd6b050ca022e8f4ae2``;
+its matching trace SHA-256 is
+``be382a02842d18f1414da16f549c7df78527e8e3e0e60097b2a8cd49e8832ae8``.
+
+Exact ECL decoding places f5510 at sub12 residual t61 and f5512 at t63. The
+earliest still-viable error is therefore the t61 proposal. f6070 and f5510 are
+only about 10.27 pixels apart, but their residual fans occupy opposite sides
+of the player. At f6070 the durable actions point left and the demonstrator
+chooses ``down_left``; at f5510 they point right and it chooses ``up_right``.
+The corresponding fresh full Hard-4 action masks are 90111 and 190463. The
+schema-v1 state ``(source clock, x, y, held action)`` conflated those worlds.
+
+Schema v2 adds only that already-computed Hard-4 mask to the soft feedback
+state. One changed mask bit contributes the same distance as eight spatial
+pixels; no extra online forecast is performed. Both physical t61 roots are
+training workloads, but their frame identities and delivery seeds remain
+offline provenance and never become runtime keys. The combined asset has 887
+samples over every t61--t179 clock. Training is 8/8 phase exits. Disjoint
+delivery seeds 16--47 reach t180 32/32 from each root; minimum clearance is
+7.5066370220610406, maximum commands is ten, and maximum observed feedback
+distance is 3240 under the retained 4096 membership ceiling.
+
+The complete production ``Solver`` replay also reaches the source exit 32/32
+from each root. It makes 3491 and 3584 schema-v2 residual proposals
+respectively, never invokes the h8 fallback, and leaves each t180 dispatch to
+the independent policy-volume state. Direct production decisions at the two
+t61 roots are ``down_left`` and ``up_right`` inside their respective fresh
+Hard sets. A two-root route lookup benchmark measures about 35 microseconds
+median. This is offline evidence for the next physical falsifier, not a
+promotion or clear. The checkpoint gate passes 314 Linux tests with 25
+native-only skips and all 314 Windows/native tests with no skips.

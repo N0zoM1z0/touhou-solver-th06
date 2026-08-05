@@ -1503,3 +1503,40 @@ basin with explicit evidence, not an f6110/frame/RNG branch.  Its route lookup
 measures 23.428 us median and 32.802 us p90 over 10,700 calls.  The candidate
 has not yet been physically promoted; checkpoint it after tests, then run one
 ordinary-RNG default fail-close Practice Stage 1 trial.
+
+## f5512 hazard-conditioned sub12 residual candidate — 2026-08-05
+
+The ordinary-RNG/default-fail-close run of checkpoint ``31bfa21`` physically
+rejected the position-only residual tube. It stopped alive at f5512/sub12
+local t63 with ``hard-safe-set-empty`` and no HIT or Bomb. Exact PID 63496 was
+stopped, all keys were released, and cleanup found no game, agent, replay, or
+high-CPU worker. Stable ignored artifact
+``th06_failure_stage1_f5512_sub12_active_compiler.json`` has SHA-256
+``f6cca8db59837cb445b00f36d9d3831135060b82a8ed7bd6b050ca022e8f4ae2``;
+the trace SHA-256 is
+``be382a02842d18f1414da16f549c7df78527e8e3e0e60097b2a8cd49e8832ae8``.
+
+The earliest still-viable error is f5510/local t61. It is spatially close to
+the prior f6070 root, but its residual bullets approach from the opposite
+side. Their full fresh Hard-4 masks are 190463 and 90111 respectively, and the
+current-Hard historical demonstrator chooses ``up_right`` versus
+``down_left``. Thus source clock, position, and held input were not a
+sufficient feedback state.
+
+The schema-v2 asset adds the already-computed Hard-4 action mask as a cheap
+soft hazard signature. It does not run another forecast online and does not
+change common authority. The two physical entry artifacts contribute 887
+samples across all 119 residual clocks. Training is 8/8 phase exits; disjoint
+delivery holdout seeds 16--47 are 32/32 from each entry, with worst clearance
+7.5066370220610406, at most ten commands, and maximum measured feedback
+distance 3240 under the 4096 membership ceiling.
+
+Production ``Solver`` replay is also 32/32 from each entry. It uses the v2
+proposal for all 3491/3584 residual decisions with no fallback and keeps t180
+as the independent dispatch state. The direct t61 decisions are
+``down_left`` at f6070 and ``up_right`` at f5510, each re-intersected with its
+own fresh Hard set. Two-root route lookup is about 35 us median. This candidate
+passes 314 Linux tests with 25 native-only skips and all 314 Windows/native
+tests with no skips. The next step after checkpointing this candidate is an
+ordinary-RNG/default-fail-close physical run; none of the offline results
+constitute promotion.

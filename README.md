@@ -83,19 +83,23 @@ Add ``--emit-python`` only when intentionally regenerating
 ``scripts/th06/routes/stage1_sub14_data.py``.  Training delivery seeds are
 kept separate from the default holdout seeds; neither is a runtime branch key.
 
-Rebuild the independently owned Stage 1/sub12 residual tube from its stable
-ignored f6110 workload:
+Rebuild the Stage 1/sub12 residual policy from both stable ignored physical
+t61 workloads:
 
 ```bash
 PYTHONPATH=scripts python3 scripts/solve_th06_stage1_sub12_residual.py \
   artifacts/th06_failure_stage1_f6110_sub12_compiler.json \
-  --archive reference/th06_dat/th06_ST.DAT
+  artifacts/th06_failure_stage1_f5512_sub12_active_compiler.json \
+  --archive reference/th06_dat/th06_ST.DAT \
+  --entry-frame 6070 --entry-frame 5510
 ```
 
-This compiler also derives the feedback membership radius from the disjoint
-holdout.  Outside that radius the route retains the previously promoted
-right-stream policy; it does not extrapolate a nearest sample across the
-screen.
+This compiler derives the feedback membership radius from the disjoint
+holdout.  The compact policy is conditioned on source clock, position, held
+action, and the fresh Hard-4 action mask already computed by the common
+runtime.  Physical frame and delivery seed are provenance only.  Outside the
+measured radius the route retains the previously promoted right-stream
+policy; it does not extrapolate a nearest sample across the screen.
 
 Run stateful offline replay from a physical snapshot:
 
