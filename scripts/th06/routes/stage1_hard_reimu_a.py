@@ -488,6 +488,25 @@ def mainboss_intent(snapshot: Snapshot, boss) -> RouteIntent:
                 "and the independent sub16 transition remain unchanged"
             ),
         )
+    if subroutine == 16 and not spell_active and boss.ecl_time <= 200:
+        return RouteIntent(
+            phase_id=phase_id,
+            policy_state="second-nonspell-entry",
+            algorithm="target-only",
+            horizon=4,
+            target=BOTTOM_CENTER,
+            commitment_frames=4,
+            provenance=(
+                "physical f8466 first-spell timer-callback boundary; "
+                "installed sub16 t0 removes the spell field and configures "
+                "life 7500/callback 800->sub23 plus timer 1800->sub23. It "
+                "contains no hostile birth, enables damage at t200/+0xfc, "
+                "and CALLs independently unaudited sub18 at t200/+0x10c. "
+                "The 96 captured state-5 bullets are nonlethal but their "
+                "uncaptured donut ANM retirement remains deliberately "
+                "unsupported by exact offline battle replay"
+            ),
+        )
     return uncovered(
         phase_id,
         "Stage 1 main-boss source state after the dialogue-gated sub10 "

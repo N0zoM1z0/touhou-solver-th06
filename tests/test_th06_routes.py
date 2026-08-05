@@ -197,6 +197,44 @@ class RoutePhaseTests(unittest.TestCase):
         Path("reference/th06_dat/th06_ST.DAT").exists(),
         "installed source stage archive is ignored",
     )
+    def test_stage1_sub16_entry_matches_installed_program(self):
+        program = load_stage_ecl_program(
+            "reference/th06_dat/th06_ST.DAT", 1
+        )
+        source_events = tuple(
+            (instruction.time, instruction.relative_offset, instruction.opcode)
+            for instruction in program.subroutine(16)
+            if instruction.executes_on(2)
+            and instruction.relative_offset in (0x0, 0xFC, 0x10C)
+        )
+        exits = tuple(
+            (
+                edge.source_relative_offset,
+                edge.kind,
+                edge.target_subroutine,
+            )
+            for edge in program.edges
+            if edge.source_subroutine == 16 and edge.kind != "fallthrough"
+        )
+
+        self.assertEqual(
+            source_events,
+            ((0, 0, 105), (200, 0xFC, 105), (200, 0x10C, 35)),
+        )
+        self.assertEqual(
+            exits,
+            (
+                (0x3C, "death-callback", 17),
+                (0x9C, "life-callback", 23),
+                (0xBC, "timer-callback", 23),
+                (0x10C, "call", 18),
+            ),
+        )
+
+    @unittest.skipUnless(
+        Path("reference/th06_dat/th06_ST.DAT").exists(),
+        "installed source stage archive is ignored",
+    )
     def test_stage1_sub12_residual_contract_matches_installed_program(self):
         program = load_stage_ecl_program(
             "reference/th06_dat/th06_ST.DAT", 1
@@ -494,6 +532,38 @@ class RoutePhaseTests(unittest.TestCase):
         )
         self.assertEqual(first_attack.horizon, 10)
         self.assertIsNone(first_attack.target)
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[16] + 0xFC
+        )
+        boss.ecl_time = 200
+        boss.life_callback_sub = 23
+        boss.timer_callback_sub = 23
+        second_nonspell_entry = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=False),
+        ))
+        self.assertEqual(
+            second_nonspell_entry.policy_state,
+            "second-nonspell-entry",
+        )
+        self.assertEqual(second_nonspell_entry.algorithm, "target-only")
+        self.assertEqual(second_nonspell_entry.horizon, 4)
+        self.assertEqual(second_nonspell_entry.target, (192.0, 380.0))
+
+        boss.next_instruction = SimpleNamespace(
+            address=subroutines[18] + 0x10
+        )
+        boss.ecl_time = 1
+        second_nonspell_attack = HardReimuAStage1().intent(snapshot(
+            stage=1,
+            timeline_time=5282,
+            spawners=(boss,),
+            player_attack=replace(player_attack(), spell_active=False),
+        ))
+        self.assertEqual(second_nonspell_attack.algorithm, "uncovered")
 
         boss.next_instruction = SimpleNamespace(
             address=subroutines[14] + 0x10
